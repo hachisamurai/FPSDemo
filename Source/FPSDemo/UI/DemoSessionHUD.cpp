@@ -37,9 +37,16 @@ void ADemoHUD::DrawSessionMenu(ADemoPlayerController* PC, const ADemoGameState* 
                 : FString::Printf(TEXT("栏位 %d   ·   %s"),Index+1,Saves->SlotExists(Index)?TEXT("无法读取，文件已保护"):TEXT("空存档  +"));
             Button(FName(*FString::Printf(TEXT("Save%d"),Index)),Title,X+32,Row,656,48,!Saves->SlotExists(Index)||Data,true);
             // 旧Victory读入也清空临时成长/银币回Hub；普通检查点恢复两钱包。
-            if (Data) Label(FString::Printf(TEXT("%s · %d / 10 关 · 金币 %d · 银币 %d"),Data->Phase==EDemoPhase::Hub?TEXT("安全区"):Data->Phase==EDemoPhase::Victory?TEXT("已通关"):TEXT("关间检查点"),Data->CompletedLevel,Data->Coins,Data->SilverCoins),X+45,Row+54,13,SessionUI::Muted);
+            if (Data) Label(Data->bEndless ? FString::Printf(TEXT("无尽已通关 %d · 最高 %d · 金币 %d · 银币 %d"),Data->CompletedLevel,Data->BestEndlessLevel,Data->Coins,Data->SilverCoins) : FString::Printf(TEXT("%s · %d / 10 关 · 金币 %d · 银币 %d"),Data->Phase==EDemoPhase::Hub?TEXT("安全区"):Data->Phase==EDemoPhase::Victory?TEXT("已通关"):TEXT("关间检查点"),Data->CompletedLevel,Data->Coins,Data->SilverCoins),X+45,Row+54,13,SessionUI::Muted);
         }
         Button(TEXT("OverlayBack"),TEXT("返回大厅"),X+500,Y+436,188,42,true,true);
+    }
+    else if (Page == EDemoMenuPage::EndlessUnlock)
+    {
+        Label(TEXT("已通关最高难度"),X+360,Y+120,32,SessionUI::Ink,true);
+        Label(TEXT("解锁无尽模式"),X+360,Y+195,28,SessionUI::Accent,true);
+        Label(TEXT("返回安全区，在下一关终端选择无尽挑战。"),X+360,Y+260,17,SessionUI::Muted,true);
+        Button(TEXT("OverlayBack"),TEXT("知道了"),X+240,Y+358,240,52);
     }
     else if (Page == EDemoMenuPage::Pause)
     {

@@ -170,19 +170,19 @@ def fastener(center, size=.012, parent="body"):
 
 
 @traced
-def base_bones():
-    """共同前五根骨骼定义：root 固定，body 悬浮，core/瞄准有独立通道；单位逻辑米。"""
+def base_bones(core_center, aim_center):
+    """共同前五根骨骼；core_center/aim_center 是实际几何旋转中心米坐标，避免不同体型核心绕偏心轨道运动。"""
     bone("root",(0,0,0),(0,0,.12),None)
     bone("body",(0,0,.02),(0,0,.25),"root")
-    bone("core",(.24,0,.03),(.40,0,.03),"body")
-    bone("aim_yaw",(.22,0,.15),(.22,0,.24),"body")
-    bone("aim_pitch",(.26,0,.15),(.38,0,.15),"aim_yaw")
+    bone("core",core_center,(core_center[0]+.16,core_center[1],core_center[2]),"body")
+    bone("aim_yaw",aim_center,(aim_center[0],aim_center[1],aim_center[2]+.09),"body")
+    bone("aim_pitch",aim_center,(aim_center[0]+.12,aim_center[1],aim_center[2]),"aim_yaw")
 
 
 @traced
 def chaser():
     """构建已确认的楔形撞击者；双臂骨架为后续远程/侧翼同骨架变体预留，不生成未授权新怪。"""
-    base_bones()
+    base_bones((.24,0,-.15),(.375,0,.12))
     hull("Reactor chassis",.26,-.25,[(-.40,.27),(.40,.27),(.39,.02),(.18,-.20),(-.18,-.20),(-.39,.02)],"Frame",.020)
     hull("Central impact armor",.35,.25,[(-.32,.31),(.32,.31),(.27,.10),(.14,-.17),(-.14,-.17),(-.27,.10)],"Armor",.012)
     # 下方反应器部分露出，核心骨可旋转；装甲与传感器分别由各自骨驱动。
@@ -230,7 +230,7 @@ def chaser():
 @traced
 def warden():
     """构建双臂、四瓣核心护板和分段背环的 Boss；共享第 5/10 关后续外观变体骨架。"""
-    base_bones()
+    base_bones((.48,0,.24),(.497,0,.775))
     hull("Warden inner chassis",.39,-.47,[(-.67,.85),(.67,.85),(.80,.44),(.58,-.35),(-.58,-.35),(-.80,.44)],"Frame",.035)
     # reactor 几何属于 core，静止外圈属于 body；护板展开时核心不会被拉伸。
     cylinder("Core cavity",(.405,0,.24),.55,.16,"Dark","X","body",48)
@@ -502,7 +502,7 @@ def studio(entry):
     camera.name = "PreviewCamera"
     camera.rotation_euler = (center-camera.location).to_track_quat("-Z","Y").to_euler()
     camera.data.type = "ORTHO"
-    camera.data.ortho_scale = span*1.22
+    camera.data.ortho_scale = span*1.36
     camera.data.clip_end = 10000
     scene.camera = camera
     for frame,suffix in ((1,""),(25,"_RigCheck")):
@@ -540,6 +540,16 @@ def studio(entry):
                 area.spaces.active.region_3d.view_distance = span*2
                 area.spaces.active.region_3d.view_location = center
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT/f"Breach_{entry['name']}_Rigged.blend"))
+    # 24 帧低分辨率实模预览用于组装循环 GIF；保存源文件在此之前，保持源打开时中立/高分辨率状态。
+    directory = OUT/"Previews"/"Frames"/entry["name"]
+    directory.mkdir(parents=True,exist_ok=True)
+    scene.render.resolution_x = 720
+    scene.render.resolution_y = 600
+    for index,frame in enumerate(range(1,97,4)):
+        scene.frame_set(frame)
+        scene.render.filepath = str(directory/f"{index:02d}.png")
+        bpy.ops.render.render(write_still=True)
+    scene.frame_set(1)
 
 
 @traced

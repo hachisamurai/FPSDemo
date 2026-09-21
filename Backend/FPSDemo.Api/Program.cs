@@ -53,7 +53,7 @@ internal static class Endpoints
         Console.WriteLine("[CALL] Health endpoint");
         await service.PingAsync(context.RequestAborted);
         // 返回运行中程序集的标识与检查点能力，区分“源码已更新”和“服务仍运行旧DLL”；不包含连接配置或玩家数据。
-        return Results.Ok(new { status = "ok", protocolVersion = 2, checkpointVersions = new[] { 1, 2, 3, 4 }, serviceBuild = typeof(Endpoints).Assembly.ManifestModule.ModuleVersionId.ToString("N") });
+        return Results.Ok(new { status = "ok", protocolVersion = 2, checkpointVersions = new[] { 1, 2, 3, 4, 5 }, serviceBuild = typeof(Endpoints).Assembly.ManifestModule.ModuleVersionId.ToString("N") });
     }
     /// <summary>安装身份+随机秘密的匿名账号登录；不根据昵称或明文玩家ID授权。</summary>
     public static async Task<IResult> Session(HttpContext context, ProfileService service)

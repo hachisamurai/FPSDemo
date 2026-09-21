@@ -1,5 +1,7 @@
-#include "Weapons/Ammo/DemoAmmoComponent.h"
 #include "Weapons/DemoWeaponComponent.h"
+#include "Animation/DemoWeaponAnimationComponent.h"
+// 对应头文件先于依赖，保证UE独立编译能检查本类声明自包含。
+#include "Weapons/Ammo/DemoAmmoComponent.h"
 #include "Save/DemoRunSave.h"
 #include "Weapons/DemoWeaponBase.h"
 #include "Weapons/DemoWeaponCatalog.h"
@@ -54,10 +56,7 @@ bool UDemoWeaponComponent::InitializeLoadout()
     PrimaryWeapons.SetNum(PrimaryWeaponClasses.Num()); // 空槽直到真实终端装备，避免锁定武器成为隐藏库存。
     SecondaryWeapon = SpawnWeapon(SecondaryWeaponClass.LoadSynchronous());
     if (!SecondaryWeapon) { UE_LOG(LogFPSDemo, Error, TEXT("Loadout failed: pistol unavailable")); return false; }
-    PrimaryIndex = INDEX_NONE;
-    ActiveSlot = 2;
-    ActiveWeapon = SecondaryWeapon;
-    ActiveWeapon->SetEquipped(true);
+    if (!CommitEquip(SecondaryWeapon, 2, INDEX_NONE)) { UE_LOG(LogFPSDemo, Error, TEXT("Loadout failed: pistol animation layer unavailable")); return false; }
     UDemoRunSave* AmmoDefaults=NewObject<UDemoRunSave>(this); // 首次ASC就绪后授予普通弹装配GE，读档随后覆盖。
     GetOwner()->FindComponentByClass<UDemoAmmoComponent>()->Restore(*AmmoDefaults);
     UE_LOG(LogFPSDemo, Log, TEXT("LOADOUT_READY pistol only=%s; primary requires terminal"), *SecondaryWeapon->GetName());
@@ -87,12 +86,7 @@ bool UDemoWeaponComponent::EquipSlot(int32 Slot)
     ADemoWeaponBase* Next = Slot == 1 && PrimaryWeapons.IsValidIndex(PrimaryIndex) ? PrimaryWeapons[PrimaryIndex].Get() : Slot == 2 ? SecondaryWeapon.Get() : nullptr; // 目标库存实例。
     if (!Next) { UE_LOG(LogFPSDemo, Warning, TEXT("Equip rejected: missing instance")); return false; }
     if (Next == ActiveWeapon) return true;
-    CancelActions();
-    if (ActiveWeapon) ActiveWeapon->SetEquipped(false);
-    ActiveWeapon = Next;
-    ActiveSlot = Slot;
-    ActiveWeapon->SetEquipped(true);
-    return true;
+    return CommitEquip(Next, Slot, PrimaryIndex); // 四个装备入口共用原子表现提交，不在切枪重建主AnimBP。
 }
 bool UDemoWeaponComponent::SelectPrimary(int32 Index)
 {
@@ -107,12 +101,7 @@ bool UDemoWeaponComponent::SelectPrimary(int32 Index)
     // 延迟生成，失败不改当前装备；曾持有实例保留弹匣/备用弹药，不能利用切换免费装填。
     if (!PrimaryWeapons[Index]) PrimaryWeapons[Index] = SpawnWeapon(CatalogClasses.IsValidIndex(Index + 1) ? CatalogClasses[Index + 1] : nullptr);
     if (!PrimaryWeapons[Index]) { UE_LOG(LogFPSDemo, Warning, TEXT("Primary selection failed: asset/init")); return false; }
-    CancelActions();
-    if (ActiveWeapon) ActiveWeapon->SetEquipped(false);
-    PrimaryIndex = Index;
-    ActiveWeapon = PrimaryWeapons[Index];
-    ActiveSlot = 1;
-    ActiveWeapon->SetEquipped(true);
+    if (!CommitEquip(PrimaryWeapons[Index], 1, Index)) return false; // 动画预检/实际链接失败保留原装备与弹药。
     Profile->RememberPrimary(DemoWeaponCatalog::IdAt(Index + 1));
     // 装备成功是安全阶段检查点更新，不将主武器选择混入永久解锁写盘。
     GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SaveCheckpoint();
@@ -250,7 +239,7 @@ int32 UDemoWeaponComponent::GetScopeLevel() const { DEMO_LOG_TICK(); return Scop
 float UDemoWeaponComponent::GetAimMoveMultiplier() const { DEMO_LOG_TICK(); return ScopeLevel > 0 && ActiveWeapon ? ActiveWeapon->Config.AimMoveMultiplier : 1.f; }
 bool UDemoWeaponComponent::IsEquipped(const ADemoWeaponBase* Weapon) const { DEMO_LOG_TICK(); return Weapon && ActiveWeapon == Weapon; }
 
-void UDemoWeaponComponent::CaptureLoadout(UDemoRunSave& Data) const
+void UDemoWeaponComponent::CaptureLoadout(UDemoRunSave& Data, bool bResetAmmo) const
 {
     DEMO_LOG_CALL();
     GetOwner()->FindComponentByClass<UDemoAmmoComponent>()->Capture(Data); // 同一快照记录币种解锁和装配。
@@ -263,9 +252,12 @@ void UDemoWeaponComponent::CaptureLoadout(UDemoRunSave& Data) const
         if (!Weapon) continue;
         FDemoSavedWeapon Snapshot; // 独立值对象，无Actor生命周期依赖。
         Snapshot.Id = DemoWeaponCatalog::IdAt(Index);
-        Snapshot.Ammo = Weapon->GetAmmo(); Snapshot.Reserve = Weapon->GetReserveAmmo();
+        // 普通读档保存精确弹药；重开只在值快照中补给，死亡旧Pawn不复活、不恢复动作或临时弹匣成长。
+        Snapshot.Ammo = bResetAmmo ? Weapon->Config.MagazineCapacity + FMath::Max(0, FMath::FloorToInt(Data.MagazineBonus)) : Weapon->GetAmmo();
+        Snapshot.Reserve = bResetAmmo ? Weapon->Config.InitialReserve : Weapon->GetReserveAmmo();
         Data.Weapons.Add(Snapshot);
     }
+    UE_LOG(LogFPSDemo, Log, TEXT("LOADOUT_CAPTURE primary=%s active=%d weapons=%d restart=%d"), *Data.PrimaryId.ToString(), Data.ActiveSlot, Data.Weapons.Num(), bResetAmmo);
 }
 bool UDemoWeaponComponent::RestoreLoadout(const UDemoRunSave& Data)
 {
@@ -284,11 +276,39 @@ bool UDemoWeaponComponent::RestoreLoadout(const UDemoRunSave& Data)
         if (!Weapon) { UE_LOG(LogFPSDemo, Error, TEXT("RestoreLoadout failed to spawn %s"), *Saved.Id.ToString()); return false; }
         Weapon->RestoreAmmo(Saved.Ammo, Saved.Reserve);
     }
-    PrimaryIndex = Data.PrimaryId.IsNone() ? INDEX_NONE : DemoWeaponCatalog::IndexOf(Data.PrimaryId)-1;
-    ActiveWeapon->SetEquipped(false);
-    ActiveSlot = Data.ActiveSlot;
-    ActiveWeapon = ActiveSlot == 1 ? PrimaryWeapons[PrimaryIndex].Get() : SecondaryWeapon.Get();
-    if (!ActiveWeapon) { UE_LOG(LogFPSDemo, Error, TEXT("RestoreLoadout missing active instance")); return false; }
-    ActiveWeapon->SetEquipped(true);
+    const int32 RestoredPrimaryIndex = Data.PrimaryId.IsNone() ? INDEX_NONE : DemoWeaponCatalog::IndexOf(Data.PrimaryId)-1; // 尚未提交的快照索引，失败不污染当前槽位。
+    ADemoWeaponBase* RestoredWeapon = Data.ActiveSlot == 1 && PrimaryWeapons.IsValidIndex(RestoredPrimaryIndex) ? PrimaryWeapons[RestoredPrimaryIndex].Get() : Data.ActiveSlot == 2 ? SecondaryWeapon.Get() : nullptr; // 显式边界检查，不索引空主槽。
+    if (!RestoredWeapon || !CommitEquip(RestoredWeapon, Data.ActiveSlot, RestoredPrimaryIndex)) { UE_LOG(LogFPSDemo, Error, TEXT("RestoreLoadout missing/invalid active instance")); return false; }
+    UE_LOG(LogFPSDemo, Log, TEXT("LOADOUT_RESTORED primary=%s active=%d weapons=%d"), *Data.PrimaryId.ToString(), ActiveSlot, Data.Weapons.Num()); // 可直接对照死亡重置与磁盘恢复。
+    return true;
+}
+
+bool UDemoWeaponComponent::CommitEquip(ADemoWeaponBase* Weapon, int32 Slot, int32 NewPrimaryIndex)
+{
+    DEMO_LOG_CALL();
+    ADemoCharacter* Character = GetCharacter(); // 组件Owner同步借用，不改变现有装备权限，由各公开入口校验。
+    UDemoWeaponAnimationComponent* Animation = Character ? Character->GetWeaponAnimationComponent() : nullptr; // Pawn拥有，负责预检和链接。
+    FString Error; // 层配置失败原因，仅本次提交使用。
+    if (!Weapon || !Animation || !Animation->ValidateWeapon(Weapon, Error))
+    { UE_LOG(LogFPSDemo, Error, TEXT("WEAPON_EQUIP_REJECT target=%s reason=%s"), *GetNameSafe(Weapon), *Error); return false; }
+    ADemoWeaponBase* Previous = ActiveWeapon; // 保留旧库存实例，失败时恢复可见/槽位，不恢复被取消的换弹。
+    const int32 PreviousSlot = ActiveSlot; // 同步事务开始时的槽位。
+    const int32 PreviousPrimaryIndex = PrimaryIndex; // 同步事务开始时的主枪选择。
+    CancelActions();
+    if (Previous) Previous->SetEquipped(false);
+    ActiveWeapon = Weapon;
+    ActiveSlot = Slot;
+    PrimaryIndex = NewPrimaryIndex;
+    if (!Animation->EquipWeapon(Weapon))
+    {
+        ActiveWeapon = Previous;
+        ActiveSlot = PreviousSlot;
+        PrimaryIndex = PreviousPrimaryIndex;
+        if (Previous) { Animation->EquipWeapon(Previous); Previous->SetEquipped(true); }
+        UE_LOG(LogFPSDemo, Error, TEXT("WEAPON_EQUIP_ROLLBACK target=%s previous=%s"), *GetNameSafe(Weapon), *GetNameSafe(Previous));
+        return false;
+    }
+    Weapon->SetEquipped(true);
+    UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_EQUIP_COMMITTED target=%s slot=%d primary=%d"), *Weapon->GetName(), Slot, NewPrimaryIndex);
     return true;
 }

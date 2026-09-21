@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "units": "centimetres",
+  "right_wrist_weapon_cm": [
+    -10.5,
+    1.5,
+    -2.0
+  ],
+  "right_elbow_from_shoulder_cm": [
+    12.0,
+    50.0,
+    -45.0
+  ],
+  "sniper_bolt_reach_clearance_cm": 6.0,
+  "support_wrist_weapon_cm": {
+    "Pistol": [
+      3.0,
+      -14.0,
+      -24.0
+    ],
+    "Rifle": [
+      12,
+      -8.2,
+      0
+    ],
+    "Shotgun": [
+      12,
+      -8.2,
+      -0.7
+    ],
+    "Sniper": [
+      12,
+      -8.2,
+      0
+    ]
+  }
+}

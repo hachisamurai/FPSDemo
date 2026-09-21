@@ -6,6 +6,7 @@
 class ADemoCharacter;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
+class UDemoEnemyHitProfile;
 
 /** 可派生蓝图武器。配置由CDO提供，弹药/冷却仅由当前实例维护；技能仍在玩家ASC。 */
 UCLASS(Abstract, Blueprintable)
@@ -21,6 +22,8 @@ public:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     // 每个派生BP在Class Defaults独立配置；运行时蓝图不能任意改基础定义。
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Weapon") FDemoWeaponConfig Config;
+    // 三个受击区域的资产强引用，由CDO提供Cook依赖；运行时只读，可由派生武器显式覆盖平衡配置。
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Weapon|Damage") TObjectPtr<UDemoEnemyHitProfile> EnemyHitProfile;
     /** Character为持有者，必须权威有效；仅首次装备集合初始化时赋初始弹药，成功返回true。 */
     bool InitializeForOwner(ADemoCharacter* Character);
     /** bEquipped控制可见与挂接；不补弹、不重置冷却。 */
@@ -53,6 +56,13 @@ public:
     void CancelReload();
     /** 是否处于本实例装填状态，只读。 */
     UFUNCTION(BlueprintPure, Category="Weapon") bool IsReloading() const;
+    /** 本枪动作序号在BeginReload递增，GA回调必须匹配；不作为跨World网络标识。 */
+    UFUNCTION(BlueprintPure, Category="Weapon") int32 GetReloadSequence() const;
+    /** 本次激活冻结的时长秒数和空仓版本；中途配置/弹药变更不能切换动作。 */
+    UFUNCTION(BlueprintPure, Category="Weapon") float GetReloadDuration() const;
+    UFUNCTION(BlueprintPure, Category="Weapon") bool IsEmptyReload() const;
+    /** 动画组件只借用Actor拥有的骨骼根；不能通过此接口修改弹药或装备所有权。 */
+    USkeletalMeshComponent* GetWeaponSkeletalMesh() const;
     /** Delta为有符号弹匣变动量；仅权威补给/升级/测试调用，结果钳制到[0,Capacity]。 */
     void ModifyAmmo(int32 Delta);
     /** 安全区/清关补给；装满弹匣并恢复初始备用，不影响开火冷却。 */
@@ -62,7 +72,7 @@ public:
     /** 返回实际枪口世界位置，缺Socket时使用已记录的相机偏移回退。 */
     FVector GetMuzzleLocation() const;
 protected:
-    /** 执行派生弹道；默认一条射线，霰弹派生类覆盖弹丸数。仅由提交入口调用。 */
+    /** 提交后使用WeaponTrace逐弹解析真实骨骼区域并按敌聚合GE；穿透后敌独立解析部位，霰弹仍每敌每枪一层元素。 */
     virtual void PerformBallistics();
     /** C++完成扣弹和伤害后调用的蓝图表现事件，禁止在此再次扣弹/施加同次伤害。 */
     UFUNCTION(BlueprintImplementableEvent, Category="Weapon|Cosmetic") void OnWeaponShot();
@@ -73,7 +83,7 @@ protected:
 private:
     /** 构造/装备初始化时按配置选择静态或骨骼表现，保留旧根组件以兼容已保存蓝图。 */
     void ApplyVisualMesh();
-    /** 动画恢复Timer回调；只有当前装备且未装填时播放Idle，镜内模型仍保持隐藏。 */
+    /** 旧武器Timer及新框架清理入口；仅当前装备且未装填时恢复姿势，新四枪不替换主图动画模式。 */
     void RestoreIdle();
     // Actor持有的兼容根组件；静态模式清空其骨骼资源，仅承担挂点变换，无碰撞。
     UPROPERTY(VisibleAnywhere, Category="Weapon") TObjectPtr<USkeletalMeshComponent> WeaponMesh;
@@ -88,6 +98,11 @@ private:
     bool bInitialized = false;
     bool bIsEquipped = false;
     bool bReloading = false;
+    // 本武器单调动作序号，回调同武器也必须匹配，取消后再激活不会接收旧回调。
+    int32 ReloadSequence = 0;
+    // 仅本次BeginReload写入的秒数与空仓标识；Complete/Cancel后保留供审计，下次开始覆盖。
+    float ReloadDuration = 0.f;
+    bool bEmptyReload = false;
     bool bShotPaid = false;
     // 每枪递增种子，确保同枪霰弹每次不同，且同次命中统计只生成一次。
     int32 ShotSequence = 0;

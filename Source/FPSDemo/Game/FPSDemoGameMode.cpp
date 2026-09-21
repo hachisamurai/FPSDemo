@@ -1,6 +1,11 @@
+#include "Game/FPSDemoGameMode.h"
+#include "Spawning/DemoEnemySpawnComponent.h"
+#include "Economy/DemoRewardComponent.h"
+#include "Economy/DemoShopComponent.h"
+#include "Game/DemoEncounterRules.h" // 固定战役与无尽共用兵种/Boss周期。
+// 对应头文件先于依赖，保证UE独立编译能检查本类声明自包含。
 #include "GAS/Ammo/DemoAmmoStatus.h"
 #include "Tests/DemoAmmoTest.h"
-#include "Game/FPSDemoGameMode.h"
 #include "Save/DemoRunSave.h"
 #include "Characters/DemoCharacter.h"
 #include "Weapons/DemoWeaponComponent.h"
@@ -23,6 +28,7 @@
 #include "Tests/DemoSmokeTest.h"
 #include "Tests/DemoSessionTest.h"
 #include "Tests/DemoWeaponTest.h"
+#include "Tests/DemoWeaponAnimationTest.h" // 显式命令行启动的四枪动画/音效专项，不影响正常关卡流程。
 #include "Tests/DemoArmoryTest.h"
 #include "Tests/DemoCloudTest.h"
 #include "Tests/DemoCampaignTest.h"
@@ -34,12 +40,16 @@
 AFPSDemoGameMode::AFPSDemoGameMode()
 {
 	DEMO_LOG_CALL();
+	SpawnSystem = CreateDefaultSubobject<UDemoEnemySpawnComponent>(TEXT("SpawnSystem")); // 当前权威World拥有生成调度。
+	RewardSystem = CreateDefaultSubobject<UDemoRewardComponent>(TEXT("RewardSystem")); // 通过事件订阅去重后的击杀。
+	ShopSystem = CreateDefaultSubobject<UDemoShopComponent>(TEXT("ShopSystem")); // 属性/弹药交易的唯一业务入口。
 	DefaultPawnClass = ADemoCharacter::StaticClass();
 	PlayerControllerClass = ADemoPlayerController::StaticClass();
 	PlayerStateClass = ADemoPlayerState::StaticClass();
 	GameStateClass = ADemoGameState::StaticClass();
 	HUDClass = ADemoHUD::StaticClass();
 	// 资产由 import_combat_tables.py 创建，缺失时大厅给出明确错误，不退回硬编码属性。
+	EndlessTableAsset = TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Data/DT_Endless.DT_Endless"))); // Editor创建资产，Cook由/Game/Data目录规则收集。
 	EnemyTableAsset = TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Data/DT_Enemies.DT_Enemies")));
 	DifficultyTableAsset = TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Data/DT_Difficulties.DT_Difficulties")));
 	LevelTableAsset = TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Data/DT_Levels.DT_Levels")));
@@ -175,8 +185,13 @@ void AFPSDemoGameMode::ClearTerminals()
 void AFPSDemoGameMode::StartPlay()
 {
 	DEMO_LOG_CALL();
+	// 同World UObject委托，EndPlay精确解绑；组件负责Timer，不在GameMode复制生成状态。
+	SpawnSystem->OnRemainingChanged.AddUObject(this, &AFPSDemoGameMode::HandleSpawnRemaining);
+	SpawnSystem->OnCleared.AddUObject(this, &AFPSDemoGameMode::FinishLevel);
+	SpawnSystem->OnFailed.AddUObject(this, &AFPSDemoGameMode::FailRun);
 	// 预先载入但不生成敌人或交互物；大厅遮罩下冻结角色避免玩家提前进入战斗。
 	EnemyTable = EnemyTableAsset.LoadSynchronous();
+	EndlessTable = EndlessTableAsset.LoadSynchronous(); // 无尽配置只在选择/生成无尽时校验。
 	DifficultyTable = DifficultyTableAsset.LoadSynchronous();
 	LevelTable = LevelTableAsset.LoadSynchronous();
 	Super::StartPlay();
@@ -212,6 +227,7 @@ void AFPSDemoGameMode::StartPlay()
 	if (FParse::Param(FCommandLine::Get(), TEXT("DemoSessionTest"))) GetWorld()->SpawnActor<ADemoSessionTest>(); // 显式测试才覆盖暂停/旅行输入。
 	// 武器专用测试通过真实InputKey进入映射链路，仅显式参数开启。
 	if (FParse::Param(FCommandLine::Get(), TEXT("DemoWeaponTest"))) GetWorld()->SpawnActor<ADemoWeaponTest>();
+	if (FParse::Param(FCommandLine::Get(), TEXT("DemoWeaponAnimationTest"))) GetWorld()->SpawnActor<ADemoWeaponAnimationTest>(); // 独立进程验证真实LinkedLayer、双网格与取消清理。
 	if (FParse::Param(FCommandLine::Get(), TEXT("DemoArmoryTest"))) GetWorld()->SpawnActor<ADemoArmoryTest>(); // 非Shipping显式隔离回归，不影响正常游玩。
 	// 三难度/十等级独立回归入口，普通游戏及 Shipping 不自动执行。
 	if (FParse::Param(FCommandLine::Get(), TEXT("DemoCampaignTest"))) GetWorld()->SpawnActor<ADemoCampaignTest>();
@@ -230,6 +246,9 @@ bool AFPSDemoGameMode::SelectDifficulty(EDemoDifficulty Difficulty)
 		UE_LOG(LogFPSDemo, Warning, TEXT("Difficulty change rejected outside initial hub or invalid enum"));
 		return false;
 	}
+	if (Difficulty == EDemoDifficulty::Hell && !GetGameInstance()->GetSubsystem<UDemoPlayerProfile>()->IsHellUnlocked())
+	{ UE_LOG(LogFPSDemo, Warning, TEXT("Hell locked: complete hard using pistol only")); return false; }
+	State->bEndless = false; // 普通难度选择明确退出无尽模式，保留最高纪录。
 	State->Difficulty = Difficulty;
 	UE_LOG(LogFPSDemo, Log, TEXT("DIFFICULTY %s"), *DemoCombatConfig::DifficultyName(Difficulty).ToString());
 	return true;
@@ -274,11 +293,26 @@ bool AFPSDemoGameMode::GetLevelConfig(int32 Number, FDemoLevelRow& OutLevel, FDe
 	if (!DemoCombatConfig::Validate(EnemyTable, DifficultyTable, LevelTable, Error)) return false;
 	// 本次查询借用表行，返回值复制；表热改不能改变已经生成的敌人。
 	const ADemoGameState* State = GetGameState<ADemoGameState>();
-	const FDemoLevelRow* Level = LevelTable->FindRow<FDemoLevelRow>(DemoCombatConfig::LevelName(Number), TEXT("SpawnLevel"), false);
+	const FDemoLevelRow* Level = LevelTable->FindRow<FDemoLevelRow>(DemoCombatConfig::LevelName(State && State->bEndless ? 1 : Number), TEXT("SpawnLevel"), false);
 	const FDemoDifficultyRow* Difficulty = State ? DifficultyTable->FindRow<FDemoDifficultyRow>(DemoCombatConfig::DifficultyName(State->Difficulty), TEXT("SpawnDifficulty"), false) : nullptr;
 	if (!Level || !Difficulty) { Error = TEXT("Missing requested level or difficulty row"); UE_LOG(LogFPSDemo, Error, TEXT("%s"), *Error); return false; }
 	OutLevel = *Level;
 	OutDifficulty = *Difficulty;
+	if (State->bEndless)
+	{
+		FDemoEndlessRow Growth; FString Reason; // 表值副本与验证错误，只在本次公式解析借用。
+		if (Number < 1 || Number >= MAX_int32 || !GetEndlessConfig(Growth, Reason)) { Error = Reason; return false; }
+		// 在log域限制指数，避免高关数pow溢出；达到数值保护上限仍可继续关卡，不触发胜利。
+		OutLevel.MonsterLevel = Number; OutLevel.ArenaIndex = (Number-1)%3;
+		OutLevel.HealthMultiplier = FMath::Min(1.e12f, Level->HealthMultiplier * FMath::Exp(FMath::Min(27.6f,(Number-1)*FMath::Loge(Growth.HealthGrowth))));
+		OutLevel.AttackMultiplier = FMath::Min(1.e12f, Level->AttackMultiplier * FMath::Exp(FMath::Min(27.6f,(Number-1)*FMath::Loge(Growth.DamageGrowth))));
+		OutLevel.EnemyCount = FMath::Min(1000000, FMath::RoundToInt(Level->EnemyCount * FMath::Exp(FMath::Min(12.f,(Number-1)*FMath::Loge(Growth.CountGrowth)))));
+		if (Number % DemoEncounterRules::RangedInterval == 0) OutLevel.EnemyCount = FMath::Max(3, OutLevel.EnemyCount); // 极低数量基数也必须给三兵种各留一个名额。
+		OutLevel.EnemyCoinReward = FMath::Min(1000000,FMath::RoundToInt(Level->EnemyCoinReward * FMath::Exp(FMath::Min(12.f,(Number-1)*FMath::Loge(Growth.SilverGrowth)))));
+		const FDemoLevelRow* BossLevel = LevelTable->FindRow<FDemoLevelRow>(DemoCombatConfig::LevelName(10),TEXT("EndlessBoss")); // 第五关改为三兵种小怪，Boss模板/银币基数改用第十关。
+		OutLevel.BossRow = Number % DemoEncounterRules::BossInterval == 0 ? BossLevel->BossRow : NAME_None;
+		OutLevel.BossCoinReward = FMath::Min(1000000,FMath::RoundToInt(BossLevel->BossCoinReward * FMath::Exp(FMath::Min(12.f,(Number-1)*FMath::Loge(Growth.SilverGrowth)))));
+	}
 	return true;
 }
 bool AFPSDemoGameMode::GetSpawnStats(int32 Number, bool bBoss, FDemoEnemySpawnStats& OutStats, FString& Error) const
@@ -328,7 +362,8 @@ void AFPSDemoGameMode::SetPhase(EDemoPhase NewPhase)
 	DEMO_LOG_CALL();
 	if (ADemoGameState* State = GetGameState<ADemoGameState>())
 	{
-		UE_LOG(LogFPSDemo, Log, TEXT("PHASE %d -> %d level=%d coins=%d"), static_cast<int32>(State->Phase), static_cast<int32>(NewPhase), State->LevelNumber, State->Coins);
+		// 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
+		UE_LOG(LogFPSDemo, Display, TEXT("PHASE %d -> %d level=%d coins=%d"), static_cast<int32>(State->Phase), static_cast<int32>(NewPhase), State->LevelNumber, State->Coins);
 		State->Phase = NewPhase;
 		// 在阶段切换的同一调用栈撤销攻击，不等待下一帧；终局、奖励与安全区不会遗留减速或弹道。
 		if (NewPhase != EDemoPhase::Combat)
@@ -355,20 +390,27 @@ void AFPSDemoGameMode::StartNextLevel()
 	ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this, 0));
 	const ADemoPlayerController* PC = Player ? Cast<ADemoPlayerController>(Player->GetController()) : nullptr; // 借用输入状态；商店/确认框打开时禁止直接推进，确认后先消费请求。
 	if (!State || !Player || !PC || PC->IsUpgradeMenuOpen() || PC->IsNextLevelConfirmationOpen() || PC->HasBlockingOverlay() || (State->Phase != EDemoPhase::Hub && State->Phase != EDemoPhase::Intermission)
-		|| State->LevelNumber >= DemoCombatConfig::LevelCount || !bAreasReady)
+		|| (!State->bEndless && State->LevelNumber >= DemoCombatConfig::LevelCount) || State->LevelNumber >= MAX_int32-1 || !bAreasReady)
 	{
 		UE_LOG(LogFPSDemo, Warning, TEXT("StartNextLevel rejected: state/player/menu/area invalid"));
 		return;
 	}
+	// 解锁在最后出发点再次检查；菜单开关或直接恢复不能绕过账号永久条件。
+	const UDemoPlayerProfile* Progress = GetGameInstance()->GetSubsystem<UDemoPlayerProfile>(); // 当前GI的通关事实，只在此同步借用。
+	if (!Progress || (State->Difficulty==EDemoDifficulty::Hell && !Progress->IsHellUnlocked()) || (State->bEndless && !Progress->IsEndlessUnlocked()))
+	{ UE_LOG(LogFPSDemo,Warning,TEXT("Departure blocked: challenge mode locked")); return; }
 	// 先完成本关全部数据解析再传送/生成，禁止部分使用旧的硬编码数据。
 	FDemoLevelRow Level; // 下一关的布局、数量及等级配置。
 	FDemoDifficultyRow Difficulty; // GetLevelConfig 的输出，用于确认该难度行合法。
-	FDemoEnemySpawnStats MinionStats; // 所有本关小怪共用的值快照，各 Actor 独立保存。
-	FDemoEnemySpawnStats BossStats; // 有 Boss 才解析并使用，不引用 DataTable 内存。
+	FDemoSpawnPlan Plan; // 数值/兵种由计划层解析，执行器不再读取GameMode或DataTable。
+	FDemoEndlessRow Endless; // 仅无尽需要表中并发预算，普通关仍默认一次生成全部。
+	FTransform AreaTransform; FDemoSpawnGeometry Geometry; // 本关场景区域的值快照，Actor销毁不遗留引用。
 	FString Error; // 配置错误进入可重开的失败页，避免无敌人而卡关。
 	const int32 NextLevel = State->LevelNumber + 1; // 只有成功解析才提交进度。
-	if (!GetLevelConfig(NextLevel, Level, Difficulty, Error) || !GetSpawnStats(NextLevel, false, MinionStats, Error)
-		|| (!Level.BossRow.IsNone() && !GetSpawnStats(NextLevel, true, BossStats, Error))) { FailRun(Error); return; }
+	if (!GetLevelConfig(NextLevel, Level, Difficulty, Error) || (State->bEndless && !GetEndlessConfig(Endless, Error))
+		|| !DemoSpawnPlan::Build(Level, Difficulty, EnemyTable, SpawnSystem->Settings, CampaignRunId, State->bEndless,
+			State->bEndless ? Endless.MaxAlive : Level.EnemyCount + (Level.BossRow.IsNone() ? 0 : 1), Plan, Error)
+		|| !ADemoEnemySpawnArea::Resolve(GetWorld(), Level.ArenaIndex, GetAreaCenter(Level.ArenaIndex), AreaTransform, Geometry, Error)) { FailRun(Error); return; }
 	if (!SaveCheckpoint()) { UE_LOG(LogFPSDemo, Warning, TEXT("Departure blocked: checkpoint save failed")); return; } // 出发前先持久化，战斗内退出回到此状态。
 	ClearTerminals(); // 清除安全区/上一清关区的一对物体，复用场景时不会遗留可交互的旧终端。
 	++State->LevelNumber;
@@ -379,71 +421,58 @@ void AFPSDemoGameMode::StartNextLevel()
 	const FVector Center = GetAreaCenter(Level.ArenaIndex);
 	Player->SetActorLocation(Center + FVector(-1100,0,100), false, nullptr, ETeleportType::TeleportPhysics);
 	if (Player->GetController()) Player->GetController()->SetControlRotation(FRotator::ZeroRotator);
-	// Boss 与数量由本关配置决定；默认第 5、10 关带 Boss，复用已有三个白模区。
-	const int32 MinionCount = Level.EnemyCount;
-	const int32 Total = MinionCount + (Level.BossRow.IsNone() ? 0 : 1);
-	// Index同时确定出生位置、混编角色和首发错峰，检查点重开可稳定复现。
-	for (int32 Index = 0; Index < Total; ++Index)
-	{
-		const bool bBoss = Index == MinionCount;
-		const float Angle = 2.f * PI * Index / FMath::Max(1, MinionCount);
-		const FVector Location = Center + (bBoss ? FVector(800,0,130) : FVector(350 + 650*FMath::Cos(Angle), 950*FMath::Sin(Angle),110));
-		FActorSpawnParameters Spawn;
-		Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
-		ADemoEnemy* Enemy = GetWorld()->SpawnActor<ADemoEnemy>(ADemoEnemy::StaticClass(), Location, FRotator::ZeroRotator, Spawn);
-		if (!Enemy) { FailRun(TEXT("Enemy spawn blocked; restart to retry")); return; }
-		ActiveEnemies.Add(Enemy);
-		FDemoEnemySpawnStats InstanceStats = bBoss ? BossStats : MinionStats; // 每只独立角色序号，不修改共用模板快照。
-		InstanceStats.FormationSlot = Index;
-		Enemy->Configure(InstanceStats);
-	}
-	State->EnemiesRemaining = ActiveEnemies.Num();
-	UE_LOG(LogFPSDemo, Log, TEXT("LEVEL START %d monsterLevel=%d arena=%d minions=%d boss=%d"), State->LevelNumber, Level.MonsterLevel, Level.ArenaIndex, MinionCount, !Level.BossRow.IsNone());
+	// 两种玩法提交同一执行器；生成/计数/重试/失败均由组件处理，GameMode只推进关卡。
+	if (!SpawnSystem->StartEncounter(Plan, AreaTransform, Geometry, Error)) { FailRun(Error); return; }
+	// 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
+	UE_LOG(LogFPSDemo, Display, TEXT("LEVEL START %d monsterLevel=%d arena=%d minions=%d boss=%d"), State->LevelNumber, Level.MonsterLevel, Level.ArenaIndex, Level.EnemyCount, !Level.BossRow.IsNone());
 }
+void AFPSDemoGameMode::HandleSpawnRemaining(int32 Remaining)
+{
+	DEMO_LOG_CALL();
+	if (ADemoGameState* State = GetGameState<ADemoGameState>()) State->EnemiesRemaining = Remaining; // HUD唯一读取GameState，不访问组件内部队列。
+}
+UDemoEnemySpawnComponent* AFPSDemoGameMode::GetSpawnSystem() const { DEMO_LOG_TICK(); return SpawnSystem; }
+UDemoRewardComponent* AFPSDemoGameMode::GetRewardSystem() const { DEMO_LOG_TICK(); return RewardSystem; }
+UDemoShopComponent* AFPSDemoGameMode::GetShopSystem() const { DEMO_LOG_TICK(); return ShopSystem; }
 void AFPSDemoGameMode::NotifyEnemyKilled(ADemoEnemy* Enemy)
 {
 	DEMO_LOG_CALL();
-	ADemoGameState* State = GetGameState<ADemoGameState>();
-	if (!State || State->Phase != EDemoPhase::Combat || !Enemy || Enemy->IsAlive() || ActiveEnemies.Remove(Enemy) == 0)
-	{
-		UE_LOG(LogFPSDemo, Log, TEXT("Kill rejected: invalid phase, living, unregistered or duplicate enemy"));
-		return;
-	}
-	// 先从集合移除再奖励，重复回调不会重复银币/击杀计数。
-	State->SilverCoins = FMath::Min(100000000, State->SilverCoins + Enemy->GetCoinReward()); // 击杀只给银币，按实例快照入账，余额上限与存档一致。
-	++State->TotalKills;
-	State->EnemiesRemaining = ActiveEnemies.Num();
-	UE_LOG(LogFPSDemo, Log, TEXT("KILL Lv%d silverReward=%d silver=%d gold=%d remaining=%d"), Enemy->GetMonsterLevel(), Enemy->GetCoinReward(), State->SilverCoins, State->Coins, State->EnemiesRemaining);
-	if (ActiveEnemies.IsEmpty()) FinishLevelTimer = GetWorldTimerManager().SetTimerForNextTick(this, &AFPSDemoGameMode::FinishLevel);
+	SpawnSystem->NotifyEnemyDefeated(Enemy); // 保留旧测试/调用兼容；真实敌人已通过OnDefeated直达组件。
 }
 void AFPSDemoGameMode::NotifyEnemyLost(ADemoEnemy* Enemy)
 {
 	DEMO_LOG_CALL();
-	if (!bCleaningUp && ActiveEnemies.Contains(Enemy)) FailRun(TEXT("An active enemy was unexpectedly removed"));
+	SpawnSystem->NotifyEnemyLost(Enemy); // 只转发；GameMode不再维护第二份注册表。
 }
 void AFPSDemoGameMode::FinishLevel()
 {
 	DEMO_LOG_CALL();
 	ADemoGameState* State = GetGameState<ADemoGameState>();
 	ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this, 0));
-	if (!State || State->Phase != EDemoPhase::Combat || !ActiveEnemies.IsEmpty() || !Player) return;
+	if (!State || State->Phase != EDemoPhase::Combat || !SpawnSystem->IsEncounterComplete() || !Player) return;
 	Player->StopFiring();
 	Player->GetDemoASC()->CancelAllAbilities();
 	FDemoLevelRow Completed; // 本次真实清关配置；中途关卡不再发金币。
 	FDemoDifficultyRow CompletedDifficulty; // 最终胜利金币来自当前锁定难度的显式奖励，不乘属性倍率。
 	FString ClearError; // 配置错误不可假装正常通关发奖。
 	if (!GetLevelConfig(State->LevelNumber, Completed, CompletedDifficulty, ClearError)) { FailRun(ClearError); return; }
-	if (State->LevelNumber == DemoCombatConfig::LevelCount)
+	if (State->bEndless)
 	{
-		SetPhase(EDemoPhase::Victory);
-		// 先离开Combat，重复FinishLevel立即拒绝；普通读Victory档不走此处，不能重复领取。
-		State->Coins = FMath::Min(100000000, State->Coins + CompletedDifficulty.VictoryGoldReward);
-		UE_LOG(LogFPSDemo, Log, TEXT("VICTORY_GOLD difficulty=%d reward=%d gold=%d run=%s"), static_cast<int32>(State->Difficulty), CompletedDifficulty.VictoryGoldReward, State->Coins, *CampaignRunId);
-		// 只在第十关完整胜利记录永久解锁；不生成武器，不改变本局装备。
-		if (UDemoPlayerProfile* Profile = GetGameInstance()->GetSubsystem<UDemoPlayerProfile>()) Profile->RecordVictory(CampaignRunId, State->Difficulty); // GI持有，跨地图有效。
+		State->BestEndlessLevel = FMath::Max(State->BestEndlessLevel,State->LevelNumber);
+		UE_LOG(LogFPSDemo,Log,TEXT("ENDLESS_CLEARED level=%d best=%d"),State->LevelNumber,State->BestEndlessLevel);
+	}
+	if (!State->bEndless && State->LevelNumber == DemoCombatConfig::LevelCount)
+	{
+		if (!RewardSystem->GrantVictory(CampaignRunId, CompletedDifficulty)) { FailRun(TEXT("Victory reward rejected")); return; }
+		SetPhase(EDemoPhase::Victory); // 奖励服务负责幂等发放，玩法层再推进阶段/重置临时成长/保存。
+		RewardSystem->RecordVictoryUnlocks(CampaignRunId); // Profile只接受真实Victory；保持原解锁时序与资格判定。
 		ResetCompletedRunGrowth(); // 胜利形成当帧就清空银币和临时成长，保留金币成长，结算时退出也不能恢复这些临时收益。
 		SaveCheckpoint(); // 结算前退出也安全；Victory检查点下次读入自动转可继续挑战的Hub。
-		if (ADemoPlayerController* PC = Cast<ADemoPlayerController>(Player->GetController())) PC->ShowEndScreen();
+		if (ADemoPlayerController* PC = Cast<ADemoPlayerController>(Player->GetController()))
+		{
+			PC->ShowEndScreen();
+			if (State->Difficulty==EDemoDifficulty::Hell) PC->ShowEndlessUnlockTip(); // 先建立结算输入，再覆盖独立提示。
+		}
 	}
 	else
 	{
@@ -463,14 +492,7 @@ void AFPSDemoGameMode::FinishLevel()
 bool AFPSDemoGameMode::ChooseReward(int32 Choice)
 {
 	DEMO_LOG_CALL();
-	ADemoGameState* State = GetGameState<ADemoGameState>();
-	ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this, 0));
-	if (!State || !Player || State->Phase != EDemoPhase::Reward || Choice < 0 || Choice > 2)
-	{
-		UE_LOG(LogFPSDemo, Log, TEXT("Reward rejected: invalid phase/player/choice"));
-		return false;
-	}
-	Player->ApplyAbilityReward(Choice);
+	if (!RewardSystem->GrantAbilityChoice(CampaignRunId, Choice)) return false; // 权限、能力发放与同关防重统一归奖励服务。
 	SetPhase(EDemoPhase::Intermission); // 关间留在已清关竞技场；Hub用于初始、死亡重开与通关续玩。
 	SaveCheckpoint(); // 领取后的阶段与成长一起保存，避免重复免费奖励。
 	return true;
@@ -478,72 +500,26 @@ bool AFPSDemoGameMode::ChooseReward(int32 Choice)
 int32 AFPSDemoGameMode::GetUpgradeCost(int32 Choice) const
 {
 	DEMO_LOG_TICK();
-	const ADemoGameState* State = GetGameState<ADemoGameState>();
-	// 只涨当前币种的当前属性；查询非法索引不会访问数组或默认为另一属性。
-	return State ? State->UpgradeProgress.Cost(Choice, State->Phase == EDemoPhase::Hub) : INDEX_NONE;
+	// 兼容既有UI/测试入口；业务和钱包修改由Shop组件唯一处理。
+	return ShopSystem->GetUpgradeCost(Choice);
 }
 bool AFPSDemoGameMode::PurchaseUpgrade(int32 Choice, ADemoCharacter* Purchaser)
 {
 	DEMO_LOG_CALL();
-	// State 借用当前 World；Cost 在效果应用前快照，购买成功后才累计涨价次数。
-	ADemoGameState* State = GetGameState<ADemoGameState>();
-	const int32 Cost = GetUpgradeCost(Choice);
-	// 与 UI 共用可用性读取，但每次交易仍重新执行，避免使用上一帧按钮状态授权。
-	const FString BlockReason = GetPurchaseBlockReason(Purchaser, Choice);
-	if (!BlockReason.IsEmpty() || Choice < 0 || Choice > 2)
-	{
-		UE_LOG(LogFPSDemo, Log, TEXT("Purchase rejected: choice=%d reason=%s"), Choice, *BlockReason);
-		return false;
-	}
-	// 属性修改成功后才扣费；加生命上限后补足 25 点生命，弹匣升级后补足 4 发。
-	TSubclassOf<UGameplayEffect> EffectClass = Choice == 0 ? UDemoPowerEffect::StaticClass() : Choice == 1 ? UDemoMaxHealthEffect::StaticClass() : UDemoMagazineEffect::StaticClass();
-	if (!DemoEffects::Apply(Purchaser->GetDemoASC(), Purchaser->GetDemoASC(), EffectClass, Choice == 0 ? 5.f : Choice == 1 ? 25.f : 4.f)) return false;
-	// 区域由权威Phase决定，UI不能传币种参数绕过；购买总数仍保留统计用途。
-	if (State->Phase == EDemoPhase::Hub)
-	{
-		State->Coins -= Cost; ++State->GoldPurchases; ++State->UpgradeProgress.GoldLevels[Choice];
-		// 记录本次实际授予的永久增量；不能从合计GAS值或购买总数反推来源。
-		if (Choice == 0) State->UpgradeProgress.PermanentDamage += 5.f;
-		else if (Choice == 1) State->UpgradeProgress.PermanentHealth += 25.f;
-		else State->UpgradeProgress.PermanentMagazine += 4.f;
-	}
-	else { State->SilverCoins -= Cost; ++State->SilverPurchases; ++State->UpgradeProgress.SilverLevels[Choice]; }
-	++State->Purchases;
-	if (Choice == 1) DemoEffects::Apply(Purchaser->GetDemoASC(), Purchaser->GetDemoASC(), UDemoHealthEffect::StaticClass(), 25.f);
-	if (Choice == 2) Purchaser->GetWeaponComponent()->AddAmmoToAll(4); // 全局容量GE先生效，再给每把已持有武器补新增4发。
-	SaveCheckpoint(); // 交易完成后同步保存整个检查点，HUD持续显示保存结果。
-	UE_LOG(LogFPSDemo, Log, TEXT("PURCHASE choice=%d cost=%d currency=%s gold=%d silver=%d"), Choice, Cost, State->Phase == EDemoPhase::Hub ? TEXT("gold") : TEXT("silver"), State->Coins, State->SilverCoins);
-	return true;
+	// 兼容既有UI/测试入口；业务和钱包修改由Shop组件唯一处理。
+	return ShopSystem->PurchaseUpgrade(Choice, Purchaser);
 }
 FString AFPSDemoGameMode::GetPurchaseBlockReason(ADemoCharacter* Purchaser, int32 Choice) const
 {
 	DEMO_LOG_TICK();
-	const FString Reason = GetTerminalBlockReason(Purchaser); // 先执行所有终端操作共用的权威检查，再判断商店余额。
-	if (!Reason.IsEmpty()) return Reason;
-	const ADemoGameState* State = GetGameState<ADemoGameState>(); // 共用验证已保证存在，只在本次查询借用。
-	const ADemoPlayerController* PC = Cast<ADemoPlayerController>(Purchaser->GetController()); // 当前拥有者的页面决定购买入口。
-	if (PC->IsWeaponMenuOpen() || PC->IsAmmoMenuOpen()) return TEXT("请切换至属性升级页购买");
-	const bool bGold = State->Phase == EDemoPhase::Hub; // 当前注册终端所属区域，钱包余额与显示币种共用这一判定。
-	const int32 Balance = bGold ? State->Coins : State->SilverCoins; // 本次同步只读余额，不用另一币种自动补足。
-	const int32 Cost = GetUpgradeCost(Choice); // 每项分别判断不足，其他便宜属性仍能购买。
-	if (Cost == INDEX_NONE) return TEXT("升级项目无效");
-	if (State->Purchases >= 100000) return TEXT("升级次数已达上限"); // 永久次数计入总上限，避免生成无法保存的快照。
-	const UDemoAttributeSet* Attributes = Purchaser->GetDemoAttributes(); // 交易前检查合计属性上限，拒绝不能持久化的增量。
-	if (!Attributes || (Choice == 0 && Attributes->GetWeaponDamageBonus() > 9995.f)
-		|| (Choice == 1 && Attributes->GetMaxHealth() > 9999975.f) || (Choice == 2 && Attributes->GetMagazineBonus() > 9996.f)) return TEXT("该属性已达升级上限");
-	if (Balance < Cost) return FString::Printf(TEXT("%s不足，还需 %d %s"), bGold ? TEXT("金币") : TEXT("银币"), Cost - Balance, bGold ? TEXT("金币") : TEXT("银币"));
-	return FString();
+	// 兼容既有UI/测试入口；业务和钱包修改由Shop组件唯一处理。
+	return ShopSystem->GetPurchaseBlockReason(Purchaser, Choice);
 }
 FString AFPSDemoGameMode::GetTerminalBlockReason(ADemoCharacter* Player) const
 {
 	DEMO_LOG_TICK();
-	const ADemoGameState* State = GetGameState<ADemoGameState>(); // 当前阶段快照，不能沿用打开菜单时的状态。
-	const ADemoPlayerController* PC = Player ? Cast<ADemoPlayerController>(Player->GetController()) : nullptr; // 拥有者检查，不接受其他Pawn代操作。
-	if (!HasAuthority() || !State || !Player || !PC || PC->HasBlockingOverlay() || PC->GetPawn() != Player || !IsValid(ShopTerminal)) return TEXT("终端或玩家尚未就绪");
-	if (!Player->GetDemoAttributes() || Player->GetDemoAttributes()->GetHealth() <= 0.f) return TEXT("当前玩家无法操作终端");
-	if ((State->Phase != EDemoPhase::Hub && State->Phase != EDemoPhase::Intermission) || !PC->IsUpgradeMenuOpen() || PC->IsRewardMenu() || PC->IsNextLevelConfirmationOpen()) return TEXT("请在备战阶段与升级终端交互");
-	if (FVector::Dist(Player->GetActorLocation(), ShopTerminal->GetActorLocation()) > 250.f) return TEXT("距离过远，请返回终端附近");
-	return FString();
+	// 兼容既有UI/测试入口；业务和钱包修改由Shop组件唯一处理。
+	return ShopSystem->GetTerminalBlockReason(Player);
 }
 void AFPSDemoGameMode::NotifyPlayerDied()
 {
@@ -557,7 +533,7 @@ void AFPSDemoGameMode::NotifyPlayerDied()
 	State->bReturnToHubOnRestart = true;
 	State->SilverCoins = 0; // 死亡立即清空银币；新Hub检查点保留金币永久成长，不能读回临时收益。
 	FailRun(TEXT("You were eliminated"));
-	if (!GetGameInstance()->GetSubsystem<UDemoRunSaves>()->ResetActive(State->Difficulty, State->Coins, State->UpgradeProgress))
+	if (!SaveResetCheckpoint()) // 死亡当帧保存装备；直接退出/回大厅同样可以恢复主武器。
 		UE_LOG(LogFPSDemo, Warning, TEXT("DEATH_RESET save pending; leaving death screen will retry"));
 }
 void AFPSDemoGameMode::FailRun(const FString& Reason)
@@ -567,7 +543,7 @@ void AFPSDemoGameMode::FailRun(const FString& Reason)
 	if (!State || State->Phase == EDemoPhase::Victory || State->Phase == EDemoPhase::Defeat) return;
 	State->FailureReason = Reason;
 	SetPhase(EDemoPhase::Defeat);
-	GetWorldTimerManager().ClearTimer(FinishLevelTimer);
+	SpawnSystem->CancelEncounter(false); // 先撤销生成和下一帧清场回调，保留Actor到World回收以避免GAS栈内销毁。
 	ClearTerminals(); // 死亡/异常终局不能保留可继续购买或进入下一关的旧入口。
 	// 终局阻止新伤害，保留对象到重开统一销毁，避免在属性回调中递归释放 ASC。
 	if (ADemoPlayerController* PC = Cast<ADemoPlayerController>(UGameplayStatics::GetPlayerController(this, 0))) PC->ShowEndScreen();
@@ -582,7 +558,7 @@ void AFPSDemoGameMode::RestartDemo()
 		UE_LOG(LogFPSDemo, Log, TEXT("Restart rejected: invalid phase or travel already requested"));
 		return;
 	}
-    // 胜利继续同一角色库存但清空临时成长/银币；死亡重载则恢复默认手枪，均保留金币与解锁。
+    // 胜利继续同一角色库存但清空临时成长/银币；死亡重载恢复本槽主副武器选择，均保留金币与解锁。
     if (State->Phase == EDemoPhase::Victory) { ContinueAfterVictory(); return; }
     // 死亡沿用活动槽落盘保留永久成长、清空临时成长，系统错误保留上次检查点返回大厅。
     UDemoRunSaves* Saves = GetGameInstance()->GetSubsystem<UDemoRunSaves>();
@@ -601,8 +577,7 @@ void AFPSDemoGameMode::RestartDemo()
 void AFPSDemoGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	DEMO_LOG_CALL();
-	bCleaningUp = true;
-	GetWorldTimerManager().ClearTimer(FinishLevelTimer);
-	ActiveEnemies.Empty();
+	SpawnSystem->OnRemainingChanged.RemoveAll(this); SpawnSystem->OnCleared.RemoveAll(this); SpawnSystem->OnFailed.RemoveAll(this); // 先解除Owner回调再卸载组件。
+	SpawnSystem->CancelEncounter(false); // 先撤销生成和下一帧清场回调，保留Actor到World回收以避免GAS栈内销毁。
 	Super::EndPlay(EndPlayReason);
 }

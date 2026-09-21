@@ -1,0 +1,22 @@
+{
+  "Version": 1,
+  "AssetPath": "/Game/Data/Combat/DA_EnemyHitZones",
+  "Regions": [
+    {
+      "Region": "Body",
+      "DamageMultiplier": 1.0,
+      "BoneNames": ["body", "aim_pitch", "armor_l", "armor_r", "fin_l", "fin_r", "thruster_l", "thruster_r", "shutter_top", "shutter_right", "shutter_bottom", "shutter_left", "halo", "halo_segment_01", "halo_segment_02", "halo_segment_03", "halo_segment_04", "halo_segment_05", "halo_segment_06"]
+    },
+    {
+      "Region": "Arm",
+      "DamageMultiplier": 0.65,
+      "BoneNames": ["arm_l", "arm_r", "forearm_l", "forearm_r", "weapon_l", "weapon_r", "shoulder_l", "shoulder_r", "wrist_l", "wrist_r", "claw_l_01", "claw_l_02", "claw_l_03", "claw_r_01", "claw_r_02", "claw_r_03"]
+    },
+    {
+      "Region": "Core",
+      "DamageMultiplier": 2.0,
+      "BoneNames": ["core"]
+    }
+  ],
+  "NonHittableBones": ["root", "aim_yaw"]
+}

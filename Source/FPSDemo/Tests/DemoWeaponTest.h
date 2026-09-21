@@ -26,8 +26,8 @@ private:
     void Capture(const TCHAR* Name);
     /** Index为主武器0..2；仅本测试暂时置Hub并移到真实终端走装备UI，结束恢复原位置/阶段。 */
     bool SelectAtTerminal(int32 Index);
-    /** Label 为当前实模截图名；校验网格/枪口与隐藏的旧模型，记录相机空间变换供美术挂接回归。 */
-    bool CheckStaticVisual(const TCHAR* Label);
+    /** Label为实模截图名；骨骼枪迁移后校验真实活动网格、稳定锚点与空静态组件，记录相机空间姿势。 */
+    bool CheckWeaponVisual(const TCHAR* Label);
     // 测试流程仅随本World存在，不跨OpenLevel持久化。
     int32 Step = 0;
     float NextTime = 1.f;

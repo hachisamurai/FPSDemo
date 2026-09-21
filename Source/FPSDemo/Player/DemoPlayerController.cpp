@@ -127,7 +127,7 @@ bool ADemoPlayerController::CanRequestNextLevel(const ADemoInteractable* Termina
 	const ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn()); // 当前拥有的 Avatar，不缓存跨重开引用。
 	if (!IsLocalController() || !Mode || !State || !DemoPawn || !IsValid(Terminal) || bMenuOpen || HasBlockingOverlay()
 		|| (State->Phase != EDemoPhase::Hub && State->Phase != EDemoPhase::Intermission)
-		|| State->LevelNumber < 0 || State->LevelNumber >= DemoCombatConfig::LevelCount
+		|| State->LevelNumber < 0 || (!State->bEndless && State->LevelNumber >= DemoCombatConfig::LevelCount) || State->LevelNumber >= MAX_int32-1 // 无尽关间终端不受十关限制，防止编号整数溢出。
 		|| Mode->GetNextLevelTerminal() != Terminal
 		|| FVector::Dist(DemoPawn->GetActorLocation(), Terminal->GetActorLocation()) > 250.f)
 	{
@@ -340,6 +340,23 @@ void ADemoPlayerController::DifficultyPressed(EDemoDifficulty Difficulty)
     const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 难度只来自安全区出发弹窗。
     if (!State || State->Phase != EDemoPhase::Hub || !bNextLevelConfirmationOpen || HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Difficulty input rejected: phase/departure/overlay")); return; }
     if (GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SelectDifficulty(Difficulty)) { bDifficultyChosen = true; ConfirmNextLevel(); }
+}
+void ADemoPlayerController::EndlessPressed()
+{
+    DEMO_LOG_CALL();
+    const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 只接受安全区当前终端弹窗。
+    if (!State || State->Phase!=EDemoPhase::Hub || !bNextLevelConfirmationOpen || HasBlockingOverlay())
+    { UE_LOG(LogFPSDemo,Warning,TEXT("Endless input rejected: phase/menu")); return; }
+    if (GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SelectEndless()) { bDifficultyChosen=true; ConfirmNextLevel(); }
+}
+void ADemoPlayerController::ShowEndlessUnlockTip()
+{
+    DEMO_LOG_CALL();
+    const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 防止其他难度或半场战斗显示虚假解锁。
+    if (!State || State->Phase!=EDemoPhase::Victory || State->Difficulty!=EDemoDifficulty::Hell)
+    { UE_LOG(LogFPSDemo,Warning,TEXT("Endless tip rejected outside Hell victory")); return; }
+    MenuPage=EDemoMenuPage::EndlessUnlock;
+    MenuMessage.Empty(); RefreshMenuInput();
 }
 
 void ADemoPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)

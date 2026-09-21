@@ -1,0 +1,212 @@
+[
+  {
+    "name": "SW_Reload_Pistol_MagOut",
+    "model": "Pistol",
+    "event": "MagOut",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.13,
+    "rms": 0.12046287142956874,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Pistol_MagIn",
+    "model": "Pistol",
+    "event": "MagIn",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.091,
+    "rms": 0.10495557396332685,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Pistol_MagSeat",
+    "model": "Pistol",
+    "event": "MagSeat",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.091,
+    "rms": 0.08996076503798216,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Pistol_SlideRelease",
+    "model": "Pistol",
+    "event": "SlideRelease",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.13,
+    "rms": 0.0919428956198743,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Rifle_MagOut",
+    "model": "Rifle",
+    "event": "MagOut",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.18,
+    "rms": 0.09749865764447967,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Rifle_MagIn",
+    "model": "Rifle",
+    "event": "MagIn",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.126,
+    "rms": 0.10507452069727413,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Rifle_MagSeat",
+    "model": "Rifle",
+    "event": "MagSeat",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.126,
+    "rms": 0.07572957376857899,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Rifle_ChargingHandle",
+    "model": "Rifle",
+    "event": "ChargingHandle",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.18,
+    "rms": 0.08869803368181989,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Rifle_BoltOpen",
+    "model": "Rifle",
+    "event": "BoltOpen",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.18,
+    "rms": 0.09330449089104498,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Rifle_BoltClose",
+    "model": "Rifle",
+    "event": "BoltClose",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.126,
+    "rms": 0.07963767406326266,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Shotgun_MagOut",
+    "model": "Shotgun",
+    "event": "MagOut",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.23,
+    "rms": 0.07946701342481836,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Shotgun_MagIn",
+    "model": "Shotgun",
+    "event": "MagIn",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.161,
+    "rms": 0.0818235397989111,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Shotgun_MagSeat",
+    "model": "Shotgun",
+    "event": "MagSeat",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.161,
+    "rms": 0.06419267578425134,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Shotgun_ChargingHandle",
+    "model": "Shotgun",
+    "event": "ChargingHandle",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.23,
+    "rms": 0.07356289205521127,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Shotgun_BoltOpen",
+    "model": "Shotgun",
+    "event": "BoltOpen",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.23,
+    "rms": 0.07593452106890794,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Shotgun_BoltClose",
+    "model": "Shotgun",
+    "event": "BoltClose",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.161,
+    "rms": 0.06590621261906979,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Sniper_MagOut",
+    "model": "Sniper",
+    "event": "MagOut",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.22,
+    "rms": 0.07642753993932101,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Sniper_MagIn",
+    "model": "Sniper",
+    "event": "MagIn",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.154,
+    "rms": 0.08305731029908407,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Sniper_MagSeat",
+    "model": "Sniper",
+    "event": "MagSeat",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.154,
+    "rms": 0.06784935685528184,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Sniper_BoltOpen",
+    "model": "Sniper",
+    "event": "BoltOpen",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.22,
+    "rms": 0.0788215763036246,
+    "peak_dbfs": -6.02
+  },
+  {
+    "name": "SW_Reload_Sniper_BoltClose",
+    "model": "Sniper",
+    "event": "BoltClose",
+    "sample_rate": 48000,
+    "channels": 1,
+    "seconds": 0.154,
+    "rms": 0.07099298332493832,
+    "peak_dbfs": -6.02
+  }
+]

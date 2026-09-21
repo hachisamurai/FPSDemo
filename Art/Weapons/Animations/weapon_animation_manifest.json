@@ -1,0 +1,4001 @@
+{
+  "version": 1,
+  "units": "centimetres",
+  "coordinates": "UE +X forward +Y right +Z up",
+  "root_motion": false,
+  "fps": 60,
+  "materials_directory": "/Game/Weapons/Materials/Breach",
+  "weapons": [
+    {
+      "model": "Pistol",
+      "mesh": "SK_Breach_Pistol",
+      "skeleton": "SKEL_Breach_Weapon_Pistol",
+      "blend": "Breach_Pistol_Reload.blend",
+      "bones": [
+        {
+          "name": "weapon_root",
+          "parent": null,
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "body",
+          "parent": "weapon_root",
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "magazine",
+          "parent": "body",
+          "head_cm": [
+            -3.599999785423279,
+            0.0,
+            -4.744683861732483
+          ]
+        },
+        {
+          "name": "slide",
+          "parent": "body",
+          "head_cm": [
+            5.4,
+            0,
+            10.7
+          ]
+        }
+      ],
+      "bounds_cm": [
+        [
+          -8.05909252166748,
+          -2.3999998569488525,
+          -10.989367485046387
+        ],
+        [
+          19.400001525878906,
+          2.3999998569488525,
+          15.125534057617188
+        ]
+      ],
+      "magazine_center_cm": [
+        -3.599999785423279,
+        0.0,
+        -4.744683861732483
+      ],
+      "magazine_withdraw_cm": 12,
+      "magazine_max_drop_cm": 15,
+      "magazine_grip_cm": [
+        -5.599999785423279,
+        -5,
+        -5.744683861732483
+      ],
+      "magazine_grip_offset_cm": [
+        -2,
+        -5,
+        -1
+      ],
+      "bolt_grip_cm": [
+        -4,
+        -3.5,
+        10.8
+      ],
+      "mechanism_grip_bone": "slide",
+      "model_changes": [
+        "Added internal pistol magazine body"
+      ],
+      "magazine_visibility": "always visible with unit scale; arms bake follows magazine bone; optional duplicate mesh disabled by default",
+      "material_roles": [
+        "M_Breach_Armor",
+        "M_Breach_Body",
+        "M_Breach_Bore",
+        "M_Breach_Cyan",
+        "M_Breach_Rubber",
+        "M_Breach_Steel"
+      ],
+      "sockets": {
+        "Muzzle": {
+          "bone": "body",
+          "world_cm": [
+            19.4,
+            0,
+            10.8
+          ]
+        },
+        "Grip_L": {
+          "bone": "body",
+          "world_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Sight": {
+          "bone": "body",
+          "world_cm": [
+            -4.7,
+            0,
+            14.5
+          ]
+        },
+        "Grip_R": {
+          "bone": "body",
+          "world_cm": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "triangles": 6972,
+      "magazine_presentation": {
+        "mesh": "SM_Breach_Pistol_Magazine",
+        "origin_cm": [
+          -3.599999785423279,
+          0.0,
+          -4.744683861732483
+        ],
+        "bounds_local_cm": [
+          [
+            -3.509592652320862,
+            -2.1500000953674316,
+            -6.244683623313904
+          ],
+          [
+            3.509592652320862,
+            2.1500000953674316,
+            6.244683623313904
+          ]
+        ],
+        "size_cm": [
+          7.019185304641724,
+          4.300000190734863,
+          12.489367246627808
+        ]
+      },
+      "clips": [
+        {
+          "name": "A_Breach_Pistol_Reload_Tactical",
+          "variant": "Tactical",
+          "seconds": 1.2,
+          "frames": 72,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.1,
+            "detach": 0.2,
+            "withdrawn": 0.32,
+            "approach": 0.52,
+            "attach": 0.6,
+            "seat": 0.68,
+            "ready": 0.92
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.2
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.6
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.68
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.1,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.2,
+              "magazine_center_cm": [
+                -3.669999837875366,
+                -0.0,
+                -5.744683742523193
+              ]
+            },
+            {
+              "phase": 0.32,
+              "magazine_center_cm": [
+                -4.440000057220459,
+                -5.0,
+                -16.744686126708984
+              ]
+            },
+            {
+              "phase": 0.52,
+              "magazine_center_cm": [
+                -3.9499998092651367,
+                -1.000000238418579,
+                -9.744684219360352
+              ]
+            },
+            {
+              "phase": 0.6,
+              "magazine_center_cm": [
+                -3.669999837875366,
+                -0.0,
+                -5.744683742523193
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                -3.617499828338623,
+                -0.0,
+                -4.994683742523193
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.92,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 0.609002876281739,
+          "magazine_top_at_withdraw_cm": -10.309002876281738,
+          "magazine_opening_z_cm": -9.7
+        },
+        {
+          "name": "A_Breach_Pistol_Reload_Empty",
+          "variant": "Empty",
+          "seconds": 1.2,
+          "frames": 72,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.08,
+            "detach": 0.16,
+            "withdrawn": 0.28,
+            "approach": 0.43,
+            "attach": 0.5,
+            "seat": 0.57,
+            "ready": 0.96
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.16
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.5
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.57
+            },
+            {
+              "name": "SlideRelease",
+              "phase": 0.78
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.08,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.16,
+              "magazine_center_cm": [
+                -3.669999837875366,
+                -0.0,
+                -5.744683742523193
+              ]
+            },
+            {
+              "phase": 0.28,
+              "magazine_center_cm": [
+                -4.440000057220459,
+                -5.0,
+                -16.744686126708984
+              ]
+            },
+            {
+              "phase": 0.43,
+              "magazine_center_cm": [
+                -3.9499998092651367,
+                -1.000000238418579,
+                -9.744684219360352
+              ]
+            },
+            {
+              "phase": 0.5,
+              "magazine_center_cm": [
+                -3.669999837875366,
+                -0.0,
+                -5.744683742523193
+              ]
+            },
+            {
+              "phase": 0.57,
+              "magazine_center_cm": [
+                -3.617499828338623,
+                -0.0,
+                -4.994683742523193
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 0.96,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                -3.5999999046325684,
+                -0.0,
+                -4.744683742523193
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 0.609002876281739,
+          "magazine_top_at_withdraw_cm": -10.309002876281738,
+          "magazine_opening_z_cm": -9.7
+        }
+      ],
+      "parts": [
+        {
+          "name": "Reload_Grip frame",
+          "rigid_bone": "body",
+          "vertices": 70
+        },
+        {
+          "name": "Reload_Grip rubber",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip rubber.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.006",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.007",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.008",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.009",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.010",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.011",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip heel",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Trigger guard",
+          "rigid_bone": "body",
+          "vertices": 240
+        },
+        {
+          "name": "Reload_Trigger",
+          "rigid_bone": "body",
+          "vertices": 62
+        },
+        {
+          "name": "Reload_Pistol lower",
+          "rigid_bone": "body",
+          "vertices": 68
+        },
+        {
+          "name": "Reload_Slide",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Pistol muzzle",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Barrel interior",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Slide armor",
+          "rigid_bone": "slide",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Slide serration",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.001",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.002",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.003",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.004",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide status strip",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.001",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.001",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Slide armor.001",
+          "rigid_bone": "slide",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Slide serration.005",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.006",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.007",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.008",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide serration.009",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Slide status strip.001",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw.002",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.002",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.003",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.003",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Ejection port",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Underbarrel rail",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight foot",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.001",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight foot.001",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.002",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.003",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Front sight post",
+          "rigid_bone": "slide",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Front cyan dot",
+          "rigid_bone": "slide",
+          "vertices": 8
+        },
+        {
+          "name": "Magazine internal box",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        }
+      ]
+    },
+    {
+      "model": "Rifle",
+      "mesh": "SK_Breach_Rifle",
+      "skeleton": "SKEL_Breach_Weapon_Rifle",
+      "blend": "Breach_Rifle_Reload.blend",
+      "bones": [
+        {
+          "name": "weapon_root",
+          "parent": null,
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "body",
+          "parent": "weapon_root",
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "magazine",
+          "parent": "body",
+          "head_cm": [
+            13.292730808258057,
+            0.0,
+            -5.430068731307983
+          ]
+        },
+        {
+          "name": "bolt",
+          "parent": "body",
+          "head_cm": [
+            7.8,
+            0,
+            11.9
+          ]
+        },
+        {
+          "name": "charging_handle",
+          "parent": "bolt",
+          "head_cm": [
+            7.8,
+            -5.4,
+            11.9
+          ]
+        }
+      ],
+      "bounds_cm": [
+        [
+          -35.307804107666016,
+          -5.849999904632568,
+          -17.2601375579834
+        ],
+        [
+          48.25,
+          4.300000190734863,
+          20.678964614868164
+        ]
+      ],
+      "magazine_center_cm": [
+        13.292730808258057,
+        0.0,
+        -5.430068731307983
+      ],
+      "magazine_withdraw_cm": 6,
+      "magazine_max_drop_cm": 9,
+      "magazine_grip_cm": [
+        11.292730808258057,
+        -5,
+        -6.430068731307983
+      ],
+      "magazine_grip_offset_cm": [
+        -2,
+        -5,
+        -1
+      ],
+      "bolt_grip_cm": [
+        7.8,
+        -5.4,
+        11.9
+      ],
+      "mechanism_grip_bone": "bolt",
+      "model_changes": [
+        "Added graspable charging handle to existing bolt"
+      ],
+      "magazine_visibility": "always visible with unit scale; arms bake follows magazine bone; optional duplicate mesh disabled by default",
+      "material_roles": [
+        "M_Breach_Armor",
+        "M_Breach_Body",
+        "M_Breach_Bore",
+        "M_Breach_Cyan",
+        "M_Breach_Rubber",
+        "M_Breach_Steel"
+      ],
+      "sockets": {
+        "Muzzle": {
+          "bone": "body",
+          "world_cm": [
+            48.25,
+            0,
+            10.9
+          ]
+        },
+        "Grip_L": {
+          "bone": "body",
+          "world_cm": [
+            25,
+            0,
+            5
+          ]
+        },
+        "Sight": {
+          "bone": "body",
+          "world_cm": [
+            -10,
+            0,
+            19.0
+          ]
+        },
+        "Grip_R": {
+          "bone": "body",
+          "world_cm": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "triangles": 14024,
+      "magazine_presentation": {
+        "mesh": "SM_Breach_Rifle_Magazine",
+        "origin_cm": [
+          13.292730808258057,
+          0.0,
+          -5.430068731307983
+        ],
+        "bounds_local_cm": [
+          [
+            -4.8656325340271,
+            -2.6000001430511475,
+            -11.830068826675415
+          ],
+          [
+            4.8656325340271,
+            2.6000001430511475,
+            11.830068826675415
+          ]
+        ],
+        "size_cm": [
+          9.7312650680542,
+          5.200000286102295,
+          23.66013765335083
+        ]
+      },
+      "clips": [
+        {
+          "name": "A_Breach_Rifle_Reload_Tactical",
+          "variant": "Tactical",
+          "seconds": 1.4,
+          "frames": 84,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.1,
+            "detach": 0.2,
+            "withdrawn": 0.32,
+            "approach": 0.52,
+            "attach": 0.6,
+            "seat": 0.68,
+            "ready": 0.92
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.2
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.6
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.68
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.1,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.2,
+              "magazine_center_cm": [
+                13.22273063659668,
+                -0.0,
+                -6.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.32,
+              "magazine_center_cm": [
+                12.872730255126953,
+                -5.000000953674316,
+                -11.430069923400879
+              ]
+            },
+            {
+              "phase": 0.52,
+              "magazine_center_cm": [
+                12.942729949951172,
+                -1.000000238418579,
+                -10.430069923400879
+              ]
+            },
+            {
+              "phase": 0.6,
+              "magazine_center_cm": [
+                13.22273063659668,
+                -0.0,
+                -6.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                13.275230407714844,
+                -0.0,
+                -5.6800689697265625
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.92,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 2.7114667892456055,
+          "magazine_top_at_withdraw_cm": 0.28853321075439453,
+          "magazine_opening_z_cm": 3.0
+        },
+        {
+          "name": "A_Breach_Rifle_Reload_Empty",
+          "variant": "Empty",
+          "seconds": 1.4,
+          "frames": 84,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.08,
+            "detach": 0.16,
+            "withdrawn": 0.28,
+            "approach": 0.43,
+            "attach": 0.5,
+            "seat": 0.57,
+            "ready": 0.96
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.16
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.5
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.57
+            },
+            {
+              "name": "ChargingHandle",
+              "phase": 0.68
+            },
+            {
+              "name": "BoltOpen",
+              "phase": 0.74
+            },
+            {
+              "name": "BoltClose",
+              "phase": 0.82
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.08,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.16,
+              "magazine_center_cm": [
+                13.22273063659668,
+                -0.0,
+                -6.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.28,
+              "magazine_center_cm": [
+                12.872730255126953,
+                -5.000000953674316,
+                -11.430069923400879
+              ]
+            },
+            {
+              "phase": 0.43,
+              "magazine_center_cm": [
+                12.942729949951172,
+                -1.000000238418579,
+                -10.430069923400879
+              ]
+            },
+            {
+              "phase": 0.5,
+              "magazine_center_cm": [
+                13.22273063659668,
+                -0.0,
+                -6.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.57,
+              "magazine_center_cm": [
+                13.275230407714844,
+                -0.0,
+                -5.6800689697265625
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 0.96,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                13.292730331420898,
+                -0.0,
+                -5.4300689697265625
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 2.7114667892456055,
+          "magazine_top_at_withdraw_cm": 0.28853321075439453,
+          "magazine_opening_z_cm": 3.0
+        }
+      ],
+      "parts": [
+        {
+          "name": "Reload_Grip frame.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip rubber.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.012",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.013",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.014",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.015",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.016",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.017",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip rubber.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.018",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.019",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.020",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.021",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.022",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.023",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip heel.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Trigger guard.001",
+          "rigid_bone": "body",
+          "vertices": 240
+        },
+        {
+          "name": "Reload_Trigger.001",
+          "rigid_bone": "body",
+          "vertices": 62
+        },
+        {
+          "name": "Reload_Stock extension",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Stock upper",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Stock lower",
+          "rigid_bone": "body",
+          "vertices": 48
+        },
+        {
+          "name": "Reload_Shoulder butt",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Butt pad",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Stock latch",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Receiver lower",
+          "rigid_bone": "body",
+          "vertices": 76
+        },
+        {
+          "name": "Reload_Upper receiver",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Receiver armor",
+          "rigid_bone": "body",
+          "vertices": 90
+        },
+        {
+          "name": "Reload_Receiver inset",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Power signature",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw.004",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.004",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.005",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.005",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.006",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.006",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Receiver armor.001",
+          "rigid_bone": "body",
+          "vertices": 90
+        },
+        {
+          "name": "Reload_Receiver inset.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Power signature.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw.007",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.007",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.008",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.008",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.009",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.009",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Ejection recess",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Port bolt",
+          "rigid_bone": "bolt",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Detachable magazine",
+          "rigid_bone": "magazine",
+          "vertices": 68
+        },
+        {
+          "name": "Reload_Magazine pressed rib",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.001",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.002",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.003",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.004",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.005",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine floorplate",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard spine",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard plate",
+          "rigid_bone": "body",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Vent cavity",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Foregrip pad",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard plate.001",
+          "rigid_bone": "body",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Vent cavity.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.006",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.006",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.007",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.007",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Foregrip pad.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Exposed barrel",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Muzzle brake",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Bore depth",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Brake side port",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Brake side port.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Brake side port.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Brake side port.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail bed",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.006",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.007",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.008",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.009",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.010",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.011",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.012",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.013",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.014",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.015",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.016",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.017",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.018",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.019",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.020",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.021",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.022",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.023",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight foot.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight foot.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.006",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.007",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Front sight post.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Front cyan dot.001",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Charging handle stem",
+          "rigid_bone": "charging_handle",
+          "vertices": 56
+        },
+        {
+          "name": "Charging handle grip",
+          "rigid_bone": "charging_handle",
+          "vertices": 56
+        }
+      ]
+    },
+    {
+      "model": "Shotgun",
+      "mesh": "SK_Breach_Shotgun",
+      "skeleton": "SKEL_Breach_Weapon_Shotgun",
+      "blend": "Breach_Shotgun_Reload.blend",
+      "bones": [
+        {
+          "name": "weapon_root",
+          "parent": null,
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "body",
+          "parent": "weapon_root",
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "magazine",
+          "parent": "body",
+          "head_cm": [
+            11.200000762939453,
+            0.0,
+            -1.6500000953674316
+          ]
+        },
+        {
+          "name": "bolt",
+          "parent": "body",
+          "head_cm": [
+            7.8,
+            0,
+            11.9
+          ]
+        },
+        {
+          "name": "charging_handle",
+          "parent": "bolt",
+          "head_cm": [
+            7.8,
+            -6.2,
+            11.9
+          ]
+        }
+      ],
+      "bounds_cm": [
+        [
+          -35.307804107666016,
+          -6.649999618530273,
+          -9.98936653137207
+        ],
+        [
+          50.95000457763672,
+          5.400000095367432,
+          20.678964614868164
+        ]
+      ],
+      "magazine_center_cm": [
+        11.200000762939453,
+        0.0,
+        -1.6500000953674316
+      ],
+      "magazine_withdraw_cm": 8,
+      "magazine_max_drop_cm": 11,
+      "magazine_grip_cm": [
+        9.200000762939453,
+        -5,
+        -2.6500000953674316
+      ],
+      "magazine_grip_offset_cm": [
+        -2,
+        -5,
+        -1
+      ],
+      "bolt_grip_cm": [
+        7.8,
+        -6.2,
+        11.9
+      ],
+      "mechanism_grip_bone": "bolt",
+      "model_changes": [
+        "Added graspable charging handle to existing bolt"
+      ],
+      "magazine_visibility": "always visible with unit scale; arms bake follows magazine bone; optional duplicate mesh disabled by default",
+      "material_roles": [
+        "M_Breach_Armor",
+        "M_Breach_Body",
+        "M_Breach_Bore",
+        "M_Breach_Cyan",
+        "M_Breach_Rubber",
+        "M_Breach_Steel"
+      ],
+      "sockets": {
+        "Muzzle": {
+          "bone": "body",
+          "world_cm": [
+            50.949999999999996,
+            0,
+            10.9
+          ]
+        },
+        "Grip_L": {
+          "bone": "body",
+          "world_cm": [
+            25,
+            0,
+            5
+          ]
+        },
+        "Sight": {
+          "bone": "body",
+          "world_cm": [
+            -10,
+            0,
+            19.0
+          ]
+        },
+        "Grip_R": {
+          "bone": "body",
+          "world_cm": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "triangles": 13892,
+      "magazine_presentation": {
+        "mesh": "SM_Breach_Shotgun_Magazine",
+        "origin_cm": [
+          11.200000762939453,
+          0.0,
+          -1.6500000953674316
+        ],
+        "bounds_local_cm": [
+          [
+            -3.4499998092651367,
+            -2.6000001430511475,
+            -8.150000095367432
+          ],
+          [
+            3.4499998092651367,
+            2.6000001430511475,
+            8.150000095367432
+          ]
+        ],
+        "size_cm": [
+          6.899999618530273,
+          5.200000286102295,
+          16.300000190734863
+        ]
+      },
+      "clips": [
+        {
+          "name": "A_Breach_Shotgun_Reload_Tactical",
+          "variant": "Tactical",
+          "seconds": 2.2,
+          "frames": 132,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.1,
+            "detach": 0.2,
+            "withdrawn": 0.32,
+            "approach": 0.52,
+            "attach": 0.6,
+            "seat": 0.68,
+            "ready": 0.92
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.2
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.6
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.68
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.1,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.2,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -2.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.32,
+              "magazine_center_cm": [
+                10.640000343322754,
+                -5.0,
+                -9.650001525878906
+              ]
+            },
+            {
+              "phase": 0.52,
+              "magazine_center_cm": [
+                10.850000381469727,
+                -1.000000238418579,
+                -6.650001525878906
+              ]
+            },
+            {
+              "phase": 0.6,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -2.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                11.182500839233398,
+                -0.0,
+                -1.9000000953674316
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.92,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 4.05436372756958,
+          "magazine_top_at_withdraw_cm": -1.05436372756958,
+          "magazine_opening_z_cm": 3.0
+        },
+        {
+          "name": "A_Breach_Shotgun_Reload_Empty",
+          "variant": "Empty",
+          "seconds": 2.2,
+          "frames": 132,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.08,
+            "detach": 0.16,
+            "withdrawn": 0.28,
+            "approach": 0.43,
+            "attach": 0.5,
+            "seat": 0.57,
+            "ready": 0.96
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.16
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.5
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.57
+            },
+            {
+              "name": "ChargingHandle",
+              "phase": 0.68
+            },
+            {
+              "name": "BoltOpen",
+              "phase": 0.76
+            },
+            {
+              "name": "BoltClose",
+              "phase": 0.84
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.08,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.16,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -2.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.28,
+              "magazine_center_cm": [
+                10.640000343322754,
+                -5.0,
+                -9.650001525878906
+              ]
+            },
+            {
+              "phase": 0.43,
+              "magazine_center_cm": [
+                10.850000381469727,
+                -1.000000238418579,
+                -6.650001525878906
+              ]
+            },
+            {
+              "phase": 0.5,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -2.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.57,
+              "magazine_center_cm": [
+                11.182500839233398,
+                -0.0,
+                -1.9000000953674316
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 0.96,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                -1.6500000953674316
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 4.05436372756958,
+          "magazine_top_at_withdraw_cm": -1.05436372756958,
+          "magazine_opening_z_cm": 3.0
+        }
+      ],
+      "parts": [
+        {
+          "name": "Reload_Grip frame.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip rubber.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.024",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.025",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.026",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.027",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.028",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.029",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip rubber.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.030",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.031",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.032",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.033",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.034",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.035",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip heel.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Trigger guard.002",
+          "rigid_bone": "body",
+          "vertices": 240
+        },
+        {
+          "name": "Reload_Trigger.002",
+          "rigid_bone": "body",
+          "vertices": 62
+        },
+        {
+          "name": "Reload_Stock extension.001",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Stock upper.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Stock lower.001",
+          "rigid_bone": "body",
+          "vertices": 48
+        },
+        {
+          "name": "Reload_Shoulder butt.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Butt pad.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Cheek rest",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Receiver lower.001",
+          "rigid_bone": "body",
+          "vertices": 76
+        },
+        {
+          "name": "Reload_Upper receiver.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Receiver armor.002",
+          "rigid_bone": "body",
+          "vertices": 90
+        },
+        {
+          "name": "Reload_Receiver inset.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Power signature.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw.010",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.010",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.011",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.011",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.012",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.012",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Receiver armor.003",
+          "rigid_bone": "body",
+          "vertices": 90
+        },
+        {
+          "name": "Reload_Receiver inset.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Power signature.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw.013",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.013",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.014",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.014",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.015",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.015",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Ejection recess.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Port bolt.001",
+          "rigid_bone": "bolt",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Detachable magazine.001",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.006",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.007",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.008",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.009",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.010",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.011",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine floorplate.001",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard spine.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard plate.002",
+          "rigid_bone": "body",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Vent cavity.008",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.008",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.009",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.009",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.010",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.010",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.011",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.011",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Foregrip pad.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard plate.003",
+          "rigid_bone": "body",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Vent cavity.012",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.012",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.013",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.013",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.014",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.014",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.015",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.015",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Foregrip pad.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Exposed barrel.001",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Wide muzzle",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Deep bore",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Rail bed.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.024",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.025",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.026",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.027",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.028",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.029",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.030",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.031",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.032",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.033",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.034",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.035",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.036",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.037",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.038",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.039",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.040",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.041",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.042",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.043",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.044",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.045",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.046",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.047",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.048",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.049",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.050",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight foot.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.008",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.009",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight foot.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.010",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Sight wing.011",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Front sight post.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Front cyan dot.002",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Charging handle stem",
+          "rigid_bone": "charging_handle",
+          "vertices": 56
+        },
+        {
+          "name": "Charging handle grip",
+          "rigid_bone": "charging_handle",
+          "vertices": 56
+        }
+      ]
+    },
+    {
+      "model": "Sniper",
+      "mesh": "SK_Breach_Sniper",
+      "skeleton": "SKEL_Breach_Weapon_Sniper",
+      "blend": "Breach_Sniper_Reload.blend",
+      "bones": [
+        {
+          "name": "weapon_root",
+          "parent": null,
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "body",
+          "parent": "weapon_root",
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "magazine",
+          "parent": "body",
+          "head_cm": [
+            11.200000762939453,
+            0.0,
+            0.15000009536743164
+          ]
+        },
+        {
+          "name": "bolt",
+          "parent": "body",
+          "head_cm": [
+            -2.7,
+            3.4,
+            9.2
+          ]
+        }
+      ],
+      "bounds_cm": [
+        [
+          -35.307804107666016,
+          -4.300000190734863,
+          -9.98936653137207
+        ],
+        [
+          82.25,
+          10.69999885559082,
+          26.950000762939453
+        ]
+      ],
+      "magazine_center_cm": [
+        11.200000762939453,
+        0.0,
+        0.15000009536743164
+      ],
+      "magazine_withdraw_cm": 7,
+      "magazine_max_drop_cm": 10,
+      "magazine_grip_cm": [
+        9.200000762939453,
+        -5,
+        -0.8499999046325684
+      ],
+      "magazine_grip_offset_cm": [
+        -2,
+        -5,
+        -1
+      ],
+      "bolt_grip_cm": [
+        -2.7,
+        10.8,
+        9.0
+      ],
+      "mechanism_grip_bone": "bolt",
+      "model_changes": [
+        "Sniper bolt handle mirrored to UE +Y for right-hand operation; original static source unchanged"
+      ],
+      "magazine_visibility": "always visible with unit scale; arms bake follows magazine bone; optional duplicate mesh disabled by default",
+      "material_roles": [
+        "M_Breach_Armor",
+        "M_Breach_Body",
+        "M_Breach_Bore",
+        "M_Breach_Cyan",
+        "M_Breach_Glass",
+        "M_Breach_Rubber",
+        "M_Breach_Steel"
+      ],
+      "sockets": {
+        "Muzzle": {
+          "bone": "body",
+          "world_cm": [
+            82.25,
+            0,
+            10.9
+          ]
+        },
+        "Grip_L": {
+          "bone": "body",
+          "world_cm": [
+            25,
+            0,
+            5
+          ]
+        },
+        "Sight": {
+          "bone": "body",
+          "world_cm": [
+            -10,
+            0,
+            22.2
+          ]
+        },
+        "Grip_R": {
+          "bone": "body",
+          "world_cm": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "triangles": 19528,
+      "magazine_presentation": {
+        "mesh": "SM_Breach_Sniper_Magazine",
+        "origin_cm": [
+          11.200000762939453,
+          0.0,
+          0.15000009536743164
+        ],
+        "bounds_local_cm": [
+          [
+            -3.4499998092651367,
+            -2.6000001430511475,
+            -6.349999904632568
+          ],
+          [
+            3.4499998092651367,
+            2.6000001430511475,
+            6.349999904632568
+          ]
+        ],
+        "size_cm": [
+          6.899999618530273,
+          5.200000286102295,
+          12.699999809265137
+        ]
+      },
+      "clips": [
+        {
+          "name": "A_Breach_Sniper_Reload_Tactical",
+          "variant": "Tactical",
+          "seconds": 2.5,
+          "frames": 150,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.1,
+            "detach": 0.2,
+            "withdrawn": 0.32,
+            "approach": 0.52,
+            "attach": 0.6,
+            "seat": 0.68,
+            "ready": 0.92
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.2
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.6
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.68
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.1,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.2,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -0.8500000238418579
+              ]
+            },
+            {
+              "phase": 0.32,
+              "magazine_center_cm": [
+                10.710000991821289,
+                -5.000000476837158,
+                -6.850001811981201
+              ]
+            },
+            {
+              "phase": 0.52,
+              "magazine_center_cm": [
+                10.850000381469727,
+                -1.000000238418579,
+                -4.850000858306885
+              ]
+            },
+            {
+              "phase": 0.6,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -0.8500000238418579
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                11.182500839233398,
+                -0.0,
+                -0.09999993443489075
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.92,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 3.0150294303894043,
+          "magazine_top_at_withdraw_cm": -0.015029430389404297,
+          "magazine_opening_z_cm": 3.0
+        },
+        {
+          "name": "A_Breach_Sniper_Reload_Empty",
+          "variant": "Empty",
+          "seconds": 2.5,
+          "frames": 150,
+          "fps": 60,
+          "loop": false,
+          "stages": {
+            "reach": 0.08,
+            "detach": 0.16,
+            "withdrawn": 0.28,
+            "approach": 0.43,
+            "attach": 0.5,
+            "seat": 0.57,
+            "ready": 0.96
+          },
+          "sound_events": [
+            {
+              "name": "MagOut",
+              "phase": 0.16
+            },
+            {
+              "name": "MagIn",
+              "phase": 0.5
+            },
+            {
+              "name": "MagSeat",
+              "phase": 0.57
+            },
+            {
+              "name": "BoltOpen",
+              "phase": 0.68
+            },
+            {
+              "name": "BoltClose",
+              "phase": 0.88
+            }
+          ],
+          "hand_targets": [
+            {
+              "phase": 0.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.08,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.16,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -0.8500000238418579
+              ]
+            },
+            {
+              "phase": 0.28,
+              "magazine_center_cm": [
+                10.710000991821289,
+                -5.000000476837158,
+                -6.850001811981201
+              ]
+            },
+            {
+              "phase": 0.43,
+              "magazine_center_cm": [
+                10.850000381469727,
+                -1.000000238418579,
+                -4.850000858306885
+              ]
+            },
+            {
+              "phase": 0.5,
+              "magazine_center_cm": [
+                11.130001068115234,
+                -0.0,
+                -0.8500000238418579
+              ]
+            },
+            {
+              "phase": 0.57,
+              "magazine_center_cm": [
+                11.182500839233398,
+                -0.0,
+                -0.09999993443489075
+              ]
+            },
+            {
+              "phase": 0.68,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.74,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.78,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.82,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.84,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.88,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 0.96,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            },
+            {
+              "phase": 1.0,
+              "magazine_center_cm": [
+                11.200000762939453,
+                -0.0,
+                0.15000009536743164
+              ]
+            }
+          ],
+          "withdrawn_clearance_cm": 3.0150294303894043,
+          "magazine_top_at_withdraw_cm": -0.015029430389404297,
+          "magazine_opening_z_cm": 3.0
+        }
+      ],
+      "parts": [
+        {
+          "name": "Reload_Grip frame.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip rubber.006",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.036",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.037",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.038",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.039",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.040",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.041",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip rubber.007",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.042",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.043",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.044",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.045",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.046",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip traction.047",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Grip heel.003",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Trigger guard.003",
+          "rigid_bone": "body",
+          "vertices": 240
+        },
+        {
+          "name": "Reload_Trigger.003",
+          "rigid_bone": "body",
+          "vertices": 62
+        },
+        {
+          "name": "Reload_Stock extension.002",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Stock upper.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Stock lower.002",
+          "rigid_bone": "body",
+          "vertices": 48
+        },
+        {
+          "name": "Reload_Shoulder butt.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Butt pad.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Cheek rest.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Receiver lower.002",
+          "rigid_bone": "body",
+          "vertices": 76
+        },
+        {
+          "name": "Reload_Upper receiver.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Receiver armor.004",
+          "rigid_bone": "body",
+          "vertices": 90
+        },
+        {
+          "name": "Reload_Receiver inset.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Power signature.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw.016",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.016",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.017",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.017",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.018",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.018",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Receiver armor.005",
+          "rigid_bone": "body",
+          "vertices": 90
+        },
+        {
+          "name": "Reload_Receiver inset.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Power signature.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Recess screw.019",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.019",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.020",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.020",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Recess screw.021",
+          "rigid_bone": "body",
+          "vertices": 72
+        },
+        {
+          "name": "Reload_Screw inset.021",
+          "rigid_bone": "body",
+          "vertices": 8
+        },
+        {
+          "name": "Reload_Ejection recess.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Port bolt.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Detachable magazine.002",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.012",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.013",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.014",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.015",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.016",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine pressed rib.017",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Magazine floorplate.002",
+          "rigid_bone": "magazine",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard spine.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard plate.004",
+          "rigid_bone": "body",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Vent cavity.016",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.016",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.017",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.017",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.018",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.018",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.019",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.019",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.020",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.020",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Foregrip pad.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Handguard plate.005",
+          "rigid_bone": "body",
+          "vertices": 84
+        },
+        {
+          "name": "Reload_Vent cavity.021",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.021",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.022",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.022",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.023",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.023",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.024",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.024",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent cavity.025",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Vent lower.025",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Foregrip pad.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Exposed barrel.002",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Muzzle brake.001",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Bore depth.001",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Brake side port.004",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Brake side port.005",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Brake side port.006",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Brake side port.007",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail bed.002",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.051",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.052",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.053",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.054",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.055",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.056",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.057",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.058",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.059",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.060",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.061",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.062",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.063",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.064",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.065",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.066",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.067",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.068",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.069",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.070",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.071",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.072",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.073",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.074",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.075",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.076",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.077",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.078",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.079",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.080",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.081",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Rail tooth.082",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Scope riser",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Scope ring",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Scope riser.001",
+          "rigid_bone": "body",
+          "vertices": 56
+        },
+        {
+          "name": "Reload_Scope ring.001",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Scope central",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Scope eyepiece",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Rear optic",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Scope objective",
+          "rigid_bone": "body",
+          "vertices": 384
+        },
+        {
+          "name": "Reload_Front optic",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Scope elevation",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Scope windage",
+          "rigid_bone": "body",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Bolt stem",
+          "rigid_bone": "bolt",
+          "vertices": 144
+        },
+        {
+          "name": "Reload_Bolt knob",
+          "rigid_bone": "bolt",
+          "vertices": 114
+        }
+      ]
+    }
+  ]
+}

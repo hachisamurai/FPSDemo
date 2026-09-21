@@ -6,7 +6,7 @@
 
 按最新要求，编辑器目标硬性只使用本地存档。WITH_EDITOR下两个子系统的ShouldCreateSubsystem都返回false，PIE、Editor Standalone及Editor-Cmd -game均不登录/上传/下载；只有不含编辑器的打包游戏目标才启用本文云流程。HUD通过子系统是否存在隐藏编辑器云入口。
 
-永久进度和战役检查点生命周期独立：新建/重开战役仍只生成手枪，同槽重开保留金币余额及金币永久成长/逐项价格，只重置银币和临时成长；恢复已有战役可以恢复该局已经装备的武器。下载解锁不会自动发枪。战斗中保存进入战斗前的检查点，不上传Actor、任意位置、临时GameplayEffect或蓝图路径。
+永久进度和战役检查点生命周期独立：新建存档只生成手枪，同槽死亡/放弃重开保留金币余额、金币永久成长/逐项价格及实际已装备主枪/库存/主副槽选择，只重置银币和临时成长。装备复用V5既有Weapons/PrimaryId/ActiveSlot，随重置后的Hub检查点同步，不新增协议字段；账号偏好不能代替本槽配装。下载解锁不会自动发枪。战斗中保存进入战斗前的检查点和挑战资格，不上传Actor、任意位置、临时GameplayEffect或蓝图路径。
 
 依赖：UE HTTP/Json/JsonUtilities、Windows DPAPI；独立.NET 10、MongoDB.Driver 3.12.0；支持多文档事务的MongoDB副本集/Atlas。服务不会自动改变副本集，也不drop数据库。MongoDB URI只在后端环境中，UE包不携带数据库凭据。
 
@@ -37,7 +37,7 @@ Bearer为随机256位令牌，有效期两小时，客户端只保存在内存�
 | 集合 | 字段和用途 | 索引 |
 |---|---|---|
 | players | _id服务器GUID、installationId、secretHash、status(active/disabled)、createdAt | installationId唯一 |
-| player_profiles | _id=playerId、schemaVersion=1、serverRevision BSON Int64、clearedDifficulties最多三种、服务端派生unlockedWeaponIds、lastSelectedPrimary、slots最多三项、createdAt/updatedAt | playerId唯一 |
+| player_profiles | _id=playerId、schemaVersion=1、serverRevision BSON Int64、clearedDifficulties最多五种通关事实、服务端派生unlockedWeaponIds、lastSelectedPrimary、slots最多三项、createdAt/updatedAt | playerId唯一 |
 | profile_bindings | _id绑定GUID、playerId、clientProfileId、epoch、installationId、lastAcceptedLocalRevision、createdAt | playerId+clientProfileId+epoch唯一 |
 | campaign_runs | _id、playerId、runId、difficultyId、clientCompletedAt、receivedAt、completedLevels=10、rulesVersion、acceptance、claimHash | playerId+runId唯一；playerId+receivedAt降序+_id降序 |
 | sync_requests | _id、playerId、requestId、payloadHash、responseJson、createdAt | playerId+requestId唯一 |
@@ -45,7 +45,13 @@ Bearer为随机256位令牌，有效期两小时，客户端只保存在内存�
 
 slots元素是{slotIndex,serverRevision,snapshot}，索引0..2，槽版本为Int64十进制字符串。snapshot包含version、createdLocal、savedUtc、runId、phase、difficulty、completedLevel、coins、silverCoins、kills、purchases、goldPurchases、silverPurchases、upgradeProgress{goldLevels[3],silverLevels[3],permanentDamage,permanentHealth,permanentMagazine}、maxHealth、health、damageBonus、magazineBonus、healAmount、dashSpeed、weapons[{id,ammo,reserve}]、primaryId、activeSlot。范围见Contracts.cs与UDemoRunSave::Validate。日期仅展示，不用于最后写入获胜。
 
-检查点V3加入永久来源与六项独立价格，purchases等于goldPurchases+silverPurchases，两个总数又分别等于账本数组求和；永久增量不得超过合计属性。服务端接受V1/V2/V3但不改写请求版本/迁移货币，UE按[关卡与经济](关卡与经济.md)迁移。V2新增零值字段省略、V3嵌套字段旧请求null时省略，保证历史幂等哈希不改变。总HTTP协议仍是2，与检查点版本区分；先部署支持V3检查点的API再发布客户端，旧API会拒绝新格式。
+检查点V3加入永久来源与六项独立价格，purchases等于goldPurchases+silverPurchases，两个总数又分别等于账本数组求和；永久增量不得超过合计属性。V4加入unlockedAmmoIds/selectedAmmoId；V5加入bEndless/bestEndlessLevel/pistolChallenge。服务端接受V1..V5但不改写请求版本/迁移货币，UE按[关卡与经济](关卡与经济.md)及[战役配置与难度](战役配置与难度.md)迁移。新增零值/false字段或旧请求null字段省略，保证历史幂等哈希不改变。总HTTP协议仍是2，与检查点版本区分；先部署支持V5检查点的API再发布客户端，旧API会拒绝新格式。
+
+通关事实白名单为easy/normal/hard/hard_pistol/hell（最多五种）；hard_pistol表示困难整轮仅手枪实际开火且完成十关，hell表示地狱十关完成。它们仍由runId幂等记账；无尽没有十关胜利，不创建campaign_runs记录。服务端接受hell前要求已有hard_pistol；写入Hell检查点要求hard_pistol，写入bEndless检查点还要求hell。一次离线批次可先接纳顺序提交的通关事实，再在同事务写入解锁后的检查点。其真实性仍受下文离线信任边界限制。
+
+2026-09-22武器规则更新：normal解锁shotgun，hard/hard_pistol/hell均解锁shotgun和sniper，easy仍单独解锁rifle。`WeaponUnlockRules.Resolve`统一用于GET快照和同步事务的装备权限验证；GET从真实clearedDifficulties推导，旧困难投影无需再次通关就返回散弹权限，读操作不增修订或写库，同步时更新存储投影。不补造低难度通关记录、不发额外金币、不更改协议版本。客户端Normalize按同一规则处理旧事实及历史幂等回执。新增纯规则控制台测试`Backend/FPSDemo.RulesTests`覆盖9项，无网络/数据库依赖；本次API编译和纯规则测试通过，未执行HTTP/MongoDB端到端回归或部署。对应运行链、日志及UE真实关卡验证见[武器库与玩家存档](武器库与玩家存档.md)。
+
+V5的pistolChallenge仅0/1/2，bEndless只允许Hell；无尽Reward/Intermission允许超过十关且bestEndlessLevel>=completedLevel，不允许无尽Victory。旧版本不能携带新模式/资格/纪录。最高纪录与本槽快照一起受CAS控制，不单独跨槽或跨设备取最大合并；客户端永久档案版本3与服务端player_profiles schemaVersion=1是不同层级。新增/改动文件为Contracts.cs（DTO、稳定ID白名单）、ProfileService.cs（校验/事务）、Program.cs（health能力列表）、Test-Backend.ps1（31项隔离HTTP回归）。维护协议时同步UE Validate/ExportCloud/ImportCloud；失败仍沿原有拒绝、冲突、发件箱保留路径处理。
 
 启动创建缺失集合和固定索引，不清空旧数据。Mongo JSON Schema目前仅约束对象及字符串_id；完整字段白名单、范围和关联条件在DTO/业务服务校验。已有数据/索引冲突会阻止启动，需要显式迁移。TTL清理有延迟，认证仍检查过期时间。同步回执无自动TTL；若要归档，须同时设计最大重试期限和归档查询，不能让旧请求失去幂等证明。
 

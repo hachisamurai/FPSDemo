@@ -20,6 +20,7 @@
 #include "UnrealClient.h"
 #include "Engine/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
+#include "Misc/CommandLine.h"
 
 ADemoAmmoTest::ADemoAmmoTest(){DEMO_LOG_CALL();PrimaryActorTick.bCanEverTick=true;PrimaryActorTick.TickInterval=.02f;}
 bool ADemoAmmoTest::Check(bool Condition,const TCHAR* Message)
@@ -63,7 +64,8 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
         if(!Check(State->Coins==300&&Ammo->IsUnlocked(1)&&Ammo->IsUnlocked(2)&&Ammo->IsUnlocked(3)&&Ammo->GetSelected()==0,TEXT("buy once, do not auto equip")))return;
         PC->InspectAmmo(1);PC->AmmoAction();
         Snapshot=DuplicateObject<UDemoRunSave>(Saves->GetSlot(0),this);
-        if(!Check(Snapshot->Version==4&&Snapshot->Coins==300&&Snapshot->UnlockedAmmoIds.Num()==4&&Snapshot->SelectedAmmoId==TEXT("fire"),TEXT("wallet and unlocks saved atomically")))return;
+        // 新建检查点应采用当前保存类版本（现已V5）；本断言检查交易原子性，旧V4迁移由存档专项负责。
+        if(!Check(Snapshot->Version==GetDefault<UDemoRunSave>()->Version&&Snapshot->Coins==300&&Snapshot->UnlockedAmmoIds.Num()==4&&Snapshot->SelectedAmmoId==TEXT("fire"),TEXT("wallet and unlocks saved atomically")))return;
         FScreenshotRequest::RequestScreenshot(TEXT("AmmoTerminalGame.png"),false,false); // 捕获真实现成Icon/交易状态，下一帧由引擎保存。
         Advance(.3f);break;
     case 1:
@@ -73,8 +75,12 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
         Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
         Before=Target->GetHealth();Player->GetWeaponComponent()->StartFire();Player->GetWeaponComponent()->StopFire();
         if(!Check(Target->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==1&&Target->GetHealth()<Before,TEXT("real Fire GA applies one burn stack")))return;
+        // 显式截图参数只记录既有真实命中帧，不更改命中时间或生产UI；用于核对红色斜线与未变色的准星。
+        if(FParse::Param(FCommandLine::Get(),TEXT("DemoHitMarkerCapture"))) FScreenshotRequest::RequestScreenshot(TEXT("HitMarker-On.png"),false,false);
         Before=Target->GetHealth();Advance(Config->BurnPeriod+.15f);break;
     case 2:
+        // 已等待一个灼烧周期，超过0.15秒；DOT不刷新直接命中时间，此帧应只剩原灰白准星。
+        if(FParse::Param(FCommandLine::Get(),TEXT("DemoHitMarkerCapture"))) FScreenshotRequest::RequestScreenshot(TEXT("HitMarker-Off.png"),false,false);
         if(!Check(FMath::IsNearlyEqual(Target->GetHealth(),Before-Config->BurnDamagePerStack,.01f),TEXT("periodic GAS burn deals configured damage")))return;
         Before=Target->GetHealth();
         for(int32 Index=1;Index<Config->BurnThreshold;++Index)Target->FindComponentByClass<UDemoAmmoStatus>()->Apply(Player->GetAbilitySystemComponent(),1,Config); // 同一帧阈值边沿，不能依赖第N+1次Overflow。
@@ -100,7 +106,7 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
         Advance(.5f);break;
     case 5:
     {
-        AStaticMeshActor* Wall=GetWorld()->SpawnActor<AStaticMeshActor>(); // 本步骤自有墙体夹具，用真实Visibility阻挡验证不能穿墙。
+        AStaticMeshActor* Wall=GetWorld()->SpawnActor<AStaticMeshActor>(); // 本步骤自有墙体夹具，BlockAll继承WeaponTrace阻挡以验证穿透不能穿墙。
         Wall->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
         Wall->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));
         Wall->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));

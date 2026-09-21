@@ -1,0 +1,286 @@
+{
+  "schema": 1,
+  "generator": "generate_weapon_sfx.py",
+  "passed": true,
+  "variant_count": 3,
+  "cue_volume": 0.5,
+  "cue_gain_db_range": [
+    -1.0,
+    0.5
+  ],
+  "profiles": {
+    "Pistol": {
+      "duration_seconds": 0.28,
+      "pitch_range": [
+        0.97,
+        1.03
+      ]
+    },
+    "Rifle": {
+      "duration_seconds": 0.36,
+      "pitch_range": [
+        0.98,
+        1.02
+      ]
+    },
+    "Shotgun": {
+      "duration_seconds": 0.4,
+      "pitch_range": [
+        0.98,
+        1.02
+      ]
+    },
+    "Sniper": {
+      "duration_seconds": 1.2,
+      "pitch_range": [
+        0.98,
+        1.02
+      ]
+    }
+  },
+  "files": [
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Pistol/SW_Pistol_Fire_01.wav",
+      "sha256": "88e279478a29b21751d59252c2f0f47152e738bb7fc1cf30889e318cd9754690",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.28,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -3.0,
+      "rms_dbfs": -28.95,
+      "onset_ms": 0.083,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 0.0,
+      "low_energy_after_80ms_ratio": 0.046771,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Pistol/SW_Pistol_Fire_02.wav",
+      "sha256": "b7377a8028d41cafe8ef74078e2f404164712e82ead32ef94c2e8f97a8b87f80",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.28,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.8156,
+      "rms_dbfs": -26.574,
+      "onset_ms": 0.021,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 0.0,
+      "low_energy_after_80ms_ratio": 0.096534,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Pistol/SW_Pistol_Fire_03.wav",
+      "sha256": "2d7d2e7e65f307e6cb3509439282363dac9c006164ef408dbf36248c9db66406",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.28,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -3.0,
+      "rms_dbfs": -28.742,
+      "onset_ms": 0.042,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 0.0,
+      "low_energy_after_80ms_ratio": 0.041308,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Rifle/SW_Rifle_Fire_01.wav",
+      "sha256": "781af640f2cdfcb6525ae595b7ce8e3123cfb3db7b3be3b5fbed4dde1dc88090",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.36,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.9748,
+      "rms_dbfs": -25.357,
+      "onset_ms": 0.021,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 1e-06,
+      "low_energy_after_80ms_ratio": 0.006649,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Rifle/SW_Rifle_Fire_02.wav",
+      "sha256": "68ed38775ccb2b0122067fe8e953c176360e1adedcea54c313cf7f7596d08446",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.36,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -3.0,
+      "rms_dbfs": -28.459,
+      "onset_ms": 0.021,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 1e-06,
+      "low_energy_after_80ms_ratio": 0.003746,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Rifle/SW_Rifle_Fire_03.wav",
+      "sha256": "4c4eecc68ea9c363fadd9322b697eea57648d985037a70cb4b7be7f9a914d225",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.36,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.6766,
+      "rms_dbfs": -26.647,
+      "onset_ms": 0.042,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 1e-06,
+      "low_energy_after_80ms_ratio": 0.00644,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Shotgun/SW_Shotgun_Fire_01.wav",
+      "sha256": "0399ff9e2d83bdedd0f7ebeb5d522e1aaa1035b4552912c019a05475a0e5d8a8",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.4,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.9672,
+      "rms_dbfs": -23.47,
+      "onset_ms": 0.021,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 5e-06,
+      "low_energy_after_80ms_ratio": 0.000754,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Shotgun/SW_Shotgun_Fire_02.wav",
+      "sha256": "d724520019aba736febed0b1feb36cea8aad2e047c6d2f5147860ea4e07640e7",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.4,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.9723,
+      "rms_dbfs": -25.163,
+      "onset_ms": 0.042,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 6e-06,
+      "low_energy_after_80ms_ratio": 0.001491,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Shotgun/SW_Shotgun_Fire_03.wav",
+      "sha256": "80f7d1fba2e7ecb5ab25fd5200ef6668add270f17255b8e4d9aa94685a39ca3b",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 0.4,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.9639,
+      "rms_dbfs": -25.768,
+      "onset_ms": 0.125,
+      "tail_5ms_rms_dbfs": -240.0,
+      "energy_after_180ms_ratio": 5e-06,
+      "low_energy_after_80ms_ratio": 0.001385,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Sniper/SW_Sniper_Fire_01.wav",
+      "sha256": "035ec8e65bba96bebe67e245172ce4c454e1ced468119a7579671edeb4da52f3",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 1.2,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.7487,
+      "rms_dbfs": -27.55,
+      "onset_ms": 0.021,
+      "tail_5ms_rms_dbfs": -149.266,
+      "energy_after_180ms_ratio": 0.011323,
+      "low_energy_after_80ms_ratio": 0.044429,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Sniper/SW_Sniper_Fire_02.wav",
+      "sha256": "22e74073f95ab030718488a6c0f15f32a8f2db9a61af787597301bf2d806cedd",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 1.2,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.8569,
+      "rms_dbfs": -27.53,
+      "onset_ms": 0.021,
+      "tail_5ms_rms_dbfs": -148.659,
+      "energy_after_180ms_ratio": 0.010936,
+      "low_energy_after_80ms_ratio": 0.063069,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    },
+    {
+      "file": "SourceAssets/Audio/SFX/Weapons/Breach/Sniper/SW_Sniper_Fire_03.wav",
+      "sha256": "1d94281d7daee3fff1533c4708af6d480629b7ddd15a9d01b25b8dee96e524e3",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 1,
+      "duration_seconds": 1.2,
+      "sample_peak_dbfs": -3.0,
+      "estimated_4x_peak_dbfs": -2.8844,
+      "rms_dbfs": -28.176,
+      "onset_ms": 0.062,
+      "tail_5ms_rms_dbfs": -147.505,
+      "energy_after_180ms_ratio": 0.01449,
+      "low_energy_after_80ms_ratio": 0.045567,
+      "clipped_samples": 0,
+      "first_sample": 0,
+      "last_sample": 0
+    }
+  ],
+  "stress_previews": [
+    {
+      "file": "Previews/Rifle_600RPM.wav",
+      "shots_per_second": 10,
+      "shots": 15,
+      "mix_peak_dbfs": -8.967
+    },
+    {
+      "file": "Previews/Rifle_750RPM.wav",
+      "shots_per_second": 12.5,
+      "shots": 18,
+      "mix_peak_dbfs": -8.961
+    },
+    {
+      "file": "Previews/Shotgun_4Hz.wav",
+      "shots_per_second": 4,
+      "shots": 8,
+      "mix_peak_dbfs": -9.02
+    },
+    {
+      "file": "Previews/Shotgun_6Hz.wav",
+      "shots_per_second": 6,
+      "shots": 12,
+      "mix_peak_dbfs": -9.009
+    }
+  ],
+  "listening_status": "Requires human headphone and small-speaker review; numerical QA is not subjective acceptance"
+}

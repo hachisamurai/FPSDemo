@@ -11,7 +11,7 @@ def main():
     root = Path(unreal.Paths.project_dir()).resolve()
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     # entries 明确限定本工具拥有的三项资产，绝不遍历删除其他 Content/Data 内容。
-    entries = (("Enemies", "DemoEnemyRow", None), ("Difficulties", "DemoDifficultyRow", 3), ("Levels", "DemoLevelRow", 10))
+    entries = (("Enemies", "DemoEnemyRow", None), ("Difficulties", "DemoDifficultyRow", 4), ("Levels", "DemoLevelRow", 10), ("Endless", "DemoEndlessRow", 1))
     for source, row_type, count in entries:  # 源文件基名、USTRUCT 名、固定行数；None 允许扩展怪物模板。
         unreal.log(f"[CombatImport] import {source}, struct={row_type}")
         # source_path/payload 为此次导入的 UTF-8 源文件及解析行；失败发生在更新资产前。

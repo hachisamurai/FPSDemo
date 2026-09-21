@@ -1,0 +1,13 @@
+# 当前UE手臂动作重设计快照
+
+由Tools/Unreal/export_fp_reload_workbench.py只读导出，包含4个Idle、8个Reload及原始手臂网格。
+这些是存在右前臂穿枪托问题的当前输入，不是最终视觉通过版本。Content资源没有保存，文件SHA256已前后核对。
+
+current_ue_workbench_manifest.json记录实际UE资产、FBX路径/哈希、片长、挂点、配置和关键phase。
+component_bones及weapon_anchor_component使用UE厘米组件空间；matrix4x4_column_vector为列向量，平移在最后一列。
+lowerarm_r原点就是肘关节，hand_r为腕关节；前臂段为这两点之间，upperarm_r为肩部。
+weapon_mesh_to_arms_component可把枪的模型空间点变换到手臂组件空间，mechanical_bones同时提供两套组件矩阵。
+FBX保留引擎正式轴转换（force_front_x_axis=false），Blender正常FBX导入后应以至少3个不共线骨位置核对轴/单位，不能直接把UE矩阵当Blender矩阵。
+动画FBX含原预览手臂网格；导入多段时需管理重复网格和Action，禁止覆盖正式Content。
+采样来自Raw序列，不含运行时Slot混合、公共支撑手IK、相机位置和轻摆；待机IK的当前输入在清单中，换弹时该权重由运行时强制为0。
+工具可重跑覆盖本目录同名快照；导出失败不发布成功标记，修正后重跑，开始重新制作前请另存原快照。

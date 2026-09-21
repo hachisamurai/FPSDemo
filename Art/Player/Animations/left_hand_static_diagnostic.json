@@ -1,0 +1,62 @@
+[
+  {
+    "model": "Pistol",
+    "contact": "Support",
+    "hits": []
+  },
+  {
+    "model": "Pistol",
+    "contact": "Magazine",
+    "hits": []
+  },
+  {
+    "model": "Pistol",
+    "contact": "Mechanism",
+    "hits": []
+  },
+  {
+    "model": "Rifle",
+    "contact": "Support",
+    "hits": []
+  },
+  {
+    "model": "Rifle",
+    "contact": "Magazine",
+    "hits": []
+  },
+  {
+    "model": "Rifle",
+    "contact": "Mechanism",
+    "hits": []
+  },
+  {
+    "model": "Shotgun",
+    "contact": "Support",
+    "hits": []
+  },
+  {
+    "model": "Shotgun",
+    "contact": "Magazine",
+    "hits": []
+  },
+  {
+    "model": "Shotgun",
+    "contact": "Mechanism",
+    "hits": []
+  },
+  {
+    "model": "Sniper",
+    "contact": "Support",
+    "hits": []
+  },
+  {
+    "model": "Sniper",
+    "contact": "Magazine",
+    "hits": []
+  },
+  {
+    "model": "Sniper",
+    "contact": "Mechanism",
+    "hits": []
+  }
+]

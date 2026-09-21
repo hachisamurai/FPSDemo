@@ -23,8 +23,11 @@ class FPSDEMO_API UDemoRunSave : public USaveGame
 {
     GENERATED_BODY()
 public:
-    // V4加入同槽金币购买的弹药解锁/选择；旧档默认普通弹，未来版本仍保护。
-    UPROPERTY() int32 Version = 4;
+    // V5加入挑战模式/资格/纪录；兼容V4弹药解锁和旧成长账本，未来版本仍保护。
+    UPROPERTY() int32 Version = 5; // V5记录模式、无尽纪录和本轮手枪资格；旧档不能追认手枪挑战。
+    UPROPERTY() bool bEndless = false; // 无尽模式使用Hell基线，Reward/Intermission允许超过第十关。
+    UPROPERTY() int32 BestEndlessLevel = 0; // 本槽最高已完成关数，跨死亡/放弃保留。
+    UPROPERTY() int32 PistolChallenge = 0; // 0未射击/1只射手枪/2失格；旧进行中战役迁移为2。
     UPROPERTY() TArray<FName> UnlockedAmmoIds = {FName(TEXT("normal"))}; // 与Coins同一快照，不跨槽共享。
     UPROPERTY() FName SelectedAmmoId = TEXT("normal"); // 已解锁目录ID，死亡/通关保留。
     // 首次创建时的本地时间，不随读取/重开变化；仅展示，不作为唯一标识。
@@ -37,7 +40,7 @@ public:
     UPROPERTY() EDemoPhase Phase = EDemoPhase::Hub;
     // 初次安全区默认普通，出发终端选择后整局锁定。
     UPROPERTY() EDemoDifficulty Difficulty = EDemoDifficulty::Normal;
-    // 已完成关卡0..10；0安全区，10仅Victory。
+    // 已完成关卡：固定战役0..10，无尽非负递增；0安全区，Victory仅固定战役10。
     UPROPERTY() int32 CompletedLevel = 0;
     // 金币余额在通关/死亡/主动返回后保留；Editor停止仍随本GI临时档清理。
     UPROPERTY() int32 Coins = 0;
@@ -57,11 +60,11 @@ public:
     UPROPERTY() float DashSpeed = 1300.f; // 冲刺初速度cm/s，只存永久局内成长，不存当前移动速度。
     // 实际已持有的武器快照；None主武器表示仅手枪，ActiveSlot合法1/2。
     UPROPERTY() TArray<FDemoSavedWeapon> Weapons;
-    UPROPERTY() FName PrimaryId; // 当前主武器目录ID；None表示未在终端装备主武器。
+    UPROPERTY() FName PrimaryId; // 本槽已装备主武器目录ID，死亡/放弃保留；None表示从未装备主武器。
     UPROPERTY() int32 ActiveSlot = 2; // 当前持用1主/2副；新局默认手枪槽2。
     /** 完整校验持久字段的枚举、数值和阶段一致性；失败不能恢复/覆盖原存档。 */
     bool Validate() const;
-    /** 接受合法V1..V4；旧档迁移购买来源和普通弹默认值，未来版本拒绝。 */
+    /** 接受合法V1..V5；旧档迁移成长/普通弹与保守的挑战资格，未来版本拒绝。 */
     bool UpgradeLegacy();
     /** 结束挑战时保留永久账本、设置满永久生命和基础技能；只改成长/价格，不动币余额与阶段。 */
     void ResetTemporaryGrowth();
@@ -91,8 +94,8 @@ public:
     const UDemoRunSave* ConsumePending();
     /** Snapshot为借用新检查点；写盘成功后复制到GI缓存，失败返回false并显示状态。 */
     bool Store(UDemoRunSave* Snapshot);
-    /** Difficulty/Gold是当前难度/金币，Progress是权威来源账本；仅清空临时成长，成功才允许旅行。 */
-    bool ResetActive(EDemoDifficulty Difficulty, int32 Gold, const FDemoUpgradeProgress& Progress);
+    /** Difficulty/Gold/Progress为权威永久进度；Loadout是本次借用的重开装备值快照，空时保留原槽库存。只清临时成长，落盘成功才旅行。 */
+    bool ResetActive(EDemoDifficulty Difficulty, int32 Gold, const FDemoUpgradeProgress& Progress, const UDemoRunSave* Loadout = nullptr);
     /** 当前槽0..2或INDEX_NONE，以及用户可读保存结果；无槽测试允许只运行World。 */
     int32 GetActiveSlot() const;
     /** 返回GI持有的反馈摘要，只读借用；用于HUD和离开失败提示。 */
@@ -105,6 +108,8 @@ public:
     bool ImportCloud(int32 Index, const TSharedPtr<class FJsonObject>& Data);
     /** GI内本地写盘序列，用于UI及时显示待同步；不作为网络修订或跨进程身份。 */
     uint64 GetChangeSerial() const;
+    /** ChallengeStatus=0..2，Best为已完成无尽关数；只更新资格/纪录，不把半场战斗写入检查点。 */
+    bool StoreChallenge(int32 ChallengeStatus, int32 Best);
 private:
     /** Message为用户可读结果；bError指定日志级别，统一保证UI和诊断日志一致。 */
     void ReportStatus(const FString& Message, bool bError = false);

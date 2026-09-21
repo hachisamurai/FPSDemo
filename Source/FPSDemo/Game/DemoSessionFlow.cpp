@@ -1,4 +1,5 @@
 #include "Game/FPSDemoGameMode.h"
+#include "Spawning/DemoEnemySpawnComponent.h" // 只读剩余数量/取消旅行，不再访问GameMode私有生成状态。
 #include "Save/DemoRunSave.h"
 #include "Characters/DemoCharacter.h"
 #include "Player/DemoPlayerController.h"
@@ -16,14 +17,17 @@ bool AFPSDemoGameMode::SaveCheckpoint()
     const ADemoGameState* State = GetGameState<ADemoGameState>(); // 当前安全阶段值视图。
     if (!Saves || !State) { UE_LOG(LogFPSDemo, Error, TEXT("SaveCheckpoint missing service/state")); return false; }
     // 实际死亡必须落盘清空银币/临时成长并保留永久成长；失败时禁止离开页面，系统错误仍保留上次检查点。
-    if (State->Phase == EDemoPhase::Defeat && State->bReturnToHubOnRestart) return Saves->ResetActive(State->Difficulty, State->Coins, State->UpgradeProgress);
-    if (Saves->GetActiveSlot() == INDEX_NONE || State->Phase == EDemoPhase::Lobby || State->Phase == EDemoPhase::Combat || State->Phase == EDemoPhase::Defeat) return true;
+    if (State->Phase == EDemoPhase::Defeat && State->bReturnToHubOnRestart) return SaveResetCheckpoint(); // 同一入口保留死亡时的主枪和槽位。
+    // 战斗中只重试资格元数据写入，不采集半场战利品；磁盘失败不能通过退出重进恢复手枪资格。
+    if (State->Phase==EDemoPhase::Combat) return Saves->StoreChallenge(State->PistolChallenge,State->BestEndlessLevel);
+    if (Saves->GetActiveSlot() == INDEX_NONE || State->Phase == EDemoPhase::Lobby || State->Phase == EDemoPhase::Defeat) return true;
     const ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0)); // 本次同步借用Avatar。
     const UDemoAttributeSet* Attributes = Player ? Player->GetDemoAttributes() : nullptr; // 只存永久与当局成长的合计基础值，排除瞬时状态。
     if (!Attributes) { UE_LOG(LogFPSDemo, Error, TEXT("SaveCheckpoint missing Avatar/attributes")); return false; }
     UDemoRunSave* Snapshot = NewObject<UDemoRunSave>(this); // Store会复制值并持久化，不延长GameMode生命周期。
     Snapshot->CreatedLocal = FDateTime::Now(); // Store替换为原槽创建时间，先提供合法值用于校验。
     Snapshot->RunId = CampaignRunId;
+    Snapshot->bEndless = State->bEndless; Snapshot->BestEndlessLevel = State->BestEndlessLevel; Snapshot->PistolChallenge = State->PistolChallenge; // V5资格与当前关卡原子保存。
     Snapshot->Phase = State->Phase; Snapshot->Difficulty = State->Difficulty; Snapshot->CompletedLevel = State->LevelNumber;
     Snapshot->Coins = State->Coins; Snapshot->Kills = State->TotalKills; Snapshot->Purchases = State->Purchases;
     Snapshot->SilverCoins = State->SilverCoins; Snapshot->GoldPurchases = State->GoldPurchases; Snapshot->SilverPurchases = State->SilverPurchases; // 双币余额与独立价格作为同一检查点提交。
@@ -34,13 +38,30 @@ bool AFPSDemoGameMode::SaveCheckpoint()
     Player->GetWeaponComponent()->CaptureLoadout(*Snapshot);
     return Saves->Store(Snapshot);
 }
+bool AFPSDemoGameMode::SaveResetCheckpoint()
+{
+    DEMO_LOG_CALL();
+    const ADemoGameState* State = GetGameState<ADemoGameState>(); // 权威经济与永久来源，不沿用死亡前的临时属性。
+    const ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this, 0)); // 死亡Pawn仍持有装备，直到后续OpenLevel才销毁。
+    UDemoRunSaves* Saves = GetGameInstance()->GetSubsystem<UDemoRunSaves>(); // GI负责原子提交小型值快照，跨World有效。
+    if (!HasAuthority() || !State || !Saves || !Player || !Player->GetWeaponComponent())
+    { UE_LOG(LogFPSDemo, Warning, TEXT("Reset checkpoint rejected: missing authority/state/player/equipment/save service")); return false; }
+    UDemoRunSave* Loadout = NewObject<UDemoRunSave>(this); // 只供本次同步采集，ResetActive只复制装备字段，不保存Actor引用。
+    Loadout->MagazineBonus = State->UpgradeProgress.PermanentMagazine; // 去掉银币容量后按永久容量补满，与重开的GAS基线一致。
+    Player->GetWeaponComponent()->CaptureLoadout(*Loadout, true);
+    return Saves->ResetActive(State->Difficulty, State->Coins, State->UpgradeProgress, Loadout);
+}
 bool AFPSDemoGameMode::RestoreCheckpoint(const UDemoRunSave& Data)
 {
     DEMO_LOG_CALL();
+    const UDemoPlayerProfile* Profile=GetGameInstance()->GetSubsystem<UDemoPlayerProfile>(); // 模式解锁跨槽共享，读档不能绕过账号条件。
+    if (!Profile || (Data.Difficulty==EDemoDifficulty::Hell && !Profile->IsHellUnlocked()) || (Data.bEndless && !Profile->IsEndlessUnlocked()))
+    { UE_LOG(LogFPSDemo,Warning,TEXT("Restore rejected: challenge mode locked")); return false; }
     if (!Data.Validate() || !StartRun()) { UE_LOG(LogFPSDemo, Error, TEXT("RestoreCheckpoint rejected: data/config/startup failure")); return false; }
     ADemoGameState* State = GetGameState<ADemoGameState>(); // StartRun已创建新安全区和干净角色状态。
     ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0)); // 本World新Avatar。
     CampaignRunId = Data.RunId;
+    State->bEndless = Data.bEndless; State->BestEndlessLevel = Data.BestEndlessLevel; State->PistolChallenge = Data.PistolChallenge; // 不在StartRun重新授予旧检查点资格。
     State->Difficulty = Data.Difficulty; State->LevelNumber = Data.CompletedLevel;
     State->Coins = Data.Coins; State->TotalKills = Data.Kills; State->Purchases = Data.Purchases;
     State->SilverCoins = Data.SilverCoins; State->GoldPurchases = Data.GoldPurchases; State->SilverPurchases = Data.SilverPurchases; // GI在读盘时已完成旧格式到V3迁移。
@@ -96,7 +117,7 @@ bool AFPSDemoGameMode::ContinueAfterVictory()
     ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0)); // 保留现有Avatar及ASC，不创建默认角色覆盖数据。
     ADemoPlayerController* PC = Player ? Cast<ADemoPlayerController>(Player->GetController()) : nullptr; // 清除结算/暂停输入状态的拥有者。
     UDemoPlayerProfile* Profile = GetGameInstance()->GetSubsystem<UDemoPlayerProfile>(); // 永久解锁依据已完成的旧RunId幂等补记。
-    if (!State || !Player || !PC || !Profile || !bAreasReady || bRestartRequested || !ActiveEnemies.IsEmpty()
+    if (!State || !Player || !PC || !Profile || !bAreasReady || bRestartRequested || SpawnSystem->GetRemaining() != 0
         || State->Phase != EDemoPhase::Victory || State->LevelNumber != DemoCombatConfig::LevelCount)
     { UE_LOG(LogFPSDemo, Warning, TEXT("VICTORY_CONTINUE rejected: incomplete victory/runtime/travel")); return false; }
     // 必须先提交旧战役凭据再创建新GUID；旧Victory文件反复读入不能产生重复解锁记录。
@@ -107,11 +128,12 @@ bool AFPSDemoGameMode::ContinueAfterVictory()
     // 兼容旧Victory存档里残留的成长/银币；金币与解锁保留，当前库存按基础容量加金币永久容量重新补给。
     ResetCompletedRunGrowth();
     State->LevelNumber = 0;
+    State->PistolChallenge = 0; State->bEndless = false; // 新挑战重新选择模式，账号永久解锁与最高纪录不清除。
     State->EnemiesRemaining = 0;
     State->bReturnToHubOnRestart = false;
     State->FailureReason.Empty();
     CampaignRunId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
-    GetWorldTimerManager().ClearTimer(FinishLevelTimer);
+    SpawnSystem->CancelEncounter(false); // 通关回Hub清理本轮组件状态，不再由GameMode保留推进Timer。
     SetPhase(EDemoPhase::Hub);
     Player->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     PlacePlayerInHub(Player, false);
@@ -119,7 +141,8 @@ bool AFPSDemoGameMode::ContinueAfterVictory()
     PC->OnRunReady();
     // 保存失败仍保留可操作的Hub和内存金币/解锁；HUD显示错误，下一次出发会先重试保存，旧Victory档也仍可继续。
     if (!SaveCheckpoint()) UE_LOG(LogFPSDemo, Warning, TEXT("VICTORY_CONTINUE hub checkpoint pending; progress retained in memory"));
-    UE_LOG(LogFPSDemo, Log, TEXT("VICTORY_CONTINUE Hub coins=%d purchases=%d kills=%d nextRun=%s"), State->Coins, State->Purchases, State->TotalKills, *CampaignRunId);
+    // 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
+    UE_LOG(LogFPSDemo, Display, TEXT("VICTORY_CONTINUE Hub coins=%d purchases=%d kills=%d nextRun=%s"), State->Coins, State->Purchases, State->TotalKills, *CampaignRunId);
     return true;
 }
 bool AFPSDemoGameMode::HasRunUpgrades() const
@@ -139,8 +162,7 @@ bool AFPSDemoGameMode::ReturnToSafeHub(bool bConfirmed)
     // 通关返回统一清空临时成长/银币、保留金币成长与武器解锁；所有返回入口共用同一规则。
     if (State && State->Phase == EDemoPhase::Victory) return ContinueAfterVictory();
     if (!State || State->Phase == EDemoPhase::Lobby || bRestartRequested || (HasRunUpgrades() && !bConfirmed)) { UE_LOG(LogFPSDemo, Warning, TEXT("ReturnToSafeHub rejected: state/travel pending/unconfirmed growth")); return false; }
-    UDemoRunSaves* Saves = GetGameInstance()->GetSubsystem<UDemoRunSaves>(); // 永久解锁与本次重置完全分开。
-    if (!Saves->ResetActive(State->Difficulty, State->Coins, State->UpgradeProgress)) return false;
+    if (!SaveResetCheckpoint()) return false; // 主动放弃与死亡重开共用装备保留规则。
     TravelToRun(true); // 有槽和无槽开发World统一消费GI值快照，不通过URL丢失永久属性。
     return true;
 }
@@ -149,6 +171,7 @@ void AFPSDemoGameMode::TravelToRun(bool bResume)
     DEMO_LOG_CALL();
     if (bRestartRequested) { UE_LOG(LogFPSDemo, Log, TEXT("Travel duplicate ignored")); return; }
     bRestartRequested = true;
+    SpawnSystem->CancelEncounter(false); // 提交旅行时立即取消，不能在OpenLevel生效前的旧World继续补怪或结算。
     UGameplayStatics::SetGamePaused(this, false); // 防止新World继承暂停意图，旧Timer随World销毁。
     UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this,true)), true, bResume ? TEXT("ResumeRun=1") : TEXT(""));
 }

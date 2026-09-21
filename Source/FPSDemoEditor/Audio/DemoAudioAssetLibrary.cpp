@@ -11,10 +11,24 @@
 
 bool UDemoAudioAssetLibrary::ConfigureWeaponCue(USoundCue* Cue, const TArray<USoundWave*>& Waves, USoundAttenuation* Attenuation)
 {
+    UE_LOG(LogFPSDemo, Log, TEXT("%hs legacy defaults cue=%s"), __FUNCTION__, *GetNameSafe(Cue));
+    return ConfigureWeaponCueWithSettings(Cue, Waves, Attenuation, FDemoWeaponCueSettings());
+}
+
+bool UDemoAudioAssetLibrary::ConfigureWeaponCueWithSettings(USoundCue* Cue, const TArray<USoundWave*>& Waves,
+    USoundAttenuation* Attenuation, const FDemoWeaponCueSettings& Settings)
+{
     UE_LOG(LogFPSDemo, Log, TEXT("%hs cue=%s waves=%d"), __FUNCTION__, *GetNameSafe(Cue), Waves.Num());
-    if (!Cue || Waves.Num() != 3 || !Attenuation || Waves.Contains(nullptr))
+    // 所有字段先检查有限性及范围；先于 Modify，避免将 NaN/无效音高写入资产。
+    if (!Cue || Waves.Num() != 3 || !Attenuation || Waves.Contains(nullptr)
+        || !FMath::IsFinite(Settings.PitchRange.X) || !FMath::IsFinite(Settings.PitchRange.Y)
+        || Settings.PitchRange.X <= 0.0 || Settings.PitchRange.X > Settings.PitchRange.Y
+        || !FMath::IsFinite(Settings.GainDbRange.X) || !FMath::IsFinite(Settings.GainDbRange.Y)
+        || Settings.GainDbRange.X < -60.0 || Settings.GainDbRange.Y > 6.0 || Settings.GainDbRange.X > Settings.GainDbRange.Y
+        || !FMath::IsFinite(Settings.DurationSeconds) || Settings.DurationSeconds <= 0.f
+        || !FMath::IsFinite(Settings.Volume) || Settings.Volume <= 0.f || Settings.Volume > 1.f)
     {
-        UE_LOG(LogFPSDemo, Error, TEXT("Audio authoring rejected: requires Cue, exactly three waves and attenuation"));
+        UE_LOG(LogFPSDemo, Error, TEXT("Audio authoring rejected: missing assets, not three waves, or invalid cue settings"));
         return false;
     }
     // 命令行导入也需要 AudioEditor 安装 SoundCue 图操作接口，禁止直接生成假的图序列化数据。
@@ -65,14 +79,15 @@ bool UDemoAudioAssetLibrary::ConfigureWeaponCue(USoundCue* Cue, const TArray<USo
     Random->bRandomizeWithoutReplacement = true;
     Random->PreselectAtLevelLoad = 0;
     Random->bShouldExcludeFromBranchCulling = true;
-    Modulator->PitchMin = 0.95f;
-    Modulator->PitchMax = 1.05f;
-    // SoundNodeModulator 用线性振幅倍率；dB 转换是 10^(dB/20)，不是 1 +/- 1.5。
-    Modulator->VolumeMin = FMath::Pow(10.f,-1.5f/20.f);
-    Modulator->VolumeMax = FMath::Pow(10.f,1.5f/20.f);
+    Modulator->PitchMin = Settings.PitchRange.X;
+    Modulator->PitchMax = Settings.PitchRange.Y;
+    // SoundNodeModulator 存 float；显式转换 FVector2D 的 double，构图/验证均用相同精度。
+    // dB 转线性振幅为 10^(dB/20)，不能将 dB 直接当振幅相加。
+    Modulator->VolumeMin = FMath::Pow(10.f, static_cast<float>(Settings.GainDbRange.X)/20.f);
+    Modulator->VolumeMax = FMath::Pow(10.f, static_cast<float>(Settings.GainDbRange.Y)/20.f);
     Modulator->GraphNode->NodePosX = -200;
     Random->GraphNode->NodePosX = -430;
-    Cue->VolumeMultiplier = 1.f;
+    Cue->VolumeMultiplier = Settings.Volume;
     Cue->PitchMultiplier = 1.f;
     Cue->AttenuationSettings = Attenuation;
     Cue->bOverrideAttenuation = false;
@@ -85,10 +100,16 @@ bool UDemoAudioAssetLibrary::ConfigureWeaponCue(USoundCue* Cue, const TArray<USo
     Cue->CompileSoundNodesFromGraphNodes();
     Cue->PostEditChange();
     Cue->MarkPackageDirty();
-    return ValidateWeaponCue(Cue);
+    return ValidateWeaponCueWithSettings(Cue, Settings);
 }
 
 bool UDemoAudioAssetLibrary::ValidateWeaponCue(USoundCue* Cue)
+{
+    UE_LOG(LogFPSDemo, Log, TEXT("%hs legacy defaults cue=%s"), __FUNCTION__, *GetNameSafe(Cue));
+    return ValidateWeaponCueWithSettings(Cue, FDemoWeaponCueSettings());
+}
+
+bool UDemoAudioAssetLibrary::ValidateWeaponCueWithSettings(USoundCue* Cue, const FDemoWeaponCueSettings& Expected)
 {
     UE_LOG(LogFPSDemo, Log, TEXT("%hs cue=%s"), __FUNCTION__, *GetNameSafe(Cue));
     // 校验引用仅在本次同步调用借用；从反序列化后的实际节点读取配置。
@@ -96,9 +117,11 @@ bool UDemoAudioAssetLibrary::ValidateWeaponCue(USoundCue* Cue)
     const USoundNodeRandom* Random = Modulator && Modulator->ChildNodes.Num() == 1 ? Cast<USoundNodeRandom>(Modulator->ChildNodes[0]) : nullptr;
     if (!Cue || !Random || Random->ChildNodes.Num() != 3 || Random->Weights.Num() != 3 || Cue->AllNodes.Num() != 5
         || !Random->bRandomizeWithoutReplacement || Random->PreselectAtLevelLoad != 0
-        || !FMath::IsNearlyEqual(Modulator->PitchMin,0.95f) || !FMath::IsNearlyEqual(Modulator->PitchMax,1.05f)
-        || !FMath::IsNearlyEqual(Modulator->VolumeMin,FMath::Pow(10.f,-1.5f/20.f))
-        || !FMath::IsNearlyEqual(Modulator->VolumeMax,FMath::Pow(10.f,1.5f/20.f))
+        || !FMath::IsNearlyEqual(Modulator->PitchMin, static_cast<float>(Expected.PitchRange.X))
+        || !FMath::IsNearlyEqual(Modulator->PitchMax, static_cast<float>(Expected.PitchRange.Y))
+        || !FMath::IsNearlyEqual(Modulator->VolumeMin,FMath::Pow(10.f,static_cast<float>(Expected.GainDbRange.X)/20.f))
+        || !FMath::IsNearlyEqual(Modulator->VolumeMax,FMath::Pow(10.f,static_cast<float>(Expected.GainDbRange.Y)/20.f))
+        || !FMath::IsNearlyEqual(Cue->VolumeMultiplier,Expected.Volume) || !FMath::IsNearlyEqual(Cue->PitchMultiplier,1.f)
         || !Cue->AttenuationSettings || Cue->bOverrideAttenuation)
     {
         UE_LOG(LogFPSDemo, Error, TEXT("Audio validation failed: topology/modulation/attenuation reference"));
@@ -112,7 +135,7 @@ bool UDemoAudioAssetLibrary::ValidateWeaponCue(USoundCue* Cue)
         // Player/Wave 均借用已加载 Cue 的节点及波形引用，仅验证，不改变所有权。
         const USoundNodeWavePlayer* Player = Cast<USoundNodeWavePlayer>(Random->ChildNodes[Index]);
         const USoundWave* Wave = Player ? Player->GetSoundWave() : nullptr;
-        if (!Wave || Player->bLooping || Wave->NumChannels != 1 || !FMath::IsNearlyEqual(Wave->Duration,0.4f,0.001f)
+        if (!Wave || Player->bLooping || Wave->NumChannels != 1 || !FMath::IsNearlyEqual(Wave->Duration,Expected.DurationSeconds,0.001f)
             || !FMath::IsNearlyEqual(Random->Weights[Index],1.f))
         {
             UE_LOG(LogFPSDemo, Error, TEXT("Audio validation failed: branch=%d wave format/duration/weight"),Index);
@@ -128,7 +151,8 @@ bool UDemoAudioAssetLibrary::ValidateWeaponCue(USoundCue* Cue)
         UE_LOG(LogFPSDemo, Error, TEXT("Audio validation failed: uniqueness or spatial settings"));
         return false;
     }
-    UE_LOG(LogFPSDemo, Display, TEXT("AUDIO_CUE_VALID %s variants=3 pitch=[0.95,1.05] gain_db=[-1.5,1.5] inner_cm=%.0f falloff_cm=%.0f"),
-        *Cue->GetPathName(),Settings.AttenuationShapeExtents.X,Settings.FalloffDistance);
+    UE_LOG(LogFPSDemo, Display, TEXT("AUDIO_CUE_VALID %s variants=3 pitch=[%.3f,%.3f] gain_db=[%.1f,%.1f] volume=%.2f duration=%.3f inner_cm=%.0f falloff_cm=%.0f"),
+        *Cue->GetPathName(), Expected.PitchRange.X, Expected.PitchRange.Y, Expected.GainDbRange.X, Expected.GainDbRange.Y,
+        Expected.Volume, Expected.DurationSeconds, Settings.AttenuationShapeExtents.X, Settings.FalloffDistance);
     return true;
 }

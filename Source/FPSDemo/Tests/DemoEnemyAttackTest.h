@@ -15,6 +15,30 @@ public:
     /** DeltaSeconds为帧间秒数；各步骤在真实World等待而非手工调用技能结束回调。 */
     virtual void Tick(float DeltaSeconds) override;
 private:
+    /** -DemoSpawnSystemTest：真实组件队列、区域、取消、阻挡重试、异常销毁与奖励权限边界。 */
+    void TickSpawnSystemTest();
+    /** 组件事件同步回调；Enemy/Reason只在调用栈借用，计数用于验证一次性通知。 */
+    void OnTestSpawnDefeated(ADemoEnemy* Enemy);
+    void OnTestSpawnCleared();
+    void OnTestSpawnFailed(const FString& Reason);
+    /** 清理/伤害本测试Owner生成的敌人，bKill=false只停止Tick，Count限制真实死亡次数。 */
+    void ProcessTestSpawnEnemies(bool bKill, int32 Count = MAX_int32);
+    UPROPERTY() TObjectPtr<class UDemoEnemySpawnComponent> TestSpawner; // 测试Actor拥有并注册，随World卸载。
+    int32 SpawnClears = 0, SpawnFailures = 0, SpawnKills = 0; // 只在本专项递增，普通敌人测试不使用。
+    /** -DemoCloseCombatTest：实际生产混编、近战前摇、直线冲刺碰撞与取消。 */
+    void TickCloseCombatTest();
+    int32 CloseScenario=0; // 独立场景编号：近战命中/走开/冰冻、突进命中/侧闪/墙/阶段/冲刺窗口/死亡。
+    float CloseBeforeHealth=0.f; // 当前场景玩家实际健康快照，用于精确一次伤害断言。
+    float CloseStartTime=0.f; // 起手观察World秒，验证前摇不会提前结算。
+    FVector CloseLockedDirection=FVector::ZeroVector; // 起手方向值快照，验证玩家移动后不追踪。
+    /** -DemoEnemyHitZoneTest：真PhysicsAsset射线、三部位GAS伤害、护板开合及元素/穿透回归。 */
+    void TickHitZoneTest();
+    // 测试通过真实骨骼查询找到的稳定模型空间命中点；索引0机身、1手臂、2核心，不跨关卡保留。
+    FVector HitZonePoints[3]={FVector::ZeroVector,FVector::ZeroVector,FVector::ZeroVector};
+    float HitZoneHealth=0.f; // 当前步骤伤前生命值，供异步动画/周期效果后的结算断言。
+    /** -DemoEnemyAnimationTest：真实World/AnimBP/GAS任务、骨姿势、冻结、优先级与死亡生命周期。 */
+    void TickAnimationTest();
+    FVector AnimationBone=FVector::ZeroVector; // 首次播放前forearm_l模型空间位置，验证姿势真的变化。
     /** -DemoBossDiveTest专项：真实GA/GE/扫掠、无敌/旧DOT/新Debuff、落地与取消。 */
     void TickDiveTest();
     int32 DiveScenario=0; // 当前独立场景：命中/冲刺/出圈/取消/阶段取消/升空死亡/动态阻挡/致命命中。

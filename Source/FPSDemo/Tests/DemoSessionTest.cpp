@@ -16,6 +16,7 @@
 #include "GAS/DemoTags.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "AI/DemoEnemy.h"
+#include "AI/DemoEnemyTactics.h" // 从真实生成实例检查兵种，而不是只断言抽签函数返回值。
 #include "UI/DemoHUD.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/PlayerInput.h"
@@ -42,6 +43,15 @@ namespace
     int32 ExpectedClearGold = 0; // 由真实DataTable读取的本关金币奖励，不硬编码测试值。
     int32 BeforeClearSilver = 0; // 击杀前银币，逐怪累计实例快照后验证准确到账。
     FString ExitReadOnlyPath; // 退出专项仅暂时锁本GI隔离Profile文件；失败/成功都恢复可写。
+    int32 ChallengeRound = 0; // 专项0非手枪困难/1手枪困难/2地狱/3无尽，仅测试进程静态跨旅行。
+    int32 ChallengeObservedLevel = 0; // 每关第一次Combat才检查总数/Boss，补充批次不重复首批断言。
+    bool bChallengeSawQueue = false; // 证明无尽关卡已实际使用分批补怪，而非仅公式计算。
+    int32 EncounterRoles[6] = {}; // 本关实际处理的小怪计数，跨无尽补怪批次累加，首个Combat帧清零。
+    int32 EncounterBosses = 0; // 本关实际Boss总数，确认5/15没有、10/20各一只。
+    double ChallengeStarted = 0; // 专项单调时间上界，失败不能让无人值守测试永久运行。
+    double EquipmentStarted = 0; // 装备持久化专项跨World的单调超时，仅测试进程使用。
+    FString EquipmentRunId; // 死亡前战役ID，重开保留装备但必须换新战役身份。
+    int32 EquipmentGold = 0; // 实际金币购买后的余额，死亡/读档均应保留。
 }
 ADemoSessionTest::ADemoSessionTest()
 {
@@ -53,6 +63,8 @@ ADemoSessionTest::ADemoSessionTest()
     // 配合-DemoSessionTest启动复用隔离存档/设置；仅首个World选择专项步骤，旅行不重置进度。
     if (SessionStep == 0 && FParse::Param(FCommandLine::Get(),TEXT("DemoVictoryContinuationTest"))) SessionStep = 100;
     if (SessionStep == 0 && FParse::Param(FCommandLine::Get(),TEXT("DemoExitSaveTest"))) SessionStep = 200; // 独立快测，不依赖旧战役步骤。
+    if (SessionStep == 0 && FParse::Param(FCommandLine::Get(),TEXT("DemoChallengeTest"))) SessionStep = 300; // 复用Session隔离槽，不增加编辑器联网例外。
+    if (SessionStep == 0 && FParse::Param(FCommandLine::Get(),TEXT("DemoEquipmentPersistenceTest"))) SessionStep = 400; // 同一隔离槽验证死亡/主动放弃/大厅读取，不触及正式存档。
 }
 bool ADemoSessionTest::Check(bool Condition, const TCHAR* Message)
 {
@@ -155,6 +167,210 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
     const UDemoAttributeSet* Attributes = Player->GetDemoAttributes(); // 本步只读GAS视图。
     switch(SessionStep)
     {
+    case 400:
+        EquipmentStarted = FPlatformTime::Seconds();
+        if (!Check(Saves->CreateSlot(0) && Mode->StartRun() && Mode->SelectDifficulty(EDemoDifficulty::Easy), TEXT("equipment test starts isolated slot"))) return;
+        PC->OnRunReady(); Mode->StartNextLevel(); Advance(401, .1); break;
+    case 401:
+        if (!Check(FPlatformTime::Seconds() - EquipmentStarted < 90, TEXT("equipment campaign fixture bounded"))) return;
+        if (State->Phase == EDemoPhase::Combat)
+        {
+            for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 真实十关GE击杀获得步枪解锁，不能靠伪造解锁列表验证装备。
+                if (It->IsAlive()) DemoEffects::Apply(Player->GetDemoASC(), It->GetAbilitySystemComponent(), UDemoHealthEffect::StaticClass(), -10000000.f);
+        }
+        else if (State->Phase == EDemoPhase::Reward) { PC->SelectUpgrade(0); Mode->StartNextLevel(); }
+        else if (State->Phase == EDemoPhase::Victory)
+        {
+            if (!Check(Mode->ContinueAfterVictory(), TEXT("real victory permits rifle selection"))) return;
+            Advance(402); return;
+        }
+        else if (State->Phase == EDemoPhase::Defeat) { Check(false, TEXT("equipment fixture unexpectedly died")); return; }
+        Advance(401, .1); break;
+    case 402:
+        Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation() + FVector(-180, 0, 20));
+        Mode->GetShopTerminal()->Interact(Player);
+        if (!Check(Mode->PurchaseUpgrade(2, Player), TEXT("permanent magazine bought with victory gold"))) return;
+        PC->SetTerminalWeaponPage(true); PC->InspectWeapon(1); PC->EquipInspectedWeapon();
+        PC->CloseWeaponTip(); PC->CloseUpgradeMenu();
+        if (!Check(Player->GetWeaponComponent()->GetPrimaryIndex() == 0 && Saves->GetSlot(0)->PrimaryId == TEXT("rifle"), TEXT("terminal selection saved to current slot"))) return;
+        EquipmentGold = State->Coins; EquipmentRunId = Saves->GetSlot(0)->RunId;
+        Mode->StartNextLevel();
+        DemoEffects::Apply(Player->GetDemoASC(), Player->GetDemoASC(), UDemoMagazineEffect::StaticClass(), 4.f); // 独立临时加成夹具，死亡不能把旧容量当永久容量。
+        State->SilverCoins = 33; // 半场可清零钱包夹具，不能进入重开快照。
+        Player->GetWeaponComponent()->GetActiveWeapon()->RestoreAmmo(2, 3);
+        DemoEffects::Apply(Player->GetDemoASC(), Player->GetDemoASC(), UDemoHealthEffect::StaticClass(), -100000.f); // 真实GAS归零走死亡回调。
+        Saves->RefreshSlots(); // 从UE磁盘文件重新载入，不能只检查内存副本。
+        if (!Check(State->Phase == EDemoPhase::Defeat && Saves->GetSlot(0) && Saves->GetSlot(0)->PrimaryId == TEXT("rifle")
+            && Saves->GetSlot(0)->ActiveSlot == 1 && Saves->GetSlot(0)->Weapons.Num() == 2 && Saves->GetSlot(0)->SilverCoins == 0
+            && Saves->GetSlot(0)->MagazineBonus == 4 && Saves->GetSlot(0)->Coins == EquipmentGold && Saves->GetSlot(0)->RunId != EquipmentRunId,
+            TEXT("death immediately persists rifle selection and only permanent growth"))) return;
+        Mode->RestartDemo(); Advance(403); break;
+    case 403:
+        if (!Check(State->Phase == EDemoPhase::Hub && Player->GetWeaponComponent()->GetPrimaryIndex() == 0
+            && Player->GetWeaponComponent()->GetActiveSlot() == 1 && State->Coins == EquipmentGold && State->SilverCoins == 0
+            && Attributes->GetMagazineBonus() == 4 && Player->GetWeaponComponent()->GetActiveWeapon()->GetAmmo() == Player->GetWeaponComponent()->GetActiveWeapon()->Config.MagazineCapacity + 4
+            && Player->GetWeaponComponent()->GetActiveWeapon()->GetReserveAmmo() == Player->GetWeaponComponent()->GetActiveWeapon()->Config.InitialReserve,
+            TEXT("new Pawn restores rifle and refills using permanent capacity"))) return;
+        Mode->StartNextLevel();
+        if (!Check(Player->GetWeaponComponent()->EquipSlot(2), TEXT("switch to pistol without unequipping primary"))) return;
+        DemoEffects::Apply(Player->GetDemoASC(), Player->GetDemoASC(), UDemoHealthEffect::StaticClass(), -100000.f);
+        if (!Check(Saves->GetSlot(0)->PrimaryId == TEXT("rifle") && Saves->GetSlot(0)->ActiveSlot == 2, TEXT("death while holding pistol still persists rifle"))) return;
+        PC->EscapePressed(); PC->ReturnLobbyPressed(); Advance(404); break;
+    case 404:
+        if (!Check(State->Phase == EDemoPhase::Lobby, TEXT("death page can return directly to lobby"))) return;
+        PC->StartGamePressed(); PC->SelectSaveSlot(0); Advance(405); break;
+    case 405:
+        if (!Check(State->Phase == EDemoPhase::Hub && Player->GetWeaponComponent()->GetPrimaryIndex() == 0
+            && Player->GetWeaponComponent()->GetActiveSlot() == 2 && Player->GetWeaponComponent()->EquipSlot(1), TEXT("lobby disk restore keeps both slots and numeric primary switch works"))) return;
+        if (!Check(Saves->ImportCloud(2, Saves->ExportCloud(0)) && Saves->GetSlot(2)->PrimaryId == TEXT("rifle") && Saves->GetSlot(2)->Weapons.Num() == 2,
+            TEXT("existing V5 cloud DTO carries persisted primary loadout"))) return;
+        Mode->StartNextLevel();
+        if (!Check(Mode->ReturnToSafeHub(true), TEXT("abandon uses same persistent equipment reset"))) return;
+        Advance(406); break;
+    case 406:
+        if (!Check(State->Phase == EDemoPhase::Hub && Player->GetWeaponComponent()->GetPrimaryIndex() == 0 && Player->GetWeaponComponent()->GetActiveSlot() == 1,
+            TEXT("abandon retains equipped primary after travel"))) return;
+        PC->EscapePressed(); PC->ReturnLobbyPressed(); Advance(407); break;
+    case 407:
+        PC->StartGamePressed(); PC->SelectSaveSlot(1); PC->ConfirmCreateSave(true); Advance(408); break;
+    case 408:
+        if (!Check(State->Phase == EDemoPhase::Hub && Saves->GetActiveSlot() == 1 && Saves->GetSlot(1)->PrimaryId.IsNone()
+            && Player->GetWeaponComponent()->GetPrimaryIndex() == INDEX_NONE && Player->GetWeaponComponent()->GetActiveSlot() == 2,
+            TEXT("new save does not borrow primary equipment from another slot or account preference"))) return;
+        UE_LOG(LogFPSDemo, Display, TEXT("DEMO_EQUIPMENT_PERSISTENCE_SUCCESS: death, disk reload, both active slots, permanent capacity, cloud DTO, abandon and new-slot isolation"));
+        SetActorTickEnabled(false); FPlatformMisc::RequestExitWithStatus(false, 0); break;
+    case 300:
+        ChallengeStarted=FPlatformTime::Seconds();
+        if (!Check(!GetGameInstance()->GetSubsystem<UDemoPlayerProfile>()->IsHellUnlocked() && !GetGameInstance()->GetSubsystem<UDemoPlayerProfile>()->IsEndlessUnlocked(),TEXT("new profile locks Hell and Endless"))) return;
+        if (!Check(Saves->CreateSlot(0) && Mode->StartRun(),TEXT("challenge owns isolated run"))) return;
+        PC->OnRunReady();
+        if (!Check(!Mode->SelectDifficulty(EDemoDifficulty::Hell) && !Mode->SelectEndless(),TEXT("locked modes rejected by authority"))) return;
+        {
+            FDemoEnemySpawnStats HardStats, HellStats; FString Error; // 只读预览生成公式；不通过未解锁的难度进入战斗。
+            State->Difficulty=EDemoDifficulty::Hard; Mode->GetSpawnStats(1,false,HardStats,Error);
+            State->Difficulty=EDemoDifficulty::Hell; Mode->GetSpawnStats(1,false,HellStats,Error);
+            if (!Check(HellStats.Health>HardStats.Health && HellStats.AttackPower>HardStats.AttackPower && HellStats.Attack.ProjectileInterval<HardStats.Attack.ProjectileInterval && HellStats.Attack.IsValid(),TEXT("Hell raises health damage and valid attack frequency"))) return;
+            State->Difficulty=EDemoDifficulty::Normal;
+        }
+        Mode->SelectDifficulty(EDemoDifficulty::Hard); Mode->StartNextLevel();
+        if (!Check(Mode->RegisterWeaponShot(TEXT("rifle")) && State->PistolChallenge==2 && Saves->GetSlot(0)->PistolChallenge==2,TEXT("nonpistol shot immediately persists disqualification"))) return;
+        // 半场返回大厅再读同一检查点，不能恢复资格；通过真实OpenLevel创建新GameMode。
+        PC->EscapePressed(); PC->ReturnLobbyPressed(); Advance(306); break;
+    case 306:
+        PC->StartGamePressed(); PC->SelectSaveSlot(0); Advance(307); break;
+    case 307:
+        if (!Check(State->PistolChallenge==2 && State->LevelNumber==0,TEXT("checkpoint restart retains failed pistol challenge"))) return;
+        Mode->StartNextLevel(); Advance(301,.1); break;
+    case 301:
+        if (!Check(FPlatformTime::Seconds()-ChallengeStarted<180,TEXT("challenge regression bounded runtime"))) return;
+        if (State->Phase == EDemoPhase::Reward || State->Phase == EDemoPhase::Victory)
+        {
+            if (!Check(EncounterRoles[4] > 0 && EncounterRoles[5] > 0 && EncounterRoles[1] == 0 && EncounterRoles[3] == 0
+                && (State->LevelNumber % 5 == 0 ? EncounterRoles[2] > 0 : EncounterRoles[2] == 0)
+                && EncounterBosses == (State->LevelNumber % 10 == 0 ? 1 : 0), TEXT("completed wave: melee/charger only except fifth-wave ranged; Boss only every tenth"))) return;
+            UE_LOG(LogFPSDemo, Display, TEXT("ENCOUNTER_TEST level=%d endless=%d melee=%d charger=%d ranged=%d boss=%d"), State->LevelNumber, State->bEndless, EncounterRoles[4], EncounterRoles[5], EncounterRoles[2], EncounterBosses);
+        }
+        if (State->Phase==EDemoPhase::Combat)
+        {
+            if (State->LevelNumber!=ChallengeObservedLevel)
+            {
+                ChallengeObservedLevel=State->LevelNumber;
+                for (int32& Count : EncounterRoles) Count = 0; // 本关第一帧重置，后续Timer补充批次保持累计。
+                EncounterBosses = 0;
+                if (ChallengeRound==1 && State->LevelNumber==1)
+                {
+                    if (!Check(Player->GetDemoASC()->ActivateDemoAbility(UDemoFireAbility::StaticClass()) && State->PistolChallenge==1 && Saves->GetSlot(0)->PistolChallenge==1,TEXT("real GAS pistol shot qualifies and persists before damage"))) return;
+                }
+                if (ChallengeRound==3)
+                {
+                    FDemoLevelRow Current; FDemoDifficultyRow Difficulty; FString Error; // 真实生成快照，用实例值验证生产路径一致。
+                    if (!Check(Mode->GetLevelConfig(State->LevelNumber,Current,Difficulty,Error),TEXT("endless level resolves beyond fixed table"))) return;
+                    int32 Alive=0, Bosses=0; // 当前首批数量与Boss周期计数，不包括已死亡Actor。
+                    TSet<EDemoEnemyRole> FirstBatchRoles; // Boss波首批必须三类同时在场，不能仅依靠后续队列补齐。
+                    for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) if (It->IsAlive())
+                    { ++Alive; if (It->IsBoss()) ++Bosses; else FirstBatchRoles.Add(It->FindComponentByClass<UDemoEnemyTactics>()->GetRole()); }
+                    if (!Check(Bosses==(State->LevelNumber%10==0?1:0) && State->EnemiesRemaining==Current.EnemyCount+Bosses,TEXT("endless boss every ten and remaining includes full wave"))) return;
+                    if (State->LevelNumber % 5 == 0 && !Check(FirstBatchRoles.Contains(EDemoEnemyRole::Melee) && FirstBatchRoles.Contains(EDemoEnemyRole::Charger) && FirstBatchRoles.Contains(EDemoEnemyRole::Ranged), TEXT("fifth wave first batch has all three minions alongside any Boss"))) return;
+                    if (State->EnemiesRemaining>Alive) bChallengeSawQueue=true;
+                    if (State->LevelNumber>1 && !Check(Current.HealthMultiplier>1 && Current.EnemyCoinReward>=10,TEXT("endless stats and silver grow"))) return;
+                }
+            }
+            for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 真正GE死亡回调推进关卡；无尽待生成批次仍等待生产Timer。
+                if (It->IsAlive())
+                {
+                    if (It->IsBoss()) ++EncounterBosses;
+                    else
+                    {
+                        const EDemoEnemyRole SpawnedRole = It->FindComponentByClass<UDemoEnemyTactics>()->GetRole(); // 实例实际角色，避免遮蔽AActor::Role导致C4458构建失败；Boss不混入小怪计数。
+                        if (!Check(SpawnedRole == EDemoEnemyRole::Melee || SpawnedRole == EDemoEnemyRole::Charger || (State->LevelNumber % 5 == 0 && SpawnedRole == EDemoEnemyRole::Ranged), TEXT("every spawned batch obeys level role pool"))) return;
+                        ++EncounterRoles[static_cast<int32>(SpawnedRole)];
+                    }
+                    It->SetActorTickEnabled(false); DemoEffects::Apply(Player->GetDemoASC(),It->GetAbilitySystemComponent(),UDemoHealthEffect::StaticClass(),-10000000.f);
+                }
+        }
+        else if (State->Phase==EDemoPhase::Reward)
+        {
+            PC->SelectUpgrade(0);
+            if (ChallengeRound==3 && State->LevelNumber==20) // 实际运行到第二个Boss周期，覆盖15关无Boss、20关有Boss以及其间所有补怪。
+            {
+                if (!Check(bChallengeSawQueue && State->BestEndlessLevel==20 && Saves->GetSlot(0)->CompletedLevel==20 && Saves->GetSlot(0)->BestEndlessLevel==20,TEXT("endless reaches twenty, batches spawn and best record autosaves"))) return;
+                PC->EscapePressed(); PC->ReturnLobbyPressed(); Advance(308); return;
+            }
+            Mode->StartNextLevel();
+        }
+        else if (State->Phase==EDemoPhase::Victory)
+        {
+            UDemoPlayerProfile* Profile=GetGameInstance()->GetSubsystem<UDemoPlayerProfile>(); // 本GI永久事实，写盘后重新载入验证。
+            if (ChallengeRound==0)
+            {
+                if (!Check(!Profile->IsHellUnlocked(),TEXT("nonpistol hard victory cannot unlock Hell"))) return;
+                // 本轮从全新档直接通关困难，不能靠事先普通通关掩盖越级解锁问题；磁盘重载使用相同派生规则。
+                if (!Check(Profile->IsUnlocked(TEXT("shotgun")) && Profile->IsUnlocked(TEXT("sniper")) && !Profile->IsUnlocked(TEXT("rifle"))
+                    && Profile->GetData().Clears.Num()==1 && Profile->GetData().Clears[0].DifficultyId==TEXT("hard")
+                    && Profile->ReloadFromDisk() && Profile->IsUnlocked(TEXT("shotgun")), TEXT("hard-only victory unlocks shotgun and sniper without fabricated normal/easy clears; reload retains it"))) return;
+                Mode->ContinueAfterVictory(); ChallengeRound=1; ChallengeObservedLevel=0;
+                if (!Check(State->PistolChallenge==0,TEXT("new challenge resets qualification"))) return;
+                Mode->SelectDifficulty(EDemoDifficulty::Hard); Mode->StartNextLevel();
+            }
+            else if (ChallengeRound==1)
+            {
+                if (!Check(Profile->IsHellUnlocked() && Profile->ReloadFromDisk() && Profile->IsHellUnlocked() && !Profile->IsEndlessUnlocked(),TEXT("pistol hard victory persistently unlocks only Hell"))) return;
+                Mode->ContinueAfterVictory(); ChallengeRound=2; ChallengeObservedLevel=0;
+                if (!Check(Mode->SelectDifficulty(EDemoDifficulty::Hell),TEXT("unlocked Hell can start"))) return;
+                Mode->StartNextLevel();
+            }
+            else
+            {
+                if (!Check(Profile->IsEndlessUnlocked() && PC->GetMenuPage()==EDemoMenuPage::EndlessUnlock,TEXT("Hell victory unlocks Endless and modal tip"))) return;
+                Capture(TEXT("10-EndlessUnlocked")); Advance(302,.4); return;
+            }
+        }
+        else if (State->Phase==EDemoPhase::Defeat) { Check(false,TEXT("challenge must not fail while advancing")); return; }
+        Advance(301,.1); break;
+    case 302:
+        if (!Click(TEXT("OverlayBack"))) return;
+        Mode->ContinueAfterVictory();
+        Player->SetActorLocation(Mode->GetNextLevelTerminal()->GetActorLocation()+FVector(-180,0,20));
+        Mode->GetNextLevelTerminal()->Interact(Player); Advance(303); break;
+    case 303:
+        Capture(TEXT("11-ChallengeSelection")); Advance(304,.4); break;
+    case 304:
+        if (!Click(TEXT("Endless"))) return;
+        ChallengeRound=3; ChallengeObservedLevel=0; Advance(301,.1); break;
+    case 308:
+        PC->StartGamePressed(); PC->SelectSaveSlot(0); Advance(309); break;
+    case 309:
+        if (!Check(State->bEndless && State->LevelNumber==20 && State->BestEndlessLevel==20 && State->Phase==EDemoPhase::Intermission,TEXT("endless checkpoint restores beyond level ten"))) return;
+        if (!Check(Saves->ImportCloud(2,Saves->ExportCloud(0)) && Saves->GetSlot(2)->bEndless && Saves->GetSlot(2)->CompletedLevel==20 && Saves->GetSlot(2)->BestEndlessLevel==20,TEXT("V5 JSON export/import retains mode and endless record"))) return;
+        {
+            UDemoRunSave* Legacy=DuplicateObject<UDemoRunSave>(Saves->GetSlot(0),this); // 独立值样本验证V4迁移，不覆盖真实测试检查点。
+            Legacy->Version=4; Legacy->bEndless=false; Legacy->BestEndlessLevel=0; Legacy->PistolChallenge=0; Legacy->Difficulty=EDemoDifficulty::Hard; Legacy->CompletedLevel=2;
+            if (!Check(Legacy->UpgradeLegacy() && Legacy->PistolChallenge==2 && Legacy->Version==5,TEXT("legacy active campaign cannot retroactively prove pistol-only"))) return;
+        }
+        Mode->NotifyPlayerDied();
+        if (!Check(Saves->GetSlot(0)->CompletedLevel==0 && Saves->GetSlot(0)->BestEndlessLevel==20 && Saves->GetSlot(0)->bEndless && Saves->GetSlot(0)->SilverCoins==0,TEXT("death clears current run and silver but retains endless best"))) return;
+        UE_LOG(LogFPSDemo,Display,TEXT("DEMO_CHALLENGE_SUCCESS: lock, pistol qualification, three campaigns, Hell tip, 20 endless waves, fifth ranged/tenth Boss, batches, restore and death record"));
+        SetActorTickEnabled(false); FPlatformMisc::RequestExitWithStatus(false,0); break;
     case 200:
         // 大厅取消必须解除本流程新增的暂停，重复退出/离线按钮不得穿透初始保存阶段。
         PC->QuitPressed(); PC->QuitPressed(); PC->QuitWithLocalSave();
@@ -214,12 +430,17 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         FDemoLevelRow Level; FDemoDifficultyRow Difficulty; FString Error; // 本帧配置值，前九关金币为0，只有最终关按难度计算整轮奖励。
         if (!Check(Mode->GetLevelConfig(State->LevelNumber,Level,Difficulty,Error),TEXT("currency reward config available"))) return;
         BeforeClearGold=State->Coins; ExpectedClearGold=State->LevelNumber==DemoCombatConfig::LevelCount?Difficulty.VictoryGoldReward:0; BeforeClearSilver=State->SilverCoins;
+        int32 KilledThisLevel = 0; // 尸体因死亡动画延迟1.65秒销毁，预期只累计本关真正由活转死的实例。
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 实际注册怪经GAS死亡推进，不直接伪造Victory或解锁状态。
         {
+            if (!It->IsAlive()) { Mode->NotifyEnemyKilled(*It); continue; } // 旧尸体仍提交重复通知验证不发币，但不能再次算入本关期望。
+            if (!Check(It->GetMonsterLevel()==State->LevelNumber, TEXT("only current level has living encounter enemies"))) return;
+            ++KilledThisLevel;
             BeforeClearSilver+=It->GetCoinReward();
             It->SetActorTickEnabled(false); DemoEffects::Apply(Player->GetDemoASC(),It->GetAbilitySystemComponent(),UDemoHealthEffect::StaticClass(),-100000.f);
             Mode->NotifyEnemyKilled(*It); // 真实死亡后的重复通知必须不再发银币。
         }
+        if (!Check(KilledThisLevel==Level.EnemyCount+(Level.BossRow.IsNone()?0:1), TEXT("all expected current-wave enemies actually killed"))) return;
         if (!Check(State->Coins==BeforeClearGold && State->SilverCoins==BeforeClearSilver,TEXT("kills and duplicate callbacks only award exact silver, never gold"))) return;
         Advance(103); break;
         }

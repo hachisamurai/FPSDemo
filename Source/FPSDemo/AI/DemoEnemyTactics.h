@@ -5,7 +5,7 @@
 
 /** 自动混编按出生序号分配，固定角色可用于关卡单独制作；Boss始终使用专用行为。 */
 UENUM(BlueprintType)
-enum class EDemoEnemyRole : uint8 { Mixed, Chaser, Ranged, Flanker };
+enum class EDemoEnemyRole : uint8 { Mixed, Chaser, Ranged, Flanker, Melee, Charger }; // 追加值保持旧配置枚举稳定，纯近身角色单独接管攻击。
 
 /** 标准压迫感参数；实例复制配置，不在战斗中修改共享DataTable。 */
 USTRUCT(BlueprintType)
@@ -14,8 +14,10 @@ struct FPSDEMO_API FDemoEnemyTacticsSettings
     GENERATED_BODY()
     // 关闭后恢复旧追击/攻击节奏，便于配置比较；不是存档字段。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tactics") bool bEnabled = true;
-    // Mixed以追击/远程/侧翼循环混编，避免每次读档随机改变阵容。
+    // Mixed按下方队列循环，固定角色可单独制作纯近战/冲刺模板。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tactics") EDemoEnemyRole Role = EDemoEnemyRole::Mixed;
+    // 1..16个非Mixed角色，可重复条目调比例；生成序号在无尽补怪中同样持续递增。
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tactics") TArray<EDemoEnemyRole> MixedRoles={EDemoEnemyRole::Chaser,EDemoEnemyRole::Ranged,EDemoEnemyRole::Flanker,EDemoEnemyRole::Melee,EDemoEnemyRole::Charger};
     // 远程保持的理想水平距离cm；近于MinimumRange撤离，远于MaximumRange接近。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tactics") float PreferredRange = 850.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tactics") float MinimumRange = 550.f; // cm，回退进入阈值，必须小于理想距离。

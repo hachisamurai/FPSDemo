@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "AbilitySystemComponent.h"
 #include "DemoAbilitySystemComponent.generated.h"
+class USkeletalMeshComponent;
 
 /** 集中处理技能授予与失败日志，保持 Pawn 输入层不直接执行战斗逻辑。 */
 UCLASS()
@@ -17,6 +18,8 @@ public:
 	bool ActivateDemoAbility(TSubclassOf<UGameplayAbility> AbilityClass);
 	/** AbilityClass指定需取消的技能；切枪只取消装填/瞄准，不移除其他冷却或已授予能力。 */
 	void CancelDemoAbility(TSubclassOf<UGameplayAbility> AbilityClass);
+	/** Arms为Avatar拥有的Mesh1P；显式选择主实例，避免ACharacter默认Mesh抢占GAS Montage上下文。 */
+	bool SetFirstPersonAnimationMesh(USkeletalMeshComponent* Arms);
 	/** Tag 为单个冷却标签；返回剩余秒数，无冷却为 0，HUD 只读使用。 */
 	float GetCooldownRemaining(FGameplayTag Tag) const;
 private:

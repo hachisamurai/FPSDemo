@@ -20,9 +20,9 @@ public:
     bool IsUnlocked(int32 Index) const;
     /** 只读当前0..3装配，主副武器共用，默认普通弹。 */
     int32 GetSelected() const;
-    /** 终端权限拒绝原因；无槽、非Hub、暂停、距离不符均不能交易或装配。 */
+    /** 兼容入口转发商店服务权限；无槽、非Hub、暂停、距离不符均不能交易或装配。 */
     FString GetBlockReason() const;
-    /** Index/QuotedCost为确认时固定报价；OutMessage接收成功或失败原因。成功写盘才扣币/解锁。 */
+    /** Index/QuotedCost为确认时固定报价；转发Shop事务，OutMessage接收结果，本组件不再自行扣币。 */
     bool Purchase(int32 Index,int32 QuotedCost,FString& OutMessage);
     /** Index为已解锁类型，保存失败回滚并保留旧GE；OutMessage反馈结果。 */
     bool Equip(int32 Index,FString& OutMessage);
@@ -30,6 +30,7 @@ public:
     void Capture(class UDemoRunSave& Data) const;
     void Restore(const class UDemoRunSave& Data);
 private:
+    friend class UDemoShopComponent; // 仅商店事务可原子修改解锁集合并回滚；UI不能绕过购买接口写库存。
     /** 根据Selected重建唯一装配GE；ASC初始化后或合法装配成功调用。 */
     void RefreshEffect();
     UPROPERTY(EditDefaultsOnly,Category="Ammo") TObjectPtr<class UDemoAmmoCatalog> Catalog; // Editor生成的单一配置资产。

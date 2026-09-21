@@ -8,14 +8,14 @@ class ADemoCharacter;
 class ADemoEnemy;
 class ADemoInteractable;
 
-/** 大厅与十关战役权威状态机；逻辑关卡复用三个物理区域，生成数据统一来自表。 */
+/** 大厅、十关战役与无尽权威状态机；逻辑关卡复用三个物理区域，生成计划来自表，刷怪、奖励和商店由独立组件执行。 */
 UCLASS()
 class FPSDEMO_API AFPSDemoGameMode : public AGameModeBase
 {
 	GENERATED_BODY()
 
 public:
-	/** 提供默认类和三张配置资产引用，无需新建蓝图。 */
+	/** 创建三个系统子组件、默认类和四张配置资产引用，无需新建蓝图。 */
 	AFPSDemoGameMode();
 	/** MapName/Options 是引擎 URL，ErrorMessage 返回初始化错误；覆盖旧蓝图存储的默认类。 */
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
@@ -39,11 +39,15 @@ public:
 	bool ReturnToSafeHub(bool bConfirmed);
 	/** 选择存档/返回大厅统一旅行；bResume需有GI待恢复槽，请求只消费一次。 */
 	void TravelToRun(bool bResume);
-	/** Difficulty为终端选择的三档枚举；仅第0关安全区允许修改，大厅/战斗/关间拒绝。 */
+	/** Difficulty为终端选择的四档枚举，地狱需先解锁；仅第0关安全区允许修改，大厅/战斗/关间拒绝。 */
 	bool SelectDifficulty(EDemoDifficulty Difficulty);
-	/** Number=1..10；OutLevel/OutDifficulty 为复制出的行，Error 返回失败原因，不泄漏表指针。 */
+	/** 无尽已解锁且处于初始安全区才允许选择；选择后由现有终端确认出发。 */
+	bool SelectEndless();
+	/** WeaponId为实际成功开火的稳定目录ID；更新整轮手枪资格并立即保存，失败阻止本次射击。 */
+	bool RegisterWeaponShot(FName WeaponId);
+	/** Number为正关数，固定战役1..10、无尽公式生成；OutLevel/OutDifficulty 为复制出的行，Error 返回失败原因，不泄漏表指针。 */
 	bool GetLevelConfig(int32 Number, FDemoLevelRow& OutLevel, FDemoDifficultyRow& OutDifficulty, FString& Error) const;
-	/** Number=1..10，bBoss 选择模板；OutStats 输出生成值，Error 返回缺行/校验错误。 */
+	/** Number为正关数，bBoss 选择模板；OutStats 输出生成值，Error 返回缺行/校验错误。 */
 	bool GetSpawnStats(int32 Number, bool bBoss, FDemoEnemySpawnStats& OutStats, FString& Error) const;
 	/** 权威推进入口；终端经控制器确认后调用，仅 Hub/Intermission 且所有模态菜单关闭时允许进入，先清理两个终端。 */
 	void StartNextLevel();
@@ -53,6 +57,8 @@ public:
 	void NotifyEnemyLost(ADemoEnemy* Enemy);
 	/** 玩家归零/掉出地图触发死亡结算，标记重开时直达安全区并保留难度。 */
 	void NotifyPlayerDied();
+	/** 死亡/主动放弃及离开死亡页重试时，采集当前装备与永久弹匣补给后保存新Hub；失败保留原槽，禁止旅行。 */
+	bool SaveResetCheckpoint();
 	/** Choice 范围 0..2，伤害/治疗/冲刺；前九关 Reward 时免费选一次。 */
 	bool ChooseReward(int32 Choice);
 	/** Choice 范围 0..2，伤害/上限生命/弹匣；Purchaser 必须在当前备战终端旁。 */
@@ -71,11 +77,24 @@ public:
 	ADemoInteractable* GetShopTerminal() const;
 	/** 返回当前下一关终端借用引用；战斗、失败、最终胜利时不存在。 */
 	ADemoInteractable* GetNextLevelTerminal() const;
-	// 三张软引用配置表；运行时同步载入一次。原生默认路径由 DefaultGame.ini 的 /Game/Data 显式 Cook 规则保障，换目录需同步规则。
+	/** 返回当前World的系统服务，仅借用；旧GameMode交易/死亡接口保留为转发适配。 */
+	class UDemoEnemySpawnComponent* GetSpawnSystem() const;
+	class UDemoRewardComponent* GetRewardSystem() const;
+	class UDemoShopComponent* GetShopSystem() const;
+	// 四张软引用配置表；运行时同步载入一次。原生默认路径由 DefaultGame.ini 的 /Game/Data 显式 Cook 规则保障，换目录需同步规则。
 	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> EnemyTableAsset;
 	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> DifficultyTableAsset;
 	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> LevelTableAsset;
+	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> EndlessTableAsset; // /Game/Data/DT_Endless的Default行。
 private:
+	/** OutConfig复制Default行并验证增长倍率与并发上限，Error返回缺失/越界原因。 */
+	bool GetEndlessConfig(FDemoEndlessRow& OutConfig, FString& Error) const;
+	UPROPERTY() TObjectPtr<UDataTable> EndlessTable; // GI不持有；当前GameMode强引用配置资产。
+	UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoEnemySpawnComponent> SpawnSystem; // 权威World生成服务，独占队列/注册表/Timer。
+	UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoRewardComponent> RewardSystem; // 击杀、通关、能力领奖，不处理阶段与UI。
+	UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoShopComponent> ShopSystem; // 终端交易校验与购买；库存/GAS仍各有唯一所有者。
+	/** Remaining为刷怪器统计快照；此处只同步GameState供HUD读取。 */
+	void HandleSpawnRemaining(int32 Remaining);
 	// 当前挑战GUID用于通关幂等；死亡/新局及胜利回Hub续玩生成新值，普通检查点读档恢复旧值。
 	FString CampaignRunId;
 	// 仅当前 World 启动时解析重开 URL；显式初次运行仍为大厅，不做跨局静态状态缓存。
@@ -102,7 +121,7 @@ private:
 	bool SpawnTerminals(const FVector& Center);
 	/** 进入战斗/失败时销毁当前终端并清空引用，阻止旧区域交互和物体累积。 */
 	void ClearTerminals();
-	/** 清场后下一帧执行；前九关玩家留在原地，中心生成终端；第十关直接胜利。 */
+	/** 清场后下一帧执行；固定战役前九关/无尽每关原地备战；只有固定战役第十关胜利。 */
 	void FinishLevel();
 	/** NewPhase 为目标阶段，记录旧/新状态。 */
 	void SetPhase(EDemoPhase NewPhase);
@@ -110,12 +129,6 @@ private:
 	void FailRun(const FString& Reason);
 	// 地面就绪后才能传送，防止登录早于 StartPlay。
 	bool bAreasReady = false;
-	// 终局清理时屏蔽敌人销毁回调，避免递归失败。
-	bool bCleaningUp = false;
-	// 延迟清场句柄随 GameMode 清理。
-	FTimerHandle FinishLevelTimer;
-	// 存活注册表不拥有敌人；死亡先移除再奖励。
-	TSet<TWeakObjectPtr<ADemoEnemy>> ActiveEnemies;
 	// World 拥有当前升级终端；仅备战和 Reward 时存在，切换战斗前销毁，不复制。
 	UPROPERTY() TObjectPtr<ADemoInteractable> ShopTerminal;
 	// 与 ShopTerminal 成对创建/清理；不保留已经清关的旧区域入口。

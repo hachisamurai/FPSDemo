@@ -1,6 +1,7 @@
+#include "UI/DemoHUD.h"
+// 对应头文件先于依赖，保证UE独立编译能检查本类声明自包含。
 #include "Weapons/Ammo/DemoAmmoComponent.h"
 #include "Weapons/Ammo/DemoAmmoCatalog.h"
-#include "UI/DemoHUD.h"
 #include "Weapons/DemoWeaponBase.h"
 #include "Weapons/DemoWeaponComponent.h"
 #include "Weapons/DemoWeaponCatalog.h"
@@ -236,7 +237,7 @@ void ADemoHUD::DrawStatus(const ADemoGameState* State, ADemoCharacter* Player, c
 	Panel(42, 43, 4, 22, DemoUI::Accent, 0.f);
 	Label(TEXT("B R E A C H"), 58, 38, 24, DemoUI::Ink);
 	// 终局与奖励不误标为安全区，阶段文案不依赖菜单是否已完成输入切换。
-	const FString PhaseTitle = bCombat ? FString::Printf(TEXT("第 %02d / %d 关  ·  怪物 Lv%d"), State->LevelNumber, DemoCombatConfig::LevelCount, State->LevelNumber)
+	const FString PhaseTitle = State->bEndless ? FString::Printf(TEXT("无尽 第%d关 · 最高通关%d"),State->LevelNumber,State->BestEndlessLevel) : bCombat ? FString::Printf(TEXT("第 %02d / %d 关  ·  怪物 Lv%d"), State->LevelNumber, DemoCombatConfig::LevelCount, State->LevelNumber)
 		: bIntermission ? TEXT("关卡已清空  /  原地备战") : State->Phase == EDemoPhase::Hub ? TEXT("安全区  /  备战与能力升级") : State->Phase == EDemoPhase::Reward ? TEXT("关卡完成  /  选择能力强化") : TEXT("行动结算  /  本局统计");
 	Label(PhaseTitle, 42, 72, 16, DemoUI::Muted);
 	Label(bCombat ? FString::Printf(TEXT("剩余 %d   ·   累计击杀 %d"), State->EnemiesRemaining, State->TotalKills) : bIntermission ? TEXT("前往本关中心：升级终端 / 下一关") : State->Phase == EDemoPhase::Hub ? TEXT("终端强化后，前往入口继续任务") : TEXT("BREACH / 突破行动"), 42, 98, 13, bCombat ? DemoUI::Ink : DemoUI::Accent);
@@ -245,7 +246,7 @@ void ADemoHUD::DrawStatus(const ADemoGameState* State, ADemoCharacter* Player, c
 	Label(FString::Printf(TEXT("金币  %d"), State->Coins), ViewWidth - 222, 34, 21, DemoUI::Gold);
 	Label(FString::Printf(TEXT("银币  %d"), State->SilverCoins), ViewWidth - 222, 70, 21, DemoUI::Ink);
 	// 第一关开始后难度锁定；修改入口只存在于初始安全区下一关终端。
-	Label(State->Difficulty == EDemoDifficulty::Easy ? TEXT("难度：简单") : State->Difficulty == EDemoDifficulty::Hard ? TEXT("难度：困难") : TEXT("难度：普通"), ViewWidth - 222, 97, 12, DemoUI::Muted); // 难度留在钱包面板内部，终端弹窗不会遮住半行文字。
+	Label(State->bEndless ? TEXT("模式：无尽 / 地狱基线") : State->Difficulty == EDemoDifficulty::Hell ? TEXT("难度：地狱") : State->Difficulty == EDemoDifficulty::Easy ? TEXT("难度：简单") : State->Difficulty == EDemoDifficulty::Hard ? TEXT("难度：困难") : TEXT("难度：普通"), ViewWidth - 222, 97, 12, DemoUI::Muted); // 难度留在钱包面板内部，终端弹窗不会遮住半行文字。
 	Panel(24, Bottom, 292, 88, DemoUI::BattleSurface);
 	Label(TEXT("VITALS / 生命状态"), 42, Bottom + 12, 12, DemoUI::Muted);
 	Label(FString::Printf(TEXT("%.0f"), Attributes->GetHealth()), 42, Bottom + 29, 32, Attributes->GetHealth() < 30.f ? DemoUI::Danger : DemoUI::Ink);
@@ -285,7 +286,7 @@ void ADemoHUD::DrawStatus(const ADemoGameState* State, ADemoCharacter* Player, c
 	{
 		const float CenterX = ViewWidth / 2.f; // 准星与相机中心一致，不随左右 HUD 排版移动。
 		const float CenterY = ViewHeight / 2.f;
-		const FLinearColor CrossColor = GetWorld()->GetTimeSeconds() - Player->LastHitTime < 0.15f ? DemoUI::Accent : DemoUI::Ink; // 短暂命中确认。
+		const FLinearColor CrossColor = DemoUI::Ink; // 准星始终使用原灰白色，命中反馈由独立红色斜线承担。
 		// 镜内使用专用细十字，普通准星仅在未瞄准时显示。
 		if (Equipment->GetScopeLevel() == 0)
 		{
@@ -293,6 +294,19 @@ void ADemoHUD::DrawStatus(const ADemoGameState* State, ADemoCharacter* Player, c
 		Panel(CenterX + 4, CenterY - 1, 7, 2, CrossColor, 0);
 		Panel(CenterX - 1, CenterY - 11, 2, 7, CrossColor, 0);
 		Panel(CenterX - 1, CenterY + 4, 2, 7, CrossColor, 0);
+		}
+		// 使用既有真实武器命中时间：0.15秒内在四个45°方向绘制短线；连击刷新时间，开镜也显示，不修改准星/镜内十字颜色。
+		const float HitAge = static_cast<float>(GetWorld()->GetTimeSeconds()) - Player->LastHitTime; // 与float命中时间统一精度，避免同帧double相减得到微小负数而漏掉首帧；暂停不推进。
+		if (HitAge >= 0.f && HitAge < 0.15f)
+		{
+			UE_LOG(LogFPSDemo, VeryVerbose, TEXT("HIT_MARKER age=%.3f"), HitAge); // 绘制诊断沿用高频级别，默认调试配置可追踪真实触发时间。
+			const FVector2D Directions[] = { FVector2D(-1,-1), FVector2D(1,-1), FVector2D(-1,1), FVector2D(1,1) }; // 四象限对角方向，不单位化以便直接使用X/Y设计像素偏移。
+			const FLinearColor HitColor(FColor(255,48,48)); // 独立红色命中标记，不复用会受主题更改影响的青色Accent。
+			for (const FVector2D& Direction : Directions) // 本帧局部数组借用；每象限画一段，中心留空，不拼成遮挡瞄准点的完整X。
+			{
+				DrawLine((CenterX + Direction.X * 7.f) * UIScale, (CenterY + Direction.Y * 7.f) * UIScale,
+					(CenterX + Direction.X * 14.f) * UIScale, (CenterY + Direction.Y * 14.f) * UIScale, HitColor, 2.f * UIScale);
+			}
 		}
 		if (ASC && ASC->HasMatchingGameplayTag(DemoTags::Reloading)) Label(TEXT("装填中…"), CenterX, CenterY + 44, 16, DemoUI::Accent, true);
 		if (GetWorld()->GetTimeSeconds() - Player->LastDamageTime < 0.35f) Label(TEXT("受到攻击"), CenterX, CenterY - 70, 18, DemoUI::Danger, true);
@@ -315,7 +329,7 @@ void ADemoHUD::DrawStatus(const ADemoGameState* State, ADemoCharacter* Player, c
 		if (PC && !PC->IsUpgradeMenuOpen() && !PC->IsNextLevelConfirmationOpen())
 		{
 			Panel(ViewWidth / 2.f - 210, ViewHeight / 2.f + 65, 420, 76, DemoUI::Surface);
-			Label(FString::Printf(TEXT("%s  ·  下一关 %02d / %02d"), bIntermission ? TEXT("原地备战") : TEXT("安全区"), FMath::Min(DemoCombatConfig::LevelCount, State->LevelNumber + 1), DemoCombatConfig::LevelCount), ViewWidth / 2.f, ViewHeight / 2.f + 78, 16, DemoUI::Accent, true);
+			Label(State->bEndless ? FString::Printf(TEXT("无尽 · 下一关 %d · 最高通关 %d"),State->LevelNumber+1,State->BestEndlessLevel) : FString::Printf(TEXT("%s  ·  下一关 %02d / %02d"), bIntermission ? TEXT("原地备战") : TEXT("安全区"), FMath::Min(DemoCombatConfig::LevelCount, State->LevelNumber + 1), DemoCombatConfig::LevelCount), ViewWidth / 2.f, ViewHeight / 2.f + 78, 16, DemoUI::Accent, true);
 			const ADemoInteractable* Target = Player->FindInteractable(); // 借用附近物体，没有物体时给出导航提示。
 			Label(Target ? Target->GetPrompt() : bIntermission ? TEXT("前往本关中心，靠近终端按 E 交互") : TEXT("靠近升级终端或关卡入口，按 E 交互"), ViewWidth / 2.f, ViewHeight / 2.f + 108, 16, DemoUI::Ink, true);
 			Label(TEXT("WASD 移动     鼠标 瞄准     SPACE 跳跃"), ViewWidth / 2.f, Bottom - 28, 13, DemoUI::Ink, true);
@@ -410,14 +424,19 @@ void ADemoHUD::DrawNextLevelConfirmation(const ADemoGameState* State)
     if (State->Phase == EDemoPhase::Hub)
     {
         // 首次出发直接选择并锁定难度；没有默认“是”按钮绕过选择。
-        const float X = ViewWidth*.5f-350.f, Y = ViewHeight*.5f-175.f; // 独立难度模态布局。
-        Panel(X,Y,700,350,DemoUI::Surface,12);
+        const float X = ViewWidth*.5f-350.f, Y = ViewHeight*.5f-235.f; // 独立难度模态布局。
+        Panel(X,Y,700,470,DemoUI::Surface,12);
         Label(TEXT("选择本局难度"),X+32,Y+34,30,DemoUI::Ink);
-        Label(TEXT("开始战斗后锁定，影响敌人生命与伤害"),X+32,Y+92,17,DemoUI::Muted);
+        Label(TEXT("开始战斗后锁定，影响敌人生命、伤害和攻击频率"),X+32,Y+92,17,DemoUI::Muted);
         Button(TEXT("Easy"),TEXT("简单"),X+32,Y+154,196,65);
         Button(TEXT("Normal"),TEXT("普通"),X+252,Y+154,196,65);
         Button(TEXT("Hard"),TEXT("困难"),X+472,Y+154,196,65);
-        Button(TEXT("NextLevelNo"),TEXT("取消出发"),X+472,Y+266,196,44,true,true);
+        const UDemoPlayerProfile* Progress=GetGameInstance()->GetSubsystem<UDemoPlayerProfile>(); // 只读解锁事实；GameMode在点击时重复验证。
+        Button(TEXT("Hell"),Progress&&Progress->IsHellUnlocked()?TEXT("地狱"):TEXT("地狱 · 未解锁"),X+32,Y+245,306,58,Progress&&Progress->IsHellUnlocked());
+        Button(TEXT("Endless"),Progress&&Progress->IsEndlessUnlocked()?TEXT("无尽模式"):TEXT("无尽 · 未解锁"),X+362,Y+245,306,58,Progress&&Progress->IsEndlessUnlocked());
+        Label(TEXT("地狱：整轮只用手枪开火通关困难（允许冲刺/治疗）"),X+32,Y+321,14,DemoUI::Muted);
+        Label(TEXT("无尽：通关地狱；每5关出现Boss，成长与掉落逐关提升"),X+32,Y+348,14,DemoUI::Muted);
+        Button(TEXT("NextLevelNo"),TEXT("取消出发"),X+472,Y+400,196,44,true,true);
         return;
     }
 
@@ -426,7 +445,7 @@ void ADemoHUD::DrawNextLevelConfirmation(const ADemoGameState* State)
 	Panel(X, Y, 560, 300, DemoUI::Surface, 12);
 	Label(TEXT("准备出发"), X + 32, Y + 28, 15, DemoUI::Accent);
 	Label(TEXT("是否进入下一关？"), X + 280, Y + 72, 30, DemoUI::Ink, true);
-	Label(FString::Printf(TEXT("即将进入第 %02d / %02d 关"), State->LevelNumber + 1, DemoCombatConfig::LevelCount), X + 280, Y + 121, 18, DemoUI::Gold, true);
+	Label(State->bEndless ? FString::Printf(TEXT("即将进入无尽第 %d 关"),State->LevelNumber+1) : FString::Printf(TEXT("即将进入第 %02d / %02d 关"), State->LevelNumber + 1, DemoCombatConfig::LevelCount), X + 280, Y + 121, 18, DemoUI::Gold, true);
 	Label(TEXT("选择“否”可留在当前区域继续准备。"), X + 280, Y + 157, 15, DemoUI::Muted, true);
 	Button(TEXT("NextLevelNo"), TEXT("否 · 留在这里 [TAB]"), X + 32, Y + 212, 238, 52, true, true);
 	Button(TEXT("NextLevelYes"), TEXT("是 · 进入下一关 [ENTER]"), X + 290, Y + 212, 238, 52);
@@ -596,7 +615,8 @@ void ADemoHUD::DrawEndScreen(const ADemoGameState* State)
 		const int32 UnlockedIndex = static_cast<int32>(State->Difficulty) + 1; // 三难度对应步枪/散弹/狙击目录位置。
 		const ADemoCharacter* Player = Cast<ADemoCharacter>(PlayerOwner->GetPawn()); // 本帧借用Avatar用于查询目录CDO。
 		const ADemoWeaponBase* Definition = Player ? Player->GetWeaponComponent()->GetCatalogWeapon(UnlockedIndex) : nullptr; // 只读蓝图名称。
-		Label(State->FailureReason.IsEmpty() ? FString::Printf(TEXT("已解锁：%s · 返回安全区后前往终端装备"), Definition ? *Definition->Config.DisplayName.ToString() : TEXT("主武器")) : State->FailureReason.Left(48), ViewWidth / 2.f, Y + 150, 14, DemoUI::Accent, true);
+		// 困难通关现在包含散弹枪权限，结算文案与武器目录/本地及云端派生规则一致，不补造普通通关事实。
+		Label(State->Difficulty==EDemoDifficulty::Hell ? TEXT("已通关最高难度，解锁无尽模式") : State->Difficulty==EDemoDifficulty::Hard && State->PistolChallenge==1 ? TEXT("手枪挑战完成：已解锁地狱、散弹枪与狙击枪") : State->Difficulty==EDemoDifficulty::Hard ? TEXT("已解锁：散弹枪与狙击枪 · 返回安全区后前往终端装备") : State->FailureReason.IsEmpty() ? FString::Printf(TEXT("已解锁：%s · 返回安全区后前往终端装备"), Definition ? *Definition->Config.DisplayName.ToString() : TEXT("主武器")) : State->FailureReason.Left(48), ViewWidth / 2.f, Y + 150, 14, DemoUI::Accent, true);
 		if (const UDemoPlayerProfile* Profile = GetGameInstance()->GetSubsystem<UDemoPlayerProfile>()) Label(Profile->GetStatus(), ViewWidth / 2.f, Y + 356, 12, DemoUI::Muted, true); // 保存状态独立于胜利本身。
 	}
 	const int32 Values[] = { State->TotalKills, State->Coins, State->SilverCoins }; // 只读统计，结算明确展示保留金币/已清银币。
@@ -729,6 +749,8 @@ void ADemoHUD::NotifyHitBoxClick(FName BoxName)
 	else if (BoxName == TEXT("Easy")) PC->DifficultyPressed(EDemoDifficulty::Easy);
 	else if (BoxName == TEXT("Normal")) PC->DifficultyPressed(EDemoDifficulty::Normal);
 	else if (BoxName == TEXT("Hard")) PC->DifficultyPressed(EDemoDifficulty::Hard);
+	else if (BoxName == TEXT("Hell")) PC->DifficultyPressed(EDemoDifficulty::Hell);
+	else if (BoxName == TEXT("Endless")) PC->EndlessPressed(); // 专用模式入口仍经权威解锁校验。
 	else if (BoxName == TEXT("LobbySettings")) PC->SettingsPressed();
 	else if (BoxName == TEXT("QuitGame")) PC->QuitPressed();
 	else UE_LOG(LogFPSDemo, Warning, TEXT("HUD click rejected: unknown action"));

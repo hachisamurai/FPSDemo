@@ -1,0 +1,82 @@
+[
+  {
+    "model": "Pistol",
+    "variant": "Tactical",
+    "file": "Pistol_Tactical.mp4",
+    "captured_frames": 26,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 1.301695,
+    "bytes": 171198,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  },
+  {
+    "model": "Pistol",
+    "variant": "Empty",
+    "file": "Pistol_Empty.mp4",
+    "captured_frames": 25,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 1.289358,
+    "bytes": 185350,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  },
+  {
+    "model": "Rifle",
+    "variant": "Tactical",
+    "file": "Rifle_Tactical.mp4",
+    "captured_frames": 29,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 1.466812,
+    "bytes": 253060,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  },
+  {
+    "model": "Rifle",
+    "variant": "Empty",
+    "file": "Rifle_Empty.mp4",
+    "captured_frames": 28,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 1.480956,
+    "bytes": 245933,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  },
+  {
+    "model": "Shotgun",
+    "variant": "Tactical",
+    "file": "Shotgun_Tactical.mp4",
+    "captured_frames": 40,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 2.318949,
+    "bytes": 298823,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  },
+  {
+    "model": "Shotgun",
+    "variant": "Empty",
+    "file": "Shotgun_Empty.mp4",
+    "captured_frames": 38,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 2.309032,
+    "bytes": 297439,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  },
+  {
+    "model": "Sniper",
+    "variant": "Tactical",
+    "file": "Sniper_Tactical.mp4",
+    "captured_frames": 43,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 2.58205,
+    "bytes": 353257,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  },
+  {
+    "model": "Sniper",
+    "variant": "Empty",
+    "file": "Sniper_Empty.mp4",
+    "captured_frames": 42,
+    "first_game_seconds": 0.0,
+    "last_game_seconds": 2.61829,
+    "bytes": 349179,
+    "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
+  }
+]

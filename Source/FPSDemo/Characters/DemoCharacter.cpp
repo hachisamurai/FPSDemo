@@ -1,5 +1,7 @@
-#include "Weapons/Ammo/DemoAmmoComponent.h" // Pawn持有装配组件，统一保留一处依赖入口。
 #include "Characters/DemoCharacter.h"
+#include "Animation/DemoWeaponAnimationComponent.h"
+// 对应头文件先于依赖，保证UE独立编译能检查本类声明自包含。
+#include "Weapons/Ammo/DemoAmmoComponent.h" // Pawn持有装配组件，统一保留一处依赖入口。
 #include "Save/DemoRunSave.h"
 #include "Settings/DemoGameUserSettings.h"
 #include "Weapons/DemoWeaponComponent.h"
@@ -42,10 +44,11 @@ ADemoCharacter::ADemoCharacter()
 	// 角色只拥有手臂；具体枪械Mesh/动画/音效由武器实例和BP定义提供。
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> Arms(TEXT("/Game/FirstPersonArms/Character/Mesh/SK_Mannequin_Arms"));
 	GetMesh1P()->SetSkeletalMesh(Arms.Object);
-	// Breach 静态枪以右手握把为原点；整个手臂前移 20cm、上移 3cm（相对模板 -30/0/-150），
-	// 同时移动握点和双手，避免只平移枪造成悬空握持；不改相机、胶囊或实际瞄准方向。
+	// 保留肩部在镜头下方的模板组件位置；新动画单独前移/抬高手腕和稳定枪锚点，避免整个肩部进入近裁剪面。
+	// 离线IK维持真实臂长，运行时轻摆仍整体作用；单位cm，不改相机、胶囊或瞄准方向。
 	GetMesh1P()->SetRelativeLocation(FVector(-10.f, 0.f, -147.f));
 	WeaponComponent = CreateDefaultSubobject<UDemoWeaponComponent>(TEXT("WeaponComponent"));
+	WeaponAnimationComponent = CreateDefaultSubobject<UDemoWeaponAnimationComponent>(TEXT("WeaponAnimationComponent"));
 	CreateDefaultSubobject<UDemoAmmoComponent>(TEXT("AmmoComponent")); // Pawn持有弹药组件，PS ASC仍由PlayerState拥有。
 }
 
@@ -65,6 +68,8 @@ void ADemoCharacter::InitializeAbilitySystem()
 	}
 	BoundASC = State->GetDemoASC();
 	BoundASC->InitAbilityActorInfo(State, this);
+	// 主图必须先于初始手枪装备就绪；ASCMontage显式绑定Mesh1P而非ACharacter默认Mesh。
+	if (!WeaponAnimationComponent->InitializeArms()) UE_LOG(LogFPSDemo, Error, TEXT("First-person animation initialization failed; generate reload assets"));
 	HealthChangedHandle = BoundASC->GetGameplayAttributeValueChangeDelegate(UDemoAttributeSet::GetHealthAttribute()).AddUObject(this, &ADemoCharacter::OnHealthChanged);
 	MoveSpeedChangedHandle = BoundASC->GetGameplayAttributeValueChangeDelegate(UDemoAttributeSet::GetMoveSpeedMultiplierAttribute()).AddUObject(this, &ADemoCharacter::OnMoveSpeedChanged);
 	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed * GetDemoAttributes()->GetMoveSpeedMultiplier();
@@ -92,6 +97,7 @@ void ADemoCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 }
 
 UAbilitySystemComponent* ADemoCharacter::GetAbilitySystemComponent() const { DEMO_LOG_TICK(); return GetDemoASC(); }
+UDemoWeaponAnimationComponent* ADemoCharacter::GetWeaponAnimationComponent() const { DEMO_LOG_TICK(); return WeaponAnimationComponent; }
 UDemoAbilitySystemComponent* ADemoCharacter::GetDemoASC() const { DEMO_LOG_TICK(); return BoundASC.Get(); }
 const UDemoAttributeSet* ADemoCharacter::GetDemoAttributes() const
 {
@@ -252,9 +258,10 @@ void ADemoCharacter::ApplyAbilityReward(int32 Choice)
 {
 	DEMO_LOG_CALL();
 	if (!HasAuthority()) return;
-	if (Choice == 0) DemoEffects::Apply(BoundASC.Get(), BoundASC.Get(), UDemoPowerEffect::StaticClass(), 10.f);
-	else if (Choice == 1) HealAmount += 20.f;
-	else if (Choice == 2) DashSpeed += 350.f;
+	// 无尽奖励达到存档数值边界后饱和；仍允许领取推进，不能产生无法恢复的检查点。
+	if (Choice == 0) DemoEffects::Apply(BoundASC.Get(), BoundASC.Get(), UDemoPowerEffect::StaticClass(), FMath::Clamp(10000.f-GetDemoAttributes()->GetWeaponDamageBonus(),0.f,10.f));
+	else if (Choice == 1) HealAmount = FMath::Min(100000.f,HealAmount+20.f);
+	else if (Choice == 2) DashSpeed = FMath::Min(100000.f,DashSpeed+350.f);
 }
 float ADemoCharacter::GetHealAmount() const { DEMO_LOG_TICK(); return HealAmount; }
 float ADemoCharacter::GetDashSpeed() const { DEMO_LOG_TICK(); return DashSpeed; }

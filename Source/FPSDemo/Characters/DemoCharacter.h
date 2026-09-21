@@ -5,6 +5,7 @@
 #include "DemoCharacter.generated.h"
 
 class UDemoWeaponComponent;
+class UDemoWeaponAnimationComponent;
 class UDemoAbilitySystemComponent;
 class UDemoAttributeSet;
 class UGameplayAbility;
@@ -45,6 +46,8 @@ public:
 	void PerformShot();
 	/** 返回Pawn拥有的装备组件借用引用，用于GA/HUD和蓝图查询。 */
 	UFUNCTION(BlueprintPure, Category="Weapon") UDemoWeaponComponent* GetWeaponComponent() const;
+	/** Pawn拥有的第一人称动画协调器；装备/GA仅借用，不给动画层弹药所有权。 */
+	UFUNCTION(BlueprintPure, Category="Weapon") UDemoWeaponAnimationComponent* GetWeaponAnimationComponent() const;
 	/** GAS移动倍率或开镜状态变化时重算步速，不修改属性基础值。 */
 	void RefreshMovementSpeed();
 	/** Dash GA Commit成功后再次校验CanUsePlayerSkills，沿水平输入方向冲刺，无输入则使用朝向。 */
@@ -107,6 +110,8 @@ private:
 	FDelegateHandle HealthChangedHandle;
 	// 角色持有装备组件，组件创建/清理武器Actor；不在角色重复保存弹药。
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Weapon", meta=(AllowPrivateAccess="true")) TObjectPtr<UDemoWeaponComponent> WeaponComponent;
+	// 本Pawn生命周期内管理固定主AnimBP与武器Linked Layer、机械音/枪械动作；不跨World复制。
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Weapon", meta=(AllowPrivateAccess="true")) TObjectPtr<UDemoWeaponAnimationComponent> WeaponAnimationComponent;
 	// 治疗技能恢复点数，默认 35；每次医疗清关奖励 +20，不复制（单人范围）。
 	float HealAmount = 35.f;
 	// 冲刺水平初速度 cm/s，默认 1300；每次机动清关奖励 +350。

@@ -25,6 +25,8 @@ git lfs pull
 
 .gitattributes声明二进制LFS类型，不生成或修改.uasset内容。LFS客户端或认证不可用时，资源可能只有文本指针，需要`git lfs pull`；不要把指针文件当作UE资源打开。若GitHub拒绝LFS上传，应先解决账号权限/配额，再重试push；本地提交仍保留，不能宣称远端备份成功。此规则不会删除本机被忽略的文件。
 
+2026-09-22提交快照补充：动画验收使用的GIF和MP4与PNG预览一样通过LFS管理；Blender自动生成的.blend1等数字后缀备份排除，正式.blend源工程继续提交。动画清单JSON仍作为文本保存以便追踪配置。验证可使用`git check-attr filter -- <预览路径>`和`git check-ignore <备份路径>`；新增规则不会删除本地备份或改动游戏资产。
+
 ## 验证与维护
 
 检查`git remote -v`、`git status --short --branch`、`git lfs ls-files`和`git lfs fsck`；推送后用`git ls-remote origin refs/heads/main`比较本地HEAD。首次提交前检查暂存文件列表，确认Saved、真实.env.local和编译产物没有进入索引。新增二进制格式时先更新.gitattributes再暂存，新增秘密文件类型时同步忽略规则；如果秘密已提交，新增ignore不能清除历史，必须撤销相关凭据并处理历史。

@@ -19,7 +19,7 @@ public sealed class ClearClaim
 {
     // 一次完整十关通关GUID，同账号跨设备重复上传只能结算一次。
     public string RunId { get; set; } = "";
-    // 固定easy/normal/hard，不接受数值索引或中文作为协议键。
+    // easy/normal/hard/hell及hard_pistol挑战事实；后者同样是完整困难十关，不是新难度。
     public string DifficultyId { get; set; } = "";
     // 客户端UTC ISO8601，仅作为离线记录展示，不当作可信服务器时间。
     public string CompletedUtc { get; set; } = "";
@@ -54,8 +54,15 @@ public sealed class CheckpointData
     public string SavedUtc { get; set; } = ""; // 客户端检查点UTC时间，不当作权威时钟。
     public string RunId { get; set; } = ""; // 同一战役恢复后保持，避免重复通关奖励。
     public string Phase { get; set; } = "Hub"; // Hub/Reward/Intermission/Victory，战斗中恢复入口检查点。
-    public string Difficulty { get; set; } = "normal"; // 稳定难度ID，独立于UE枚举序号。
-    public int CompletedLevel { get; set; } // 已完成0..10关，与Phase一致。
+    public string Difficulty { get; set; } = "normal"; // easy/normal/hard/hell稳定难度ID，独立于UE枚举序号。
+    public int CompletedLevel { get; set; } // 固定战役已完成0..10关；V5无尽可更高，与Phase一致。
+    // V5值字段默认省略以保持历史请求幂等哈希；无尽模式按本槽保存，不改变账号身份。
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool BEndless { get; set; } // JSON bEndless与UE字段一致；无尽以hell为基线。
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int BestEndlessLevel { get; set; } // 最高已完成关数，死亡/放弃保留，int32非负。
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int PistolChallenge { get; set; } // 0无射击/1只手枪/2失格；后端不将客户端事实宣称为反作弊证明。
     public int Coins { get; set; } // 安全区金币0..1亿，通关/死亡保留；字段名兼容V1。
     // 零值省略让历史V1请求的规范化JSON/幂等哈希保持不变；UE缺失字段默认0。
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]

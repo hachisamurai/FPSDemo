@@ -1,0 +1,101 @@
+{
+  "success": true,
+  "weapons": [
+    {
+      "model": "Pistol",
+      "bones": 4,
+      "bounds_error_cm": 4.76837158203125e-07,
+      "rigid_weights": true,
+      "clips": [
+        {
+          "name": "A_Breach_Pistol_Reload_Tactical",
+          "seconds": 1.2,
+          "frames_checked": 73,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        },
+        {
+          "name": "A_Breach_Pistol_Reload_Empty",
+          "seconds": 1.2,
+          "frames_checked": 73,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        }
+      ]
+    },
+    {
+      "model": "Rifle",
+      "bones": 5,
+      "bounds_error_cm": 1.9073486328125e-06,
+      "rigid_weights": true,
+      "clips": [
+        {
+          "name": "A_Breach_Rifle_Reload_Tactical",
+          "seconds": 1.4,
+          "frames_checked": 85,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        },
+        {
+          "name": "A_Breach_Rifle_Reload_Empty",
+          "seconds": 1.4,
+          "frames_checked": 85,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        }
+      ]
+    },
+    {
+      "model": "Shotgun",
+      "bones": 5,
+      "bounds_error_cm": 1.9073486328125e-06,
+      "rigid_weights": true,
+      "clips": [
+        {
+          "name": "A_Breach_Shotgun_Reload_Tactical",
+          "seconds": 2.2,
+          "frames_checked": 133,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        },
+        {
+          "name": "A_Breach_Shotgun_Reload_Empty",
+          "seconds": 2.2,
+          "frames_checked": 133,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        }
+      ]
+    },
+    {
+      "model": "Sniper",
+      "bones": 4,
+      "bounds_error_cm": 3.814697265625e-06,
+      "rigid_weights": true,
+      "clips": [
+        {
+          "name": "A_Breach_Sniper_Reload_Tactical",
+          "seconds": 2.5,
+          "frames_checked": 151,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        },
+        {
+          "name": "A_Breach_Sniper_Reload_Empty",
+          "seconds": 2.5,
+          "frames_checked": 151,
+          "constant_root": true,
+          "constant_unit_scale": true,
+          "neutral_endpoint": true
+        }
+      ]
+    }
+  ]
+}

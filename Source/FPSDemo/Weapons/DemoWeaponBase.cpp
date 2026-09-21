@@ -1,12 +1,19 @@
+#include "Weapons/DemoWeaponBase.h"
+#include "Animation/DemoWeaponAnimationComponent.h"
+// 对应头文件先于依赖，保证UE独立编译能检查本类声明自包含。
 #include "Weapons/Ammo/DemoAmmoComponent.h"
 #include "Weapons/Ammo/DemoAmmoCatalog.h"
 #include "GAS/Ammo/DemoAmmoStatus.h"
 #include "GAS/Ammo/DemoAmmoEffects.h"
 #include "Game/DemoGameState.h"
-#include "Weapons/DemoWeaponBase.h"
+#include "Game/FPSDemoGameMode.h"
+#include "Weapons/DemoWeaponCatalog.h"
 #include "Weapons/DemoWeaponComponent.h"
 #include "Characters/DemoCharacter.h"
 #include "AI/DemoEnemy.h"
+#include "Combat/DemoEnemyHitZones.h"
+#include "AbilitySystemComponent.h"
+#include "GAS/DemoTags.h"
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoEffects.h"
 #include "Audio/DemoWeaponAudio.h"
@@ -20,6 +27,56 @@
 #include "DrawDebugHelpers.h"
 #include "UObject/ConstructorHelpers.h"
 #include "TimerManager.h"
+
+namespace
+{
+    /** 一枪对一个敌人的聚合结果；只活到当前同步开火返回，不保存跨帧敌人裸指针。 */
+    struct FDemoWeaponHitAggregate
+    {
+        float TotalDamage = 0.f; // 每颗弹已经应用区域倍率后累加的生命点数。
+        float RepresentativeDamage = 0.f; // 选取最重一颗的真实Hit供GE Context/命中反馈，平局保留较早弹丸。
+        FHitResult RepresentativeHit; // 保留真实BoneName、ImpactPoint及组件弱引用，不伪造统一机身命中。
+        EDemoEnemyHitRegion RepresentativeRegion = EDemoEnemyHitRegion::Body; // 对应代表弹丸，用于聚合审计而非重新乘倍率。
+        int32 PelletHits = 0; // 当前枪对该敌人真正贡献正伤害的弹丸数，元素叠层仍固定一次。
+    };
+
+    /** Profile为本枪已验证配置；Hit为真实查询，BaseDamage为尚未乘区域的HP，Shot/Pellet仅用于审计。
+     * bSecondary区分穿透段；Targets为本枪同步聚合容器。有效零倍率仍返回true供穿透继续，但不建立GE项。 */
+    bool AccumulateEnemyPellet(const UDemoEnemyHitProfile& Profile, const FHitResult& Hit, float BaseDamage,
+        int32 Shot, int32 Pellet, bool bSecondary, TMap<ADemoEnemy*, FDemoWeaponHitAggregate>& Targets)
+    {
+        UE_LOG(LogFPSDemo, Log, TEXT("[CALL] %hs shot=%d pellet=%d secondary=%d"), __FUNCTION__, Shot, Pellet, bSecondary);
+        ADemoEnemy* Enemy = Cast<ADemoEnemy>(Hit.GetActor()); // 仅本次调用借用；调用者随后统一施加GE才可能触发死亡。
+        EDemoEnemyHitRegion Region = EDemoEnemyHitRegion::Body; // ResolveHit成功后才用于日志或聚合，不作为缺骨回退。
+        float Multiplier = 0.f; // 精确骨名返回的无单位倍率，失败维持零。
+        if (!Enemy || !Enemy->IsAlive() || !FMath::IsFinite(BaseDamage) || BaseDamage < 0.f
+            || !Profile.ResolveHit(Hit, Region, Multiplier))
+        {
+            UE_LOG(LogFPSDemo, Warning, TEXT("WEAPON_HIT_REJECT shot=%d pellet=%d target=%s bone=%s base=%.3f secondary=%d"),
+                Shot, Pellet, *GetNameSafe(Enemy), *Hit.BoneName.ToString(), BaseDamage, bSecondary);
+            return false;
+        }
+        const float FinalDamage = BaseDamage * Multiplier; // 区域只在这里乘一次；后敌传入基数不携带首敌部位倍率。
+        UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_HIT_ZONE shot=%d pellet=%d target=%s bone=%s region=%s base=%.3f multiplier=%.3f final=%.3f secondary=%d"),
+            Shot, Pellet, *Enemy->GetName(), *Hit.BoneName.ToString(), DemoEnemyHitZones::RegionName(Region), BaseDamage, Multiplier, FinalDamage, bSecondary);
+        if (!FMath::IsFinite(FinalDamage))
+        {
+            UE_LOG(LogFPSDemo, Error, TEXT("WEAPON_HIT_REJECT non-finite multiplied damage"));
+            return false;
+        }
+        if (FinalDamage <= 0.f) return true; // 明确免疫部位不刷新命中时间、不叠元素、不发零伤害GE。
+        FDemoWeaponHitAggregate& Aggregate = Targets.FindOrAdd(Enemy); // 仅当前枪同步有效的聚合记录。
+        Aggregate.TotalDamage += FinalDamage;
+        ++Aggregate.PelletHits;
+        if (FinalDamage > Aggregate.RepresentativeDamage)
+        {
+            Aggregate.RepresentativeDamage = FinalDamage;
+            Aggregate.RepresentativeHit = Hit;
+            Aggregate.RepresentativeRegion = Region;
+        }
+        return true;
+    }
+}
 
 ADemoWeaponBase::ADemoWeaponBase()
 {
@@ -46,6 +103,9 @@ ADemoWeaponBase::ADemoWeaponBase()
     Config.FireAnimation = Fire.Object;
     Config.FireSound = Sound.Object;
     Config.DisplayName = FText::FromString(TEXT("步枪"));
+    // CDO硬引用让打包自动收集配置；缺资源时在开火入口明确日志并使用内置完整骨名白名单。
+    static ConstructorHelpers::FObjectFinder<UDemoEnemyHitProfile> HitProfile(TEXT("/Game/Data/Combat/DA_EnemyHitZones.DA_EnemyHitZones"));
+    EnemyHitProfile = HitProfile.Object;
 }
 void ADemoWeaponBase::OnConstruction(const FTransform& Transform)
 {
@@ -58,12 +118,16 @@ void ADemoWeaponBase::ApplyVisualMesh()
     DEMO_LOG_CALL();
     // 不改共享资产/CDO，只选择当前实例的渲染组件；旧蓝图未配置静态枪时保持原效果。
     WeaponMesh->SetSkeletalMesh(Config.StaticMesh ? nullptr : Config.Mesh.Get());
+    // 稳定挂点与枪械零件在OwnerNoSee/开镜/NullRHI恢复后仍需真实新骨姿势；单人四个小网格开销可控。
+    WeaponMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
     StaticWeaponMesh->SetStaticMesh(Config.StaticMesh);
     UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_VISUAL %s static=%s skeletal=%s"), *GetName(), *GetNameSafe(Config.StaticMesh), *GetNameSafe(WeaponMesh->GetSkeletalMeshAsset()));
 }
 void ADemoWeaponBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     DEMO_LOG_CALL();
+    // 外部销毁武器也必须清理其表现，不能只依赖Pawn正常CancelActions顺序。
+    if (Wielder.IsValid() && Wielder->GetWeaponAnimationComponent()) Wielder->GetWeaponAnimationComponent()->EndReloadPresentation(this, ReloadSequence, false);
     GetWorldTimerManager().ClearTimer(PoseTimer);
     Wielder.Reset();
     Super::EndPlay(EndPlayReason);
@@ -162,11 +226,19 @@ void ADemoWeaponBase::ExecuteCommittedShot()
     if (!HasAuthority() || !bShotPaid || !Wielder.IsValid() || !bIsEquipped)
     { UE_LOG(LogFPSDemo, Warning, TEXT("Unpaid/stale shot rejected")); return; }
     bShotPaid = false; // 在GE和蓝图事件之前消费许可，重入不能重复伤害。
+    // 仅已支付且真实执行的射击参与整轮挑战；先落盘再产生命中，避免最后一枪提前结算。
+    if (AFPSDemoGameMode* Mode=GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()) // 开发武器测试无该GameMode时维持原行为。
+        if (!Mode->RegisterWeaponShot(DemoWeaponCatalog::IdAt(Wielder->GetWeaponComponent()->GetActiveSlot()==2?0:Wielder->GetWeaponComponent()->GetPrimaryIndex())))
+        { Ammo+=Config.AmmoPerShot; UE_LOG(LogFPSDemo,Warning,TEXT("Shot blocked: challenge checkpoint save failed; ammo refunded")); return; }
     ++ShotSequence;
     PerformBallistics();
     DemoWeaponAudio::PlayAtLocation(this, Config.FireSound, GetMuzzleLocation(), TEXT("Weapon.Fire"));
     if (Config.MuzzleEffect) UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), Config.MuzzleEffect, GetMuzzleLocation(), Wielder->GetControlRotation());
-    if (Config.FireAnimation)
+    if (Config.WeaponAnimLayerClass && Wielder->GetWeaponAnimationComponent())
+    {
+        Wielder->GetWeaponAnimationComponent()->PlayFire(this); // 新四枪始终保留主图，不使用PlayAnimation覆盖AnimationMode。
+    }
+    else if (Config.FireAnimation)
     {
         Wielder->GetMesh1P()->PlayAnimation(Config.FireAnimation, false);
         GetWorldTimerManager().SetTimer(PoseTimer, this, &ADemoWeaponBase::RestoreIdle, FMath::Max(.1f,Config.FireAnimation->GetPlayLength()), false);
@@ -189,64 +261,102 @@ FVector ADemoWeaponBase::GetMuzzleLocation() const
 void ADemoWeaponBase::PerformBallistics()
 {
     DEMO_LOG_CALL();
-    if (!Wielder.IsValid()) return;
-    // 相机负责瞄准，枪口到目标再做阻挡检测；Query忽略玩家及自身模型。
-    const UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent();
-    const FVector Start = Camera->GetComponentLocation();
-    FVector Muzzle = GetMuzzleLocation();
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(DemoWeaponShot), false, Wielder.Get());
+    if (!Wielder.IsValid()) { UE_LOG(LogFPSDemo, Warning, TEXT("WEAPON_BALLISTICS_REJECT missing wielder")); return; }
+    const UDemoEnemyHitProfile* HitProfile = DemoEnemyHitZones::SelectValidProfile(EnemyHitProfile); // 一枪校验一次，与敌人查询碰撞初始化使用同一回退策略。
+    if (!HitProfile) { UE_LOG(LogFPSDemo, Error, TEXT("WEAPON_BALLISTICS_REJECT invalid native hit profile")); return; }
+    // 相机、枪口防穿墙和真实弹道共用WeaponTrace；墙体保持Block，敌人移动球忽略而骨骼刚体阻挡。
+    const UCameraComponent* Camera = Wielder->GetFirstPersonCameraComponent(); // 持有者拥有的相机，本枪同步借用。
+    const FVector Start = Camera->GetComponentLocation(); // 世界厘米；所有距离衰减仍以瞄准起点计算。
+    FVector Muzzle = GetMuzzleLocation(); // 当前枪口，可被相机到枪口的墙体阻挡回退。
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(DemoWeaponShot), false, Wielder.Get()); // 简单查询使用PhysicsAsset，忽略玩家及自身武器。
     Query.AddIgnoredActor(this);
     FHitResult MuzzleBlock; // 防止摄像机到枪口之间有墙，枪口偏移不能把起点放到墙后。
-    if (GetWorld()->LineTraceSingleByChannel(MuzzleBlock, Start, Muzzle, ECC_Visibility, Query)) Muzzle = MuzzleBlock.ImpactPoint - (Muzzle-Start).GetSafeNormal()*2.f;
+    if (GetWorld()->LineTraceSingleByChannel(MuzzleBlock, Start, Muzzle, DemoEnemyHitZones::TraceChannel, Query)) Muzzle = MuzzleBlock.ImpactPoint - (Muzzle-Start).GetSafeNormal()*2.f;
     // 按本次射击序号生成独立锥形方向；范围/升级在本次调用快照，不逐弹扣弹。
-    FRandomStream Random(ShotSequence * 7919 + GetUniqueID());
-    const int32 Pellets = GetPelletCount();
-    const float Spread = Wielder->GetWeaponComponent()->GetScopeLevel() > 0 ? Config.ScopedSpreadHalfAngle : Config.SpreadHalfAngle;
-    const UDemoAmmoComponent* AmmoType=Wielder->FindComponentByClass<UDemoAmmoComponent>(); // 一次开火快照，所有pellet共享。
-    const UDemoAmmoCatalog* AmmoConfig=AmmoType->GetCatalog(); // 只读已加载目录。
-    const int32 Type=AmmoConfig->Validate()?AmmoType->GetSelected():0; // 错误配置回退普通弹，不改变基础射击。
+    FRandomStream Random(ShotSequence * 7919 + GetUniqueID()); // 本枪局部随机流，不消耗全局序列。
+    const int32 Pellets = GetPelletCount(); // 已验证武器配置的弹丸数量，本枪只消费一次开火成本。
+    const float Spread = Wielder->GetWeaponComponent()->GetScopeLevel() > 0 ? Config.ScopedSpreadHalfAngle : Config.SpreadHalfAngle; // 当前瞄准状态的锥半角，度。
+    const UDemoAmmoComponent* AmmoType = Wielder->FindComponentByClass<UDemoAmmoComponent>(); // 一次开火快照，所有pellet共享。
+    const UDemoAmmoCatalog* AmmoConfig = AmmoType ? AmmoType->GetCatalog() : GetDefault<UDemoAmmoCatalog>(); // 测试/旧Pawn缺组件仍允许普通射击。
+    const int32 Type = AmmoType && AmmoConfig->Validate() ? AmmoType->GetSelected() : 0; // 错误配置回退普通弹，不改变基础射击。
     const float Damage = GetDamagePerPellet() * (Type==3?AmmoConfig->PiercingDamageMultiplier:1.f); // 穿透首段增伤只乘一次。
-    TMap<ADemoEnemy*, float> TargetDamage; // 仅同步借用目标；敌人死亡为延迟销毁，不跨帧保存。
+    TMap<ADemoEnemy*, FDemoWeaponHitAggregate> TargetDamage; // 仅同步借用目标；部位倍率在累加前计算，代表Hit用于GE Context。
     for (int32 Index = 0; Index < Pellets; ++Index) // 每颗弹独立碰撞，可击中不同敌人。
     {
         const FVector Direction = Random.VRandCone(Camera->GetForwardVector(), FMath::DegreesToRadians(Spread)); // 本颗世界单位方向。
         FHitResult AimHit; // 相机最近阻挡点，决定枪口实际射向。
-        GetWorld()->LineTraceSingleByChannel(AimHit, Start, Start+Direction*Config.Range, ECC_Visibility, Query);
+        GetWorld()->LineTraceSingleByChannel(AimHit, Start, Start+Direction*Config.Range, DemoEnemyHitZones::TraceChannel, Query);
         const FVector AimEnd = AimHit.bBlockingHit ? AimHit.ImpactPoint : Start+Direction*Config.Range; // 不允许超出配置射程。
         FHitResult Hit; // 实际枪口到目标阻挡；小量延伸确保表面命中精度。
-        GetWorld()->LineTraceSingleByChannel(Hit, Muzzle, AimEnd+(AimEnd-Muzzle).GetSafeNormal()*2.f, ECC_Visibility, Query);
+        GetWorld()->LineTraceSingleByChannel(Hit, Muzzle, AimEnd+(AimEnd-Muzzle).GetSafeNormal()*2.f, DemoEnemyHitZones::TraceChannel, Query);
         ADemoEnemy* Enemy = Cast<ADemoEnemy>(Hit.GetActor()); // 当前弹丸目标，只攻击存活敌人。
         if (Enemy && Enemy->IsAlive())
         {
             const float Distance = FVector::Distance(Start,Hit.ImpactPoint); // 衰减统一采用瞄准起点距离cm。
-            const float Alpha = Config.Range > Config.FalloffStart ? FMath::Clamp((Distance-Config.FalloffStart)/(Config.Range-Config.FalloffStart),0.f,1.f) : 0.f;
-            const float FirstDamage=Damage * FMath::Lerp(1.f,Config.MinimumDamageMultiplier,Alpha); // 首目标理论值，不依赖实际剩余HP。
-            TargetDamage.FindOrAdd(Enemy) += FirstDamage;
-            if(Type==3)
+            const float Alpha = Config.Range > Config.FalloffStart ? FMath::Clamp((Distance-Config.FalloffStart)/(Config.Range-Config.FalloffStart),0.f,1.f) : 0.f; // 原有线性距离衰减系数0..1。
+            const float FirstBaseDamage = Damage * FMath::Lerp(1.f,Config.MinimumDamageMultiplier,Alpha); // 首目标理论基数，尚未乘部位；保持原穿透衰减来源。
+            const bool bAcceptedHit = AccumulateEnemyPellet(*HitProfile, Hit, FirstBaseDamage, ShotSequence, Index, false, TargetDamage); // 无骨/错误组件拒绝伤害和继续穿透。
+            if(Type==3 && bAcceptedHit)
             {
                 const FVector Travel=(AimEnd-Muzzle).GetSafeNormal(); // 沿真实枪口轨迹继续，不被相机首个敌人AimEnd截断。
                 FCollisionQueryParams ContinueQuery=Query; ContinueQuery.AddIgnoredActor(Enemy); // 忽略整只首敌的所有组件。
                 FHitResult Behind; // 后方最近阻挡，墙体也会阻挡，绝不穿墙找敌人。
-                GetWorld()->LineTraceSingleByChannel(Behind,Hit.ImpactPoint+Travel*2.f,Muzzle+Travel*Config.Range,ECC_Visibility,ContinueQuery);
+                GetWorld()->LineTraceSingleByChannel(Behind,Hit.ImpactPoint+Travel*2.f,Muzzle+Travel*Config.Range,DemoEnemyHitZones::TraceChannel,ContinueQuery);
                 ADemoEnemy* Secondary=Cast<ADemoEnemy>(Behind.GetActor()); // 只额外命中一个活敌人。
-                if(Secondary&&Secondary!=Enemy&&Secondary->IsAlive()){TargetDamage.FindOrAdd(Secondary)+=FirstDamage*AmmoConfig->SecondaryDamageRatio;UE_LOG(LogFPSDemo,Log,TEXT("AMMO_PIERCE shot=%d target=%s"),ShotSequence,*Secondary->GetName());}
+                // 后敌沿用既有首命中距离衰减×穿透比例，但独立使用Behind.BoneName；首敌Core绝不提高后敌Arm伤害。
+                if (Secondary && Secondary != Enemy && Secondary->IsAlive()
+                    && AccumulateEnemyPellet(*HitProfile, Behind, FirstBaseDamage * AmmoConfig->SecondaryDamageRatio, ShotSequence, Index, true, TargetDamage))
+                    UE_LOG(LogFPSDemo, Log, TEXT("AMMO_PIERCE shot=%d target=%s bone=%s"), ShotSequence, *Secondary->GetName(), *Behind.BoneName.ToString());
             }
         }
         DrawDebugLine(GetWorld(), Muzzle, Hit.bBlockingHit ? Hit.ImpactPoint : AimEnd, Enemy ? FColor::Green : FColor::Yellow, false, .07f, 0, 1.f);
-        UE_LOG(LogFPSDemo, VeryVerbose, TEXT("PELLET shot=%d index=%d target=%s"), ShotSequence, Index, *GetNameSafe(Enemy));
+        UE_LOG(LogFPSDemo, VeryVerbose, TEXT("PELLET shot=%d index=%d target=%s bone=%s"), ShotSequence, Index, *GetNameSafe(Enemy), *Hit.BoneName.ToString());
     }
-    for (const TPair<ADemoEnemy*, float>& Entry : TargetDamage) // 同一敌人一次GE/一次肉体反馈。
+    for (const TPair<ADemoEnemy*, FDemoWeaponHitAggregate>& Entry : TargetDamage) // 同一敌人一次GE/一次肉体反馈/一次元素叠层。
     {
-        if(!Entry.Key->IsAlive()||GetWorld()->GetGameState<ADemoGameState>()->Phase!=EDemoPhase::Combat)continue; // 最后一只怪死亡可同步切阶段。
-        const float Before=Entry.Key->GetHealth(); // 实际正伤害才叠层，零伤害/致死不施加新状态。
-        DemoEffects::Apply(Wielder->GetAbilitySystemComponent(), Entry.Key->GetAbilitySystemComponent(), UDemoHealthEffect::StaticClass(), -Entry.Value);
+        const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 最后一只怪死亡可同步切阶段，逐目标重查。
+        if (!Entry.Key->IsAlive() || !State || State->Phase != EDemoPhase::Combat)
+        {
+            UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_DAMAGE_REJECT target=%s dead or no active combat"), *GetNameSafe(Entry.Key));
+            continue;
+        }
+        UAbilitySystemComponent* SourceASC = Wielder->GetAbilitySystemComponent(); // 当前枪源ASC，仅游戏线程借用。
+        UAbilitySystemComponent* TargetASC = Entry.Key->GetAbilitySystemComponent(); // 当前敌人ASC，死亡后不会再次叠层。
+        if (!SourceASC || !TargetASC || !SourceASC->IsOwnerActorAuthoritative() || !TargetASC->IsOwnerActorAuthoritative()
+            || !FMath::IsFinite(Entry.Value.TotalDamage) || Entry.Value.TotalDamage <= 0.f)
+        {
+            UE_LOG(LogFPSDemo, Warning, TEXT("WEAPON_DAMAGE_REJECT target=%s invalid ASC/authority/total"), *Entry.Key->GetName());
+            continue;
+        }
+        const float Before = Entry.Key->GetHealth(); // 实际正伤害才叠层，零伤害/致死不施加新状态。
+        FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext(); // 每枪每敌的独立上下文保留代表性命中，不修改共享GE模板。
+        Context.AddHitResult(Entry.Value.RepresentativeHit, true);
+        FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(UDemoHealthEffect::StaticClass(), 1.f, Context); // 使用原Health GE和Magnitude协议扣生命。
+        if (!Spec.IsValid()) { UE_LOG(LogFPSDemo, Error, TEXT("WEAPON_DAMAGE_REJECT missing health GE spec")); continue; }
+        Spec.Data->SetSetByCallerMagnitude(DemoTags::Magnitude, -Entry.Value.TotalDamage);
+        SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
         if(Entry.Key->IsAlive()&&Entry.Key->GetHealth()<Before)
         {
-            if(Type==1||Type==2)Entry.Key->FindComponentByClass<UDemoAmmoStatus>()->Apply(Wielder->GetAbilitySystemComponent(),Type,AmmoConfig); // 聚合后每敌人每枪只叠一层。
-            if(Type==3)Entry.Key->GetAbilitySystemComponent()->ExecuteGameplayCue(DemoAmmoTags::PiercingCue,FGameplayCueParameters());
+            if (Type == 1 || Type == 2)
+            {
+                UDemoAmmoStatus* Status = Entry.Key->FindComponentByClass<UDemoAmmoStatus>(); // 敌人拥有的元素处理器，本枪同步借用。
+                if (Status) Status->Apply(SourceASC, Type, AmmoConfig); // 聚合后每敌人每枪只叠一层；DOT/爆炸数值不乘部位倍率。
+                else UE_LOG(LogFPSDemo, Warning, TEXT("WEAPON_AMMO_STATUS missing target=%s"), *Entry.Key->GetName());
+            }
+            if (Type == 3)
+            {
+                FGameplayCueParameters Cue; // 本地穿透表现保留最重弹丸的位置/法线及Context，供后续命中反馈使用。
+                Cue.EffectContext = Context;
+                Cue.Location = Entry.Value.RepresentativeHit.ImpactPoint;
+                Cue.Normal = Entry.Value.RepresentativeHit.ImpactNormal;
+                Cue.RawMagnitude = Entry.Value.TotalDamage;
+                TargetASC->ExecuteGameplayCue(DemoAmmoTags::PiercingCue, Cue);
+            }
         }
         Wielder->LastHitTime = GetWorld()->GetTimeSeconds();
-        UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_DAMAGE target=%s total=%.2f"), *Entry.Key->GetName(), Entry.Value);
+        UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_DAMAGE target=%s total=%.2f pellets=%d representativeBone=%s representativeRegion=%s"),
+            *Entry.Key->GetName(), Entry.Value.TotalDamage, Entry.Value.PelletHits, *Entry.Value.RepresentativeHit.BoneName.ToString(),
+            DemoEnemyHitZones::RegionName(Entry.Value.RepresentativeRegion));
     }
 }
 bool ADemoWeaponBase::CanReload() const
@@ -259,9 +369,12 @@ bool ADemoWeaponBase::BeginReload()
     DEMO_LOG_CALL();
     if (!HasAuthority() || !CanReload()) { UE_LOG(LogFPSDemo, Log, TEXT("Reload rejected: full/no reserve/already reloading")); return false; }
     bReloading = true;
+    ++ReloadSequence;
+    ReloadDuration = Config.ReloadSeconds;
+    bEmptyReload = Ammo == 0; // AmmoPerShot不足但尚有弹时选普通换弹，不引入隐式膛内弹规则。
     GetWorldTimerManager().ClearTimer(PoseTimer);
-    if (Wielder.IsValid() && Config.ReloadAnimation) Wielder->GetMesh1P()->PlayAnimation(Config.ReloadAnimation, false);
-    UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_RELOAD_BEGIN %s seconds=%.2f"), *GetName(), Config.ReloadSeconds);
+    if (!Config.WeaponAnimLayerClass && Wielder.IsValid() && Config.ReloadAnimation) Wielder->GetMesh1P()->PlayAnimation(Config.ReloadAnimation, false);
+    UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_RELOAD_BEGIN %s seq=%d seconds=%.2f empty=%d"), *GetName(), ReloadSequence, ReloadDuration, bEmptyReload);
     return true;
 }
 bool ADemoWeaponBase::CompleteReload()
@@ -274,18 +387,24 @@ bool ADemoWeaponBase::CompleteReload()
     Ammo += Transfer;
     if (!Config.bInfiniteReserve) ReserveAmmo -= Transfer;
     bReloading = false;
+    if (Wielder.IsValid() && Wielder->GetWeaponAnimationComponent()) Wielder->GetWeaponAnimationComponent()->EndReloadPresentation(this, ReloadSequence, true);
     RestoreIdle();
-    UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_RELOAD_COMPLETE %s ammo=%d reserve=%d"), *GetName(), Ammo, ReserveAmmo);
+    UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_RELOAD_COMPLETE %s seq=%d transferred=%d ammo=%d reserve=%d"), *GetName(), ReloadSequence, Transfer, Ammo, ReserveAmmo);
     return true;
 }
 void ADemoWeaponBase::CancelReload()
 {
     DEMO_LOG_CALL();
-    if (bReloading) UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_RELOAD_CANCELLED %s unchanged ammo=%d"), *GetName(), Ammo);
+    if (bReloading) UE_LOG(LogFPSDemo, Log, TEXT("WEAPON_RELOAD_CANCELLED %s seq=%d unchanged ammo=%d"), *GetName(), ReloadSequence, Ammo);
     bReloading = false;
+    if (Wielder.IsValid() && Wielder->GetWeaponAnimationComponent()) Wielder->GetWeaponAnimationComponent()->EndReloadPresentation(this, ReloadSequence, false);
     RestoreIdle();
 }
 bool ADemoWeaponBase::IsReloading() const { DEMO_LOG_TICK(); return bReloading; }
+int32 ADemoWeaponBase::GetReloadSequence() const { DEMO_LOG_TICK(); return ReloadSequence; }
+float ADemoWeaponBase::GetReloadDuration() const { DEMO_LOG_TICK(); return ReloadDuration; }
+bool ADemoWeaponBase::IsEmptyReload() const { DEMO_LOG_TICK(); return bEmptyReload; }
+USkeletalMeshComponent* ADemoWeaponBase::GetWeaponSkeletalMesh() const { DEMO_LOG_TICK(); return WeaponMesh; }
 void ADemoWeaponBase::ModifyAmmo(int32 Delta)
 {
     DEMO_LOG_CALL();
@@ -303,8 +422,10 @@ void ADemoWeaponBase::Refill()
 void ADemoWeaponBase::RestoreIdle()
 {
     DEMO_LOG_CALL();
-    if (Wielder.IsValid() && bIsEquipped && !bReloading && Config.IdleAnimation)
-        Wielder->GetMesh1P()->PlayAnimation(Config.IdleAnimation, true);
+    if (!Wielder.IsValid() || !bIsEquipped || bReloading) return;
+    if (Config.WeaponAnimLayerClass && Wielder->GetWeaponAnimationComponent())
+        Wielder->GetWeaponAnimationComponent()->RestoreWeaponPose(this); // 新图持续评估IdlePose，只恢复临时手臂状态。
+    else if (Config.IdleAnimation) Wielder->GetMesh1P()->PlayAnimation(Config.IdleAnimation, true);
 }
 ADemoShotgunWeapon::ADemoShotgunWeapon()
 {

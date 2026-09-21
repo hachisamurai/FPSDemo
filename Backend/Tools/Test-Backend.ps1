@@ -101,9 +101,35 @@ try {
     Assert-Test ($taskInvalidAmmo.Status -eq 400 -and $taskInvalidAmmo.Data.code -eq 'invalid_checkpoint_ammo') 'unowned ammo selection rejected'
     $taskV4Download = Invoke-TestApi GET /v1/me/profile $null # 拒绝的写入不覆盖钱包与有效解锁。
     Assert-Test ($taskV4Download.Status -eq 200 -and $taskV4Download.Data.slots[0].snapshot.unlockedAmmoIds.Count -eq 2 -and $taskV4Download.Data.slots[0].snapshot.selectedAmmoId -eq 'fire' -and $taskV4Download.Data.slots[0].snapshot.coins -eq 25) 'V4 download retains wallet and ammo after rejected write'
+    # V5只在隔离账号验证挑战资格/无尽关数；旧V1..V4回执已在上面原样重放。
+    $taskCheckpoint.version=5; $taskCheckpoint.selectedAmmoId='fire'; $taskCheckpoint.difficulty='hell'; $taskCheckpoint.pistolChallenge=0
+    $taskSync.requestId=[guid]::NewGuid().ToString(); $taskSync.localRevision=5
+    $taskHellLocked=Invoke-TestApi POST /v1/me/profile/sync $taskSync # 没有hard_pistol事实不能上传地狱模式。
+    Assert-Test ($taskHellLocked.Status -eq 400 -and $taskHellLocked.Data.code -eq 'checkpoint_mode_locked') 'V5 locked Hell checkpoint rejected'
+    $taskSync.requestId=[guid]::NewGuid().ToString(); $taskSync.clears=@(@{runId=[guid]::NewGuid().ToString();difficultyId='hard_pistol';completedUtc=$taskNow})
+    $taskPistol=Invoke-TestApi POST /v1/me/profile/sync $taskSync # 同事务提交挑战事实与地狱检查点。
+    Assert-Test ($taskPistol.Status -eq 200 -and $taskPistol.Data.profile.clearedDifficulties -contains 'hard_pistol' -and $taskPistol.Data.profile.unlockedWeaponIds -contains 'sniper') 'pistol hard clear unlocks Hell and sniper'
+    $taskSync.requestId=[guid]::NewGuid().ToString(); $taskSync.baseServerRevision='5'; $taskSync.slots[0].baseSlotRevision='5'; $taskSync.localRevision=6; $taskSync.clears=@()
+    $taskCheckpoint.bEndless=$true; $taskCheckpoint.completedLevel=12; $taskCheckpoint.bestEndlessLevel=12; $taskCheckpoint.pistolChallenge=2
+    $taskEndlessLocked=Invoke-TestApi POST /v1/me/profile/sync $taskSync # 地狱未通关，无尽仍锁定。
+    Assert-Test ($taskEndlessLocked.Status -eq 400 -and $taskEndlessLocked.Data.code -eq 'checkpoint_mode_locked') 'V5 Endless needs Hell clear'
+    $taskSync.requestId=[guid]::NewGuid().ToString(); $taskSync.clears=@(@{runId=[guid]::NewGuid().ToString();difficultyId='hell';completedUtc=$taskNow})
+    $taskEndless=Invoke-TestApi POST /v1/me/profile/sync $taskSync # 十二关检查点不受固定十关限制。
+    Assert-Test ($taskEndless.Status -eq 200 -and $taskEndless.Data.profile.slots[0].snapshot.bEndless -and $taskEndless.Data.profile.slots[0].snapshot.completedLevel -eq 12) 'V5 Endless checkpoint after level ten accepted'
+    $taskEndlessReplay=Invoke-TestApi POST /v1/me/profile/sync $taskSync # 不可变请求ID仍保证原样回执。
+    Assert-Test ($taskEndlessReplay.Status -eq 200 -and $taskEndlessReplay.Text -eq $taskEndless.Text) 'V5 exact receipt replay'
+    $taskEndlessDownload=Invoke-TestApi GET /v1/me/profile $null # 实际Mongo投影往返，不仅验证请求解析。
+    Assert-Test ($taskEndlessDownload.Data.slots[0].snapshot.bestEndlessLevel -eq 12 -and $taskEndlessDownload.Data.slots[0].snapshot.pistolChallenge -eq 2 -and $taskEndlessDownload.Data.profile -eq $null) 'V5 download retains best and disqualification'
+    $taskSync.requestId=[guid]::NewGuid().ToString(); $taskSync.baseServerRevision='6'; $taskSync.slots[0].baseSlotRevision='6'; $taskSync.clears=@()
+    $taskCheckpoint.phase='Victory'; $taskCheckpoint.completedLevel=10
+    $taskEndlessVictory=Invoke-TestApi POST /v1/me/profile/sync $taskSync # 无尽没有十关胜利终点。
+    Assert-Test ($taskEndlessVictory.Status -eq 400 -and $taskEndlessVictory.Data.code -eq 'invalid_checkpoint_phase') 'Endless Victory state rejected'
+    $taskCheckpoint.phase='Intermission'; $taskCheckpoint.completedLevel=12; $taskCheckpoint.pistolChallenge=3
+    $taskBadChallenge=Invoke-TestApi POST /v1/me/profile/sync $taskSync # 错误资格状态不能进入云缓存。
+    Assert-Test ($taskBadChallenge.Status -eq 400 -and $taskBadChallenge.Data.code -eq 'invalid_challenge_state') 'invalid pistol challenge rejected'
     # 记录非敏感测试账号ID便于管理员审计；没有自动删除现有数据库或用户的步骤。
     $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path # 固定工程输出路径。
     $taskReport = Join-Path $taskRoot 'Saved/Logs/BackendTestResult.json' # 只存测试结果与随机测试玩家ID。
-    @{ success=$true; testedUtc=[DateTime]::UtcNow.ToString('o'); testPlayerId=$taskSession.Data.playerId; assertions=23 } | ConvertTo-Json | Set-Content -LiteralPath $taskReport -Encoding utf8
+    @{ success=$true; testedUtc=[DateTime]::UtcNow.ToString('o'); testPlayerId=$taskSession.Data.playerId; assertions=31 } | ConvertTo-Json | Set-Content -LiteralPath $taskReport -Encoding utf8
     Write-Host 'BACKEND_TEST_SUCCESS'
 } finally { $taskClient.Dispose(); $script:taskToken = '' }

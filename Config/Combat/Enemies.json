@@ -1,10 +1,12 @@
 [
   {
     "Name": "Drone",
+    "CloseCombat": {"MeleeWindup":0.45,"MeleeReach":190,"MeleeHalfAngle":65,"Recovery":0.65,"ApproachMultiplier":1.5,"ChargeWindup":0.8,"ChargeMinRange":350,"ChargeMaxRange":1100,"ChargeSpeed":1300,"ChargeDistance":1400,"ChargeCooldown":6,"ChargeDamageMultiplier":1.5},
     "DiveSlam": {"bEnabled": false,"Height":600,"RiseSeconds":0.6,"DiveSeconds":0.6,"MaxDiveSpeed":4000,"Radius":300,"Knockback":900,"KnockUp":220,"RecoverySeconds":1,"Cooldown":16,"InitialDelay":8},
     "Tactics": {
       "bEnabled": true,
       "Role": "Mixed",
+      "MixedRoles": ["Chaser","Ranged","Flanker","Melee","Charger"],
       "PreferredRange": 850.0,
       "MinimumRange": 550.0,
       "MaximumRange": 1100.0,

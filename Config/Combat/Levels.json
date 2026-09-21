@@ -53,7 +53,7 @@
     "ArenaIndex": 2,
     "EnemyRow": "Drone",
     "EnemyCount": 8,
-    "BossRow": "Warden",
+    "BossRow": "None",
     "HealthMultiplier": 1.9,
     "AttackMultiplier": 1.4,
     "EnemyCoinReward": 18,

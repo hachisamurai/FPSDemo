@@ -37,3 +37,5 @@ Identity.bin
 .DS_Store
 Thumbs.db
 *.tmp
+# Blender自动轮换备份只留本机；正式.blend工程已由Git LFS记录版本。
+*.blend[0-9]*

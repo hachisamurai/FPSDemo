@@ -1,4 +1,5 @@
 #include "Game/DemoCombatConfig.h"
+#include "Game/DemoEncounterRules.h" // 刷怪周期与两条生成路径统一，错误旧表必须先由Editor迁移。
 #include "Debug/DemoLog.h"
 
 namespace
@@ -19,6 +20,7 @@ FName DemoCombatConfig::DifficultyName(EDemoDifficulty Difficulty)
 	case EDemoDifficulty::Easy: return TEXT("Easy");
 	case EDemoDifficulty::Normal: return TEXT("Normal");
 	case EDemoDifficulty::Hard: return TEXT("Hard");
+	case EDemoDifficulty::Hell: return TEXT("Hell");
 	default:
 		UE_LOG(LogFPSDemo, Warning, TEXT("Invalid difficulty enum=%d"), static_cast<int32>(Difficulty));
 		return NAME_None;
@@ -42,9 +44,9 @@ bool DemoCombatConfig::Validate(const UDataTable* Enemies, const UDataTable* Dif
 		UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
 		return false;
 	}
-	if (Difficulties->GetRowNames().Num() != 3 || Levels->GetRowNames().Num() != LevelCount)
+	if (Difficulties->GetRowNames().Num() != 4 || Levels->GetRowNames().Num() != LevelCount)
 	{
-		Error = TEXT("Expected three difficulty rows and ten level rows");
+		Error = TEXT("Expected four difficulty rows and ten level rows");
 		UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
 		return false;
 	}
@@ -53,22 +55,22 @@ bool DemoCombatConfig::Validate(const UDataTable* Enemies, const UDataTable* Dif
 	{
 		const FDemoEnemyRow* Row = Enemies->FindRow<FDemoEnemyRow>(Name, TEXT("ValidateEnemy"));
 		if (!Row || !InRange(Row->BaseHealth,1,100000) || !InRange(Row->BaseAttackPower,0,10000)
-			|| !InRange(Row->MoveSpeed,1,1200) || !Row->Attack.IsValid() || !Row->Tactics.IsValid() || !Row->DiveSlam.IsValid()
+			|| !InRange(Row->MoveSpeed,1,1200) || !Row->Attack.IsValid() || !Row->Tactics.IsValid() || !Row->DiveSlam.IsValid() || !Row->CloseCombat.IsValid()
 			|| (Row->Tactics.bEnabled && Row->Tactics.MaximumRange > Row->Attack.ProjectileRange)) // 战术理想范围必须能实际发射。
 		{
-			Error = FString::Printf(TEXT("Invalid enemy row %s: health/attack/speed/tactics/dive; tactical maximum must fit projectile range"), *Name.ToString());
+			Error = FString::Printf(TEXT("Invalid enemy row %s: health/attack/speed/tactics/dive/closeCombat; tactical maximum must fit projectile range"), *Name.ToString());
 			UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
 			return false;
 		}
 	}
 	// Index 只用于遍历稳定难度枚举，避免依赖 DataTable 的内部行顺序。
-	for (int32 Index = 0; Index < 3; ++Index)
+	for (int32 Index = 0; Index < 4; ++Index)
 	{
 		// Name 是枚举稳定行键；Row 只在本循环借用难度表持有的行。
 		const FName Name = DifficultyName(static_cast<EDemoDifficulty>(Index));
 		const FDemoDifficultyRow* Row = Difficulties->FindRow<FDemoDifficultyRow>(Name,TEXT("ValidateDifficulty"),false);
 		if (!Row || !InRange(Row->HealthMultiplier,0.1f,10.f) || !InRange(Row->AttackMultiplier,0.1f,10.f)
-			|| Row->VictoryGoldReward < 0 || Row->VictoryGoldReward > 1000000) // 缺迁移/负奖励拒绝出发，0金币配置合法。
+			|| !InRange(Row->AttackFrequencyMultiplier,.25f,4.f) || Row->VictoryGoldReward < 0 || Row->VictoryGoldReward > 1000000) // 缺迁移/负奖励拒绝出发，0金币配置合法。
 		{
 			Error = FString::Printf(TEXT("Invalid difficulty row %s: multipliers [0.1,10], VictoryGoldReward [0,1000000]; migrate reward table if -1"),*Name.ToString());
 			UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
@@ -85,6 +87,14 @@ bool DemoCombatConfig::Validate(const UDataTable* Enemies, const UDataTable* Dif
 			|| !InRange(Row->HealthMultiplier,0.1f,10.f) || !InRange(Row->AttackMultiplier,0.1f,10.f))
 		{
 			Error = FString::Printf(TEXT("Invalid Level%02d: missing row or invalid monster level/arena/count/multipliers/coins"),Number);
+			UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
+			return false;
+		}
+		// 第5关只混编三种小怪，第10关在三种小怪之外加Boss；拒绝未迁移的第五关Boss资产。
+		if ((Number % DemoEncounterRules::BossInterval == 0) == Row->BossRow.IsNone()
+			|| (Number % DemoEncounterRules::RangedInterval == 0 && Row->EnemyCount < 3))
+		{
+			Error = FString::Printf(TEXT("Invalid Level%02d encounter cadence: Boss only on level 10; every fifth level needs at least three minions; run upgrade_encounter_tables.py"), Number);
 			UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
 			return false;
 		}
@@ -113,10 +123,17 @@ FDemoEnemySpawnStats DemoCombatConfig::Resolve(const FDemoEnemyRow& Enemy, const
 	Stats.Health = FMath::Max(1.f, LevelHealth * Difficulty.HealthMultiplier);
 	Stats.AttackPower = LevelAttack * Difficulty.AttackMultiplier;
 	Stats.MoveSpeed = Enemy.MoveSpeed;
-	// 攻击频率不随难度倍率重复缩放，用户直接在怪物模板中调节。
+	// 难度只缩短攻击间隔；保留各技能合法下限及预警时长，避免高倍率取消可躲避窗口。
 	Stats.Attack = Enemy.Attack;
+	Stats.Attack.MeleeInterval = FMath::Max(.2f, Enemy.Attack.MeleeInterval / Difficulty.AttackFrequencyMultiplier);
+	Stats.Attack.AreaInterval = FMath::Max(1.f, Enemy.Attack.AreaInterval / Difficulty.AttackFrequencyMultiplier);
+	Stats.Attack.ProjectileInterval = FMath::Max(.2f, Enemy.Attack.ProjectileInterval / Difficulty.AttackFrequencyMultiplier);
+	Stats.Attack.GlobalInterval = FMath::Max(3.f, Enemy.Attack.GlobalInterval / Difficulty.AttackFrequencyMultiplier);
 	Stats.Tactics = Enemy.Tactics; // 配置行为不受难度生命/伤害倍率再次放大。
+	Stats.CloseCombat=Enemy.CloseCombat; // 前摇、射程和速度不随难度改变，保留反应窗口。
+	Stats.CloseCombat.ChargeCooldown=FMath::Max(1.f,Enemy.CloseCombat.ChargeCooldown/Difficulty.AttackFrequencyMultiplier);
 	Stats.DiveSlam=Enemy.DiveSlam; Stats.bUseDive=Enemy.bBoss&&Enemy.DiveSlam.bEnabled; // 只给Boss授予俯冲。
+	Stats.DiveSlam.Cooldown = FMath::Max(8.f, Enemy.DiveSlam.Cooldown / Difficulty.AttackFrequencyMultiplier); // 固定俯冲伤害与无敌时长沿用原技能规则。
 	Stats.bUseTactics = Enemy.Tactics.bEnabled;
 	Stats.bBoss = Enemy.bBoss;
 	Stats.CoinReward = Enemy.bBoss ? Level.BossCoinReward : Level.EnemyCoinReward;

@@ -9,6 +9,10 @@ void ADemoGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(ADemoGameState, Phase);
 	// UI 和实例生成共用同一个权威难度，客户端不能自行修改。
 	DOREPLIFETIME(ADemoGameState, Difficulty);
+	// 模式/本槽最高纪录/手枪资格由权威维护，复制只供HUD展示。
+	DOREPLIFETIME(ADemoGameState, bEndless);
+	DOREPLIFETIME(ADemoGameState, BestEndlessLevel);
+	DOREPLIFETIME(ADemoGameState, PistolChallenge);
 	DOREPLIFETIME(ADemoGameState, LevelNumber);
 	DOREPLIFETIME(ADemoGameState, EnemiesRemaining);
 	DOREPLIFETIME(ADemoGameState, TotalKills);

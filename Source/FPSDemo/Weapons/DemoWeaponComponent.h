@@ -44,8 +44,9 @@ public:
     /** 清关补给所有已持有实例；Delta为容量升级给予每把武器的额外弹药。 */
     void RefillAll();
     void AddAmmoToAll(int32 Delta);
-    /** Data为GameMode拥有的待保存/已验证检查点；导出实际库存，恢复再次校验永久解锁。 */
-    void CaptureLoadout(class UDemoRunSave& Data) const;
+    /** Data是调用方拥有的值快照；bResetAmmo仅死亡/放弃重开时为true，按Data内永久弹匣加成补给，不读取死亡Pawn的临时加成。 */
+    void CaptureLoadout(class UDemoRunSave& Data, bool bResetAmmo = false) const;
+    /** Data为GameMode拥有的已验证检查点；重建本槽真实库存/主副槽，并再次验证账号永久解锁。 */
     bool RestoreLoadout(const class UDemoRunSave& Data);
     /** 返回当前武器借用引用，初始化失败时可为空；蓝图不可直接替换指针。 */
     UFUNCTION(BlueprintPure, Category="Weapon") ADemoWeaponBase* GetActiveWeapon() const;
@@ -62,6 +63,8 @@ public:
     // 固定副武器默认手枪，派生角色可更换但仍占数字2。
     UPROPERTY(EditDefaultsOnly, Category="Loadout") TSoftClassPtr<ADemoWeaponBase> SecondaryWeaponClass;
 private:
+    /** Weapon是已创建的库存，Slot为1/2、NewPrimaryIndex为主枪目录索引；统一初始/读档/终端/按键提交并在链接失败回滚。 */
+    bool CommitEquip(ADemoWeaponBase* Weapon, int32 Slot, int32 NewPrimaryIndex);
     /** 自动武器定时回调；重新验证武器/Combat，不将按住输入转换为每帧射击。 */
     void TryFireHeld();
     /** Character为Owner的检查型访问，初始化期间允许为空，不保存跨World裸指针。 */

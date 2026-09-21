@@ -90,6 +90,16 @@
 5. 可用按钮和整张奖励卡片支持鼠标悬停变亮；按钮关闭后不注册热区。数字键仍进入同一控制器校验。商店可 E/Tab 关闭，奖励必须选择一次。打开菜单会停火并锁移动/视角，关闭恢复游戏输入。
 6. 技能状态来自真实 GameplayTag/冷却读取：战斗外锁定、冷却、满血不可治疗、就绪分别展示；装填中和命中/受伤提示继续由真实 GAS 与角色事件驱动。
 
+### 准星命中反馈
+
+准星保持原灰白色，击中敌人不再变青色。`DemoWeaponBase::PerformBallistics`结算命中时更新角色`LastHitTime`，`DemoHUD::DrawStatus`在Combat读取该World时间，命中后0.15秒绘制四段红色短线。每段位于中心四个45°斜方向，X/Y偏移7至14设计像素，线宽2设计像素，统一乘UIScale，中心留空；连续命中刷新显示时长。开镜时同样显示该标记，镜内十字颜色保持原样。
+
+只修改`UI/DemoHUD.cpp`的展示，不新增计时器或伤害判定；未命中不更新时间，负时间差不显示，非Combat/暂停覆盖页沿用原HUD路由。入口保留`DEMO_LOG_TICK()`。调整显示时间、线长/宽或颜色时维护本节；验证普通射击命中、未命中、连续命中及开镜，确认标记短暂出现后消失、准星颜色不变。
+
+`Tests/DemoAmmoTest.cpp`的现有真实射击回归可追加`-DemoHitMarkerCapture`，保存`HitMarker-On.png`与`HitMarker-Off.png`，分别观察直接命中当帧及灼烧周期后的状态；不通过手写LastHitTime伪造命中。截图开关仅影响记录，不改变测试/玩法数据。
+
+2026-09-21验证：`HitMarkerBuild.log`完整Editor Development构建通过；`-DemoAmmoTest -DemoHitMarkerCapture`真实渲染回归输出`DEMO_AMMO_TEST_SUCCESS`（`Saved/Logs/HitMarkerValidation.log`）。已查看1280×720命中/消失截图，四段红线和灰白准星同时可见，稍后只剩灰白准星；截图归档`Art/UI/HitMarker/1280x720/`。计算HitAge时先将World时间转换为与LastHitTime相同的float精度，避免同帧double/float差值出现微小负数而漏掉首帧。测试原先写死V4版本的交易断言已改为核对当前SaveGame默认版本，保留金币/解锁/选择的全部断言；不修改存档迁移规则。本次未单独截图验收狙击镜、其他分辨率或Shipping包。
+
 所有新增功能入口使用 `DEMO_LOG_CALL`，绘制、辅助绘制和只读高频函数使用 `DEMO_LOG_TICK`。日志仍受项目统一级别控制；不会因刷新频繁而删除埋点。字体与圆角新增 `SlateCore` / `RenderCore` 私有模块依赖，未引入 Lyra 或第三方 UI 插件。
 
 ## 实装验证方式

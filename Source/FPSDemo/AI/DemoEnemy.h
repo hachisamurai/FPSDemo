@@ -14,6 +14,9 @@ class UStaticMeshComponent;
 class USoundBase;
 class UPointLightComponent;
 struct FOnAttributeChangeData;
+class ADemoEnemy;
+// 只在实际GAS归零边沿同步广播；刷怪器订阅登记对象，不让敌人依赖GameMode经济逻辑。
+DECLARE_MULTICAST_DELEGATE_OneParam(FDemoEnemyDefeated, ADemoEnemy*);
 
 /** 沿NavMesh路径悬浮追击；导航只负责移动，Boss预警与所有伤害仍由原GAS接口处理。 */
 UCLASS()
@@ -21,6 +24,7 @@ class FPSDEMO_API ADemoEnemy : public AActor, public IAbilitySystemInterface, pu
 {
 	GENERATED_BODY()
 public:
+    FDemoEnemyDefeated OnDefeated; // 死亡Actor由World延迟回收，接收者只能在广播栈内借用指针。
 	/** 创建碰撞、外观、ASC、属性；敌人 ASC 随 Actor 销毁。 */
 	ADemoEnemy();
 	/** Self/Tag/Event/Parameters为GAS分发上下文；转交弹药GC处理器，不在此扣血。 */
@@ -33,11 +37,11 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	/** GAS 标准访问接口，借用敌人自有 ASC。 */
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
-	/** Stats 为 GM 已验证的生成快照；只在出生时写入 GAS 并冻结等级与银币。 */
+	/** Stats 为刷怪计划已验证的实例快照；只在出生时写入 GAS 并冻结等级与银币。 */
 	void Configure(const FDemoEnemySpawnStats& Stats);
 	/** 返回生成时冻结的单次击杀银币，GM 去重后入账；不再次查表。 */
 	int32 GetCoinReward() const;
-	/** 返回怪物等级 1..10，供 HUD、掉落审计和测试读取。 */
+	/** 返回怪物正等级（含无尽10关以上），供 HUD、掉落审计和测试读取。 */
 	int32 GetMonsterLevel() const;
 	/** 单次攻击实时读取 GAS AttackPower，后续 GE 增益也能影响实际伤害。 */
 	float GetAttackPower() const;
@@ -67,6 +71,7 @@ public:
 	/** GA结束回调，开始独立冷却并保护技能间隔，取消也不能立即重试。 */
 	void OnDiveFinished();
 private:
+	UPROPERTY(VisibleAnywhere, Category="Demo|AI") TObjectPtr<class UDemoCloseCombat> CloseCombat; // Enemy持有纯近身状态组件，无独立Tick。
 	FDemoBossDiveSettings DiveSettings; // 单次生成配置；小怪及旧直接生成默认禁用。
 	FGameplayAbilitySpecHandle DiveHandle; // 自身ASC拥有的GA句柄，Enemy只用于激活/取消。
 	float NextDiveTime=0.f; // World秒，出生InitialDelay，结束后Cooldown（可受二阶段缩短）。
@@ -102,10 +107,14 @@ private:
 	void OnHealthChanged(const FOnAttributeChangeData& Data);
 	/** Boss 预警结束回调；重新检查阶段/玩家位置，仅伤害仍在圈内的玩家。 */
 	void ResolveBossAttack();
-	// 球体为移动与 Hitscan 判定根，单位厘米；敌人间允许相互阻挡。
+	// 球体仅为移动/AI视线判定根，单位厘米；敌人间阻挡，但忽略玩家WeaponTrace以露出真实部位。
 	UPROPERTY() TObjectPtr<USphereComponent> Collision;
-	// 基础球体外观不单独碰撞，跟随根组件。
+	// 资产缺失时保留的球体回退，不单独碰撞；正常配置骨骼后隐藏。
 	UPROPERTY() TObjectPtr<UStaticMeshComponent> Visual;
+	// 主骨骼网格归Enemy持有，ASC查找此唯一SkeletalMesh；PhysicsAsset仅查询玩家子弹，球根继续负责移动。
+	UPROPERTY(VisibleAnywhere, Category="Demo|Animation") TObjectPtr<class USkeletalMeshComponent> AnimatedBody;
+	// 表现组件只拥有动画请求生命周期，不拥有伤害/掉落或攻击定时器。
+	UPROPERTY() TObjectPtr<class UDemoEnemyPresentation> Presentation;
 	// 头顶血条改由本地HUD投影绘制，不创建随世界旋转的文字组件；生命真值仍来自下方GAS属性。
 	// 敌人 ASC/属性由 Actor 强持有，Minimal 复制；当前 Demo 只支持单人。
 	UPROPERTY() TObjectPtr<UAbilitySystemComponent> AbilitySystem;

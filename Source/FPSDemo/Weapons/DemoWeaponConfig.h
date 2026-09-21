@@ -7,6 +7,7 @@ class USoundBase;
 class UAnimSequence;
 class UParticleSystem;
 class UTexture2D;
+class UDemoWeaponLayerAnimInstance;
 
 /** Trigger方式只决定输入调度，真正射速由每把武器实例的冷却校验保证。 */
 UENUM(BlueprintType)
@@ -21,13 +22,15 @@ struct FPSDEMO_API FDemoWeaponConfig
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Identity") FText DisplayName;
     // 终端卡片Icon的类型安全软引用，允许为空；HUD按需异步加载并保活，失败显示轮廓，不影响装备。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="UI", meta=(DisplayName="Weapon Icon")) TSoftObjectPtr<UTexture2D> Icon;
-    // 旧模板骨骼枪兼容入口；未提供 StaticMesh 时使用，需与挂点/手臂动画配套。
+    // 四枪机械骨骼网格；与AnimSet配套枪Sequence同Skeleton。旧武器未迁移时仍允许模板网格。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") TObjectPtr<USkeletalMesh> Mesh;
     // 可选硬引用静态武器，由 CDO 保活；非空时优先显示它并清空组件上的旧骨骼枪，避免重叠。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") TObjectPtr<UStaticMesh> StaticMesh;
-    // 单手静态枪可隐藏模板左臂，避免步枪托举姿势穿过短枪口；默认 false，切换长枪时恢复。
+    // 四枪分别引用配置子AnimBP；主Mesh1P AnimClass固定，此类仅通过Linked Anim Layers切换。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Animation") TSubclassOf<UDemoWeaponLayerAnimInstance> WeaponAnimLayerClass;
+    // 手枪待机隐藏左臂；换弹临时恢复双手，完成/取消按当前装备重建。长枪默认false。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") bool bHideSupportArm = false;
-    // 玩家手臂上的挂点；缺失时拒绝装备，防止模型挂到世界原点。
+    // 玩家手臂挂点；旧武器默认GripPoint，新四枪配置ik_hand_gun稳定锚点，缺失拒绝装备。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") FName AttachSocket = TEXT("GripPoint");
     // 挂接后的局部变换，厘米/度；不修改共享Mesh资源。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") FTransform AttachOffset = FTransform::Identity;
@@ -65,9 +68,11 @@ struct FPSDEMO_API FDemoWeaponConfig
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<USoundBase> FireSound;
     // 可选枪口粒子资源；不承担命中判定，缺失仅跳过表现。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<UParticleSystem> MuzzleEffect;
-    // 第一人称手臂动画，必须与角色手臂骨架兼容；可空以跳过对应动作。
+    // 旧武器兼容资源；WeaponAnimLayerClass非空时完全由子类AnimSet供给，不再播放单序列覆盖主图。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<UAnimSequence> IdleAnimation;
+    // 未迁移武器的开火单序列；新四枪使用AnimSet.FireMontage。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<UAnimSequence> FireAnimation;
+    // 未迁移武器的换弹单序列；新四枪使用AnimSet.TacticalReload/EmptyReload。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<UAnimSequence> ReloadAnimation;
     // 每次开火视角上抬角度[0,10]；测试/默认步枪保持0，派生BP可调节。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") float RecoilPitch = 0.f;

@@ -1,0 +1,490 @@
+{
+  "version": 1,
+  "tail_seconds": 0.3,
+  "animation_source": "Art/Weapons/Animations/weapon_animation_manifest.json",
+  "tracks": [
+    {
+      "model": "Pistol",
+      "variant": "Tactical",
+      "file": "Pistol_Tactical.wav",
+      "reload_seconds": 1.2,
+      "preview_seconds": 1.5,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Pistol_MagOut.wav",
+          "phase": 0.2,
+          "seconds": 0.24,
+          "sample": 11520,
+          "source_seconds": 0.13,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "eb140f6210116d5d284c7a5ffe63efd62b41221fc90684c7e1d30c3dc57c4ce9"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Pistol_MagIn.wav",
+          "phase": 0.6,
+          "seconds": 0.72,
+          "sample": 34560,
+          "source_seconds": 0.091,
+          "interval_from_previous_seconds": 0.48,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "a5760cf89f169caa4a4f01bb6137a2a3bde2152462b464f72e65fe010291dfd6"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Pistol_MagSeat.wav",
+          "phase": 0.68,
+          "seconds": 0.8160000000000001,
+          "sample": 39168,
+          "source_seconds": 0.091,
+          "interval_from_previous_seconds": 0.09600000000000009,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "9f7c20a984b9a7acac9a0ced52c5f1ce0772360023e981a7c1b48cc640b891d5"
+        }
+      ],
+      "peak_dbfs": -6.020599913279624,
+      "rms_dbfs": -26.16740945667749,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    },
+    {
+      "model": "Pistol",
+      "variant": "Empty",
+      "file": "Pistol_Empty.wav",
+      "reload_seconds": 1.2,
+      "preview_seconds": 1.5,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Pistol_MagOut.wav",
+          "phase": 0.16,
+          "seconds": 0.192,
+          "sample": 9216,
+          "source_seconds": 0.13,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "eb140f6210116d5d284c7a5ffe63efd62b41221fc90684c7e1d30c3dc57c4ce9"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Pistol_MagIn.wav",
+          "phase": 0.5,
+          "seconds": 0.6,
+          "sample": 28800,
+          "source_seconds": 0.091,
+          "interval_from_previous_seconds": 0.408,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "a5760cf89f169caa4a4f01bb6137a2a3bde2152462b464f72e65fe010291dfd6"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Pistol_MagSeat.wav",
+          "phase": 0.57,
+          "seconds": 0.6839999999999999,
+          "sample": 32832,
+          "source_seconds": 0.091,
+          "interval_from_previous_seconds": 0.08399999999999996,
+          "tail_overlap_previous_seconds": 0.007000000000000006,
+          "source_sha256": "9f7c20a984b9a7acac9a0ced52c5f1ce0772360023e981a7c1b48cc640b891d5"
+        },
+        {
+          "name": "SlideRelease",
+          "source": "SW_Reload_Pistol_SlideRelease.wav",
+          "phase": 0.78,
+          "seconds": 0.9359999999999999,
+          "sample": 44928,
+          "source_seconds": 0.13,
+          "interval_from_previous_seconds": 0.252,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "1b898de62e1f0461b5c843880de76e5132c6f7d5155db843fd422e86d2624a01"
+        }
+      ],
+      "peak_dbfs": -6.020599913279624,
+      "rms_dbfs": -25.028385639216854,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    },
+    {
+      "model": "Rifle",
+      "variant": "Tactical",
+      "file": "Rifle_Tactical.wav",
+      "reload_seconds": 1.4,
+      "preview_seconds": 1.7,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Rifle_MagOut.wav",
+          "phase": 0.2,
+          "seconds": 0.27999999999999997,
+          "sample": 13440,
+          "source_seconds": 0.18,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "6e15c77634d200763f015edb3537447437fdb2d526bf6ceddefadbef5d5730db"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Rifle_MagIn.wav",
+          "phase": 0.6,
+          "seconds": 0.84,
+          "sample": 40320,
+          "source_seconds": 0.126,
+          "interval_from_previous_seconds": 0.56,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "fd84fd90ac8deb7206448e4dfd4bcf6b241cd4212efcdb7e09cfd2f60d3b7b0b"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Rifle_MagSeat.wav",
+          "phase": 0.68,
+          "seconds": 0.952,
+          "sample": 45696,
+          "source_seconds": 0.126,
+          "interval_from_previous_seconds": 0.11199999999999999,
+          "tail_overlap_previous_seconds": 0.014000000000000012,
+          "source_sha256": "0d172522f6533c23b0e05955d0fd0dc9ad966ad95b2292ded64399d741fba6e1"
+        }
+      ],
+      "peak_dbfs": -6.020599913279624,
+      "rms_dbfs": -26.49220468974331,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    },
+    {
+      "model": "Rifle",
+      "variant": "Empty",
+      "file": "Rifle_Empty.wav",
+      "reload_seconds": 1.4,
+      "preview_seconds": 1.7,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Rifle_MagOut.wav",
+          "phase": 0.16,
+          "seconds": 0.22399999999999998,
+          "sample": 10752,
+          "source_seconds": 0.18,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "6e15c77634d200763f015edb3537447437fdb2d526bf6ceddefadbef5d5730db"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Rifle_MagIn.wav",
+          "phase": 0.5,
+          "seconds": 0.7,
+          "sample": 33600,
+          "source_seconds": 0.126,
+          "interval_from_previous_seconds": 0.476,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "fd84fd90ac8deb7206448e4dfd4bcf6b241cd4212efcdb7e09cfd2f60d3b7b0b"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Rifle_MagSeat.wav",
+          "phase": 0.57,
+          "seconds": 0.7979999999999999,
+          "sample": 38304,
+          "source_seconds": 0.126,
+          "interval_from_previous_seconds": 0.09799999999999998,
+          "tail_overlap_previous_seconds": 0.028000000000000025,
+          "source_sha256": "0d172522f6533c23b0e05955d0fd0dc9ad966ad95b2292ded64399d741fba6e1"
+        },
+        {
+          "name": "ChargingHandle",
+          "source": "SW_Reload_Rifle_ChargingHandle.wav",
+          "phase": 0.68,
+          "seconds": 0.952,
+          "sample": 45696,
+          "source_seconds": 0.18,
+          "interval_from_previous_seconds": 0.15400000000000003,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "2cb0b725e0548d14c81527a6b0498290699ff8e33a8a172aff696a5cd9c0c9c8"
+        },
+        {
+          "name": "BoltOpen",
+          "source": "SW_Reload_Rifle_BoltOpen.wav",
+          "phase": 0.74,
+          "seconds": 1.036,
+          "sample": 49728,
+          "source_seconds": 0.18,
+          "interval_from_previous_seconds": 0.08400000000000007,
+          "tail_overlap_previous_seconds": 0.09599999999999986,
+          "source_sha256": "90c3c383776d6a4941299370f46288f88a2f197bb7eb351f0ead268285a59570"
+        },
+        {
+          "name": "BoltClose",
+          "source": "SW_Reload_Rifle_BoltClose.wav",
+          "phase": 0.82,
+          "seconds": 1.148,
+          "sample": 55104,
+          "source_seconds": 0.126,
+          "interval_from_previous_seconds": 0.11199999999999988,
+          "tail_overlap_previous_seconds": 0.06800000000000006,
+          "source_sha256": "6599da3a797ac8e92abba2183bdca73d8b7c837a9008b981b4eddfeed26f552a"
+        }
+      ],
+      "peak_dbfs": -4.980601381612288,
+      "rms_dbfs": -23.492264016356636,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Tactical",
+      "file": "Shotgun_Tactical.wav",
+      "reload_seconds": 2.2,
+      "preview_seconds": 2.5,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Shotgun_MagOut.wav",
+          "phase": 0.2,
+          "seconds": 0.44000000000000006,
+          "sample": 21120,
+          "source_seconds": 0.23,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "7a97d0aa3f8a57ec87c945f0dbe222598ebd16237dd357ffaf87488fe0b46414"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Shotgun_MagIn.wav",
+          "phase": 0.6,
+          "seconds": 1.32,
+          "sample": 63360,
+          "source_seconds": 0.161,
+          "interval_from_previous_seconds": 0.88,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "00c2d2a6d79eb666a7f50311fc73cb4a319527d2f4f56214386c6e02bf86fac5"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Shotgun_MagSeat.wav",
+          "phase": 0.68,
+          "seconds": 1.4960000000000002,
+          "sample": 71808,
+          "source_seconds": 0.161,
+          "interval_from_previous_seconds": 0.17600000000000016,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "8bd700c1c6e7f65d435351acab5fa64de7bdf93a3540704b95c63c239b44047b"
+        }
+      ],
+      "peak_dbfs": -6.020599913279624,
+      "rms_dbfs": -28.936331312748862,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Empty",
+      "file": "Shotgun_Empty.wav",
+      "reload_seconds": 2.2,
+      "preview_seconds": 2.5,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Shotgun_MagOut.wav",
+          "phase": 0.16,
+          "seconds": 0.35200000000000004,
+          "sample": 16896,
+          "source_seconds": 0.23,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "7a97d0aa3f8a57ec87c945f0dbe222598ebd16237dd357ffaf87488fe0b46414"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Shotgun_MagIn.wav",
+          "phase": 0.5,
+          "seconds": 1.1,
+          "sample": 52800,
+          "source_seconds": 0.161,
+          "interval_from_previous_seconds": 0.748,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "00c2d2a6d79eb666a7f50311fc73cb4a319527d2f4f56214386c6e02bf86fac5"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Shotgun_MagSeat.wav",
+          "phase": 0.57,
+          "seconds": 1.254,
+          "sample": 60192,
+          "source_seconds": 0.161,
+          "interval_from_previous_seconds": 0.15399999999999991,
+          "tail_overlap_previous_seconds": 0.007000000000000117,
+          "source_sha256": "8bd700c1c6e7f65d435351acab5fa64de7bdf93a3540704b95c63c239b44047b"
+        },
+        {
+          "name": "ChargingHandle",
+          "source": "SW_Reload_Shotgun_ChargingHandle.wav",
+          "phase": 0.68,
+          "seconds": 1.4960000000000002,
+          "sample": 71808,
+          "source_seconds": 0.23,
+          "interval_from_previous_seconds": 0.24200000000000021,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "3fcd0a8759c2666a60097f3de03b327fb0816c7b249ed302a0b030377f2484c6"
+        },
+        {
+          "name": "BoltOpen",
+          "source": "SW_Reload_Shotgun_BoltOpen.wav",
+          "phase": 0.76,
+          "seconds": 1.6720000000000002,
+          "sample": 80256,
+          "source_seconds": 0.23,
+          "interval_from_previous_seconds": 0.17599999999999993,
+          "tail_overlap_previous_seconds": 0.05400000000000005,
+          "source_sha256": "59f133e94d33bc876ca50b4deff08a93b3121b00cb2306b5b12d2e74b1d81389"
+        },
+        {
+          "name": "BoltClose",
+          "source": "SW_Reload_Shotgun_BoltClose.wav",
+          "phase": 0.84,
+          "seconds": 1.848,
+          "sample": 88704,
+          "source_seconds": 0.161,
+          "interval_from_previous_seconds": 0.17599999999999993,
+          "tail_overlap_previous_seconds": 0.05400000000000005,
+          "source_sha256": "9462325673b9f6f33040a562f418de36a81a48ab2366c4b0b7913197a8b3bfaf"
+        }
+      ],
+      "peak_dbfs": -5.762579048217466,
+      "rms_dbfs": -25.872695944725415,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    },
+    {
+      "model": "Sniper",
+      "variant": "Tactical",
+      "file": "Sniper_Tactical.wav",
+      "reload_seconds": 2.5,
+      "preview_seconds": 2.8,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Sniper_MagOut.wav",
+          "phase": 0.2,
+          "seconds": 0.5,
+          "sample": 24000,
+          "source_seconds": 0.22,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "f9d49b8e7a7d980f957a1e520ebc7338b80de25f2928105b292a41e9a0820c56"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Sniper_MagIn.wav",
+          "phase": 0.6,
+          "seconds": 1.5,
+          "sample": 72000,
+          "source_seconds": 0.154,
+          "interval_from_previous_seconds": 1.0,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "2d1014ca049458b76b4992d2dcc92eb9a060992a78aade4408c7103cd8c6a390"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Sniper_MagSeat.wav",
+          "phase": 0.68,
+          "seconds": 1.7000000000000002,
+          "sample": 81600,
+          "source_seconds": 0.154,
+          "interval_from_previous_seconds": 0.20000000000000018,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "bb98c878881f0df3e9f997ba08885d14ad0594b0dcb82e989de5c23cffa02fee"
+        }
+      ],
+      "peak_dbfs": -6.020599913279624,
+      "rms_dbfs": -29.619516540644103,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    },
+    {
+      "model": "Sniper",
+      "variant": "Empty",
+      "file": "Sniper_Empty.wav",
+      "reload_seconds": 2.5,
+      "preview_seconds": 2.8,
+      "sample_rate": 48000,
+      "channels": 1,
+      "events": [
+        {
+          "name": "MagOut",
+          "source": "SW_Reload_Sniper_MagOut.wav",
+          "phase": 0.16,
+          "seconds": 0.4,
+          "sample": 19200,
+          "source_seconds": 0.22,
+          "interval_from_previous_seconds": null,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "f9d49b8e7a7d980f957a1e520ebc7338b80de25f2928105b292a41e9a0820c56"
+        },
+        {
+          "name": "MagIn",
+          "source": "SW_Reload_Sniper_MagIn.wav",
+          "phase": 0.5,
+          "seconds": 1.25,
+          "sample": 60000,
+          "source_seconds": 0.154,
+          "interval_from_previous_seconds": 0.85,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "2d1014ca049458b76b4992d2dcc92eb9a060992a78aade4408c7103cd8c6a390"
+        },
+        {
+          "name": "MagSeat",
+          "source": "SW_Reload_Sniper_MagSeat.wav",
+          "phase": 0.57,
+          "seconds": 1.4249999999999998,
+          "sample": 68400,
+          "source_seconds": 0.154,
+          "interval_from_previous_seconds": 0.17499999999999982,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "bb98c878881f0df3e9f997ba08885d14ad0594b0dcb82e989de5c23cffa02fee"
+        },
+        {
+          "name": "BoltOpen",
+          "source": "SW_Reload_Sniper_BoltOpen.wav",
+          "phase": 0.68,
+          "seconds": 1.7000000000000002,
+          "sample": 81600,
+          "source_seconds": 0.22,
+          "interval_from_previous_seconds": 0.27500000000000036,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "bbf692cdca95ad9daafd87a9ea93c8b1bb51d92defc6512f65b34b9c8fdece4c"
+        },
+        {
+          "name": "BoltClose",
+          "source": "SW_Reload_Sniper_BoltClose.wav",
+          "phase": 0.88,
+          "seconds": 2.2,
+          "sample": 105600,
+          "source_seconds": 0.154,
+          "interval_from_previous_seconds": 0.5,
+          "tail_overlap_previous_seconds": 0.0,
+          "source_sha256": "2aade85d3f914c6dbe4b51b56402c647cb01cb92e992ad294526fd086311bca8"
+        }
+      ],
+      "peak_dbfs": -6.020599913279624,
+      "rms_dbfs": -27.312082492533012,
+      "mix_gain": 1.0,
+      "clipped_samples": 0
+    }
+  ]
+}

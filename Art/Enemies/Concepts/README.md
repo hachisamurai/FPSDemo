@@ -4,9 +4,9 @@
 
 左侧：追击型撞击者，主体约 1m，楔形灰白机身、短机械臂、橙红传感器和双推进器。右侧：镇压核心 Boss，主体约 2.4m，厚重肩甲、关节机械臂、四片核心护板与背部能量环。右上小图表现护板开启和全图技能蓄能。
 
-这是一张设计概念图，尚未制作或导入敌人 SkeletalMesh、Skeleton、Animation Sequence、AnimBP 或 Montage；不是 UE 实拍。下方视图仅供建模参考，不应当作像素精确、严格一致的正交工程图。最终尺寸、关节间隙和可命中轮廓需在 Blender/UE 中校准。第 10 关使用同骨架装甲变体，不复制第二套 Boss 动画。
+这是一张设计概念图，不是 UE 实拍。2026-09-21 已据此制作并导入追击型/Boss 的 SkeletalMesh、Skeleton 和绑定诊断 Animation Sequence；实模源见 `../Models/Breach_Chaser_Rigged.blend` 与 `Breach_Warden_Rigged.blend`，预览见 `../Models/Previews/`。随后已接入19个正式动作、两套AnimBP及GAS Montage播放，动画源见 `../Animations/`。下方概念视图仅供建模参考，不应当作像素精确、严格一致的正交工程图。第10关同骨架装甲变体后续另做。
 
-设计与动画/联机职责见 `Documentation/敌人模型骨骼与动画同步设计.md`。既有 GAS/导航/攻击代码未因这张图发生改变；本次交付为概念与架构设计。
+设计、实模交付及动画/联机职责见 `Documentation/敌人模型骨骼与动画同步设计.md`。关卡普通怪与Boss已使用骨骼外观，原伤害/导航规则保留；另外两种普通怪独立造型与完整联机尚未完成。
 
 ## 实际生成提示词
 

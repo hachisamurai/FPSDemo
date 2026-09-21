@@ -8,6 +8,10 @@
 #include "Player/DemoCloudSync.h"
 #include "Debug/DemoLog.h"
 #include "Dom/JsonObject.h" // V4测试直接检查协议字符串，避免仅UStruct往返掩盖大小写错误。
+#include "HAL/IConsoleManager.h" // 通过真实控制台分发验证Editor专属命令，而非直接调用解锁实现。
+#include "Misc/OutputDeviceNull.h" // 测试同步丢弃控制台用户提示，关键结果仍由DemoLog记录。
+#include "Weapons/Ammo/DemoAmmoComponent.h" // 验证真实Pawn的弹药权限及无效索引保护。
+#include "GameFramework/PlayerController.h" // 每个PIE借用当前玩家，不跨会话保留。
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -67,6 +71,7 @@ namespace
             for (int32 Index = 0; Index < 3; ++Index) // 每次新PIE均是空槽，不继承上一次试玩进度。
                 Test->TestFalse(TEXT("Fresh PIE has no checkpoint"), Saves->SlotExists(Index));
             Test->TestTrue(TEXT("Fresh PIE only unlocks pistol"), Profile->IsUnlocked(TEXT("pistol")) && !Profile->IsUnlocked(TEXT("rifle")) && Profile->GetData().Clears.IsEmpty());
+            Test->TestFalse(TEXT("Fresh PIE never inherits debug unlock"), Profile->IsDebugUnlockAllForSession()); // 第二次PIE也检查，证明调试权限随GI销毁。
             if (Stage == 3)
             {
                 Test->TestTrue(TEXT("New PIE uses different run prefix"), Saves->SlotName(0) != Probe->PreviousRunSlot);
@@ -102,10 +107,10 @@ namespace
                 && Saves->GetSlot(2)->UpgradeProgress.Cost(1,true) == 20 && Saves->GetSlot(2)->UpgradeProgress.Cost(0,false) == 20
                 && Saves->GetSlot(2)->UpgradeProgress.Cost(1,false) == 30);
             UDemoRunSave* Legacy = DuplicateObject<UDemoRunSave>(Saves->GetSlot(2), GI); // 独立夹具，拒绝分支不可污染原缓存。
-            Legacy->Version = 1; Legacy->Phase = EDemoPhase::Intermission; Legacy->CompletedLevel = 1; Legacy->GoldPurchases = Legacy->SilverPurchases = Legacy->SilverCoins = 0;
-            Test->TestTrue(TEXT("V1 arena keeps legacy stats temporarily without inventing permanent sources"), Legacy->UpgradeLegacy() && Legacy->Version == 4
+            Legacy->Version = 1; Legacy->PistolChallenge = 0; Legacy->Phase = EDemoPhase::Intermission; Legacy->CompletedLevel = 1; Legacy->GoldPurchases = Legacy->SilverPurchases = Legacy->SilverCoins = 0; // 历史格式不能携带V5挑战证明。
+            Test->TestTrue(TEXT("V1 arena keeps legacy stats temporarily without inventing permanent sources"), Legacy->UpgradeLegacy() && Legacy->Version == 5
                 && Legacy->Coins == 44 && Legacy->DamageBonus == 10 && Legacy->SilverCoins == 0 && Legacy->GoldPurchases == 0 && Legacy->SilverPurchases == 0 && Legacy->UpgradeProgress.PermanentDamage == 0);
-            Legacy->Version = 2; Legacy->GoldPurchases = 3; Legacy->SilverPurchases = 1; Legacy->Purchases = 4; // 模拟V2只有币种总次数。
+            Legacy->Version = 2; Legacy->PistolChallenge = 0; Legacy->GoldPurchases = 3; Legacy->SilverPurchases = 1; Legacy->Purchases = 4; // 模拟V2只有币种总次数，清除前一次迁移的V5挑战状态。
             Test->TestTrue(TEXT("V2 refunds 20+30+40 gold once and preserves legacy totals temporarily"), Legacy->UpgradeLegacy() && Legacy->Coins == 134 && Legacy->DamageBonus == 10 && Legacy->Purchases == 0);
             Test->TestTrue(TEXT("V3 migration is idempotent"), Legacy->UpgradeLegacy() && Legacy->Coins == 134);
             Legacy->ResetTemporaryGrowth();
@@ -118,7 +123,7 @@ namespace
             Test->TestFalse(TEXT("Malformed per-attribute array rejected"), Legacy->Validate());
             Legacy->UpgradeProgress.GoldLevels = {0,0,0}; Legacy->UpgradeProgress.PermanentDamage = 5;
             Test->TestFalse(TEXT("Permanent source larger than total rejected"), Legacy->Validate());
-            Legacy->UpgradeProgress.PermanentDamage = 0; Legacy->Version = 5; // V4已支持，V5才是未知未来版本。
+            Legacy->UpgradeProgress.PermanentDamage = 0; Legacy->Version = 6; // 当前支持V5，未来版本夹具不能再使用5。
             Test->TestFalse(TEXT("Future checkpoint version rejected"), Legacy->UpgradeLegacy());
             UDemoProfileSave* Unlock = NewObject<UDemoProfileSave>(GI); // 仅本测试的UE序列化夹具，用于验证解锁在下次PIE清空。
             Unlock->Data = Profile->GetData();
@@ -134,6 +139,20 @@ namespace
             for (const FString& Slot : Probe->OwnedSlots) // 停止前确认所有被测文件实际存在。
                 Test->TestTrue(TEXT("Fixture file exists before stop"), UGameplayStatics::DoesSaveGameExist(Slot, 0));
             UE_LOG(LogFPSDemo, Display, TEXT("EDITOR_TEMPORARY_SAVES seeded stage=%d files=%d"), Stage, Probe->OwnedSlots.Num());
+            // 在所有持久化断言之后测试真实控制台；下一次PIE必须恢复锁定，不制造通关或金钱。
+            const int32 BeforeRevision = Profile->GetData().LocalRevision; // 调试权限不应推进持久档案修订。
+            const int32 BeforeClears = Profile->GetData().Clears.Num(); // 已有夹具事实数量，命令不追加伪造胜利。
+            const int32 BeforeCoins = Saves->GetSlot(0)->Coins; // 检查不扣币也不赠送测试金币。
+            FOutputDeviceNull ConsoleOutput; // 同步控制台输出接收器，不跨帧存活。
+            Test->TestTrue(TEXT("Editor unlock console command registered"), IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Demo.Debug.UnlockAll"), ConsoleOutput, GEditor->PlayWorld));
+            Test->TestTrue(TEXT("Repeated editor unlock remains idempotent"), IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Demo.Debug.UnlockAll"), ConsoleOutput, GEditor->PlayWorld));
+            Test->TestTrue(TEXT("All four weapon permissions unlocked"), Profile->IsUnlocked(TEXT("pistol")) && Profile->IsUnlocked(TEXT("rifle")) && Profile->IsUnlocked(TEXT("shotgun")) && Profile->IsUnlocked(TEXT("sniper")));
+            Test->TestFalse(TEXT("Unknown debug weapon remains rejected"), Profile->IsUnlocked(TEXT("invalid_debug_weapon")));
+            APlayerController* DebugPC = GEditor->PlayWorld->GetFirstPlayerController(); // 当前PIE控制器，仅本帧借用。
+            UDemoAmmoComponent* DebugAmmo = DebugPC && DebugPC->GetPawn() ? DebugPC->GetPawn()->FindComponentByClass<UDemoAmmoComponent>() : nullptr; // 使用游戏中真实库存权限。
+            Test->TestTrue(TEXT("All ammo permissions unlocked"), DebugAmmo && DebugAmmo->IsUnlocked(0) && DebugAmmo->IsUnlocked(1) && DebugAmmo->IsUnlocked(2) && DebugAmmo->IsUnlocked(3));
+            Test->TestTrue(TEXT("Unknown ammo rejected without changing selection"), DebugAmmo && !DebugAmmo->IsUnlocked(-1) && !DebugAmmo->IsUnlocked(4) && DebugAmmo->GetSelected()==0);
+            Test->TestTrue(TEXT("Debug does not mutate currency, victories or revisions"), BeforeCoins==Saves->GetSlot(0)->Coins && BeforeClears==Profile->GetData().Clears.Num() && BeforeRevision==Profile->GetData().LocalRevision);
             return true;
         }
     private:

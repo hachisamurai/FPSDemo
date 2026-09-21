@@ -60,17 +60,20 @@ void ADemoArmoryTest::Tick(float DeltaSeconds)
     {
         int32 Count = 0; // 当前实际武器Actor数，验证没有隐藏的未装备主武器。
         for (TActorIterator<ADemoWeaponBase> It(GetWorld()); It; ++It) ++Count; // World只读迭代，不修改Actor。
-        if (!Check(Count == 1 && Equipment->GetActiveSlot() == 2 && Equipment->GetPrimaryIndex() == INDEX_NONE, TEXT("every new world owns pistol only"))) return;
-        if (!Check(!Equipment->EquipSlot(1), TEXT("empty primary slot rejected"))) return;
         if (ArmoryRun == 4)
         {
             if (!Check(State->Phase == EDemoPhase::Hub && Profile->GetData().UnlockedWeaponIds.Num() == 4
-                && !Profile->GetData().LastSelectedPrimary.IsNone() && State->Coins == 0, TEXT("death keeps unlocks/preferences but resets loadout and run coins"))) return;
-            UE_LOG(LogFPSDemo, Display, TEXT("DEMO_ARMORY_SUCCESS: three full difficulty clears, pistol-only restarts, terminal equip, locks, save roundtrip, upload contract, modal hitboxes"));
+                && Profile->GetData().LastSelectedPrimary == TEXT("sniper") && State->Coins == 0
+                && Count == 4 && Equipment->GetPrimaryIndex() == 0 && Equipment->GetActiveSlot() == 1
+                && Equipment->GetActiveWeapon()->GetAmmo() == Equipment->GetActiveWeapon()->GetCapacity(), TEXT("death retains real rifle loadout, refills ammo and ignores different account preference"))) return; // 无活动槽开发World也必须跨旅行保留装备值。
+            UE_LOG(LogFPSDemo, Display, TEXT("DEMO_ARMORY_SUCCESS: three full difficulty clears, death equipment retention, terminal equip, locks, save roundtrip, upload contract, modal hitboxes"));
             FPlatformMisc::RequestExitWithStatus(false, 0);
             SetActorTickEnabled(false);
             return;
         }
+        // 真正新档/普通大厅不凭账号解锁或偏好自动发枪；死亡恢复在上方使用真实装备快照。
+        if (!Check(Count == 1 && Equipment->GetActiveSlot() == 2 && Equipment->GetPrimaryIndex() == INDEX_NONE, TEXT("fresh world without resume owns pistol only"))) return;
+        if (!Check(!Equipment->EquipSlot(1), TEXT("empty primary slot rejected"))) return;
         // 大厅新增存档选择由Session测试覆盖；本专项直接建立隔离新局，仍使用权威难度接口。
         if (!Check(Mode->StartRun(), TEXT("armory fixture starts fresh run"))) return;
         PC->OnRunReady();

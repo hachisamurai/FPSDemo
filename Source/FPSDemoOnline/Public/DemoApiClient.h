@@ -4,7 +4,12 @@
 #include "Interfaces/IHttpRequest.h"
 #include "DemoApiClient.generated.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogDemoOnline, Log, All);
+// 网络模块与玩法模块保持同一目标策略；非Editor不编译调用/路径追踪，保留关键结果与故障。
+#if WITH_EDITOR
+FPSDEMOONLINE_API DECLARE_LOG_CATEGORY_EXTERN(LogDemoOnline, VeryVerbose, All); // 导出供跨模块构建边界自检，仍由Online模块唯一拥有。
+#else
+FPSDEMOONLINE_API DECLARE_LOG_CATEGORY_EXTERN(LogDemoOnline, Display, Display);
+#endif
 // 回调参数依次为传输成功、HTTP状态、响应正文；只在游戏线程执行，禁止日志打印正文。
 DECLARE_DELEGATE_ThreeParams(FDemoApiReply, bool, int32, const FString&);
 

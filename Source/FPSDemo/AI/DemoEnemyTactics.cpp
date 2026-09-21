@@ -7,7 +7,10 @@
 bool FDemoEnemyTacticsSettings::IsValid() const
 {
     UE_LOG(LogFPSDemo,Log,TEXT("%hs"),__FUNCTION__);
-    return static_cast<uint8>(Role) <= static_cast<uint8>(EDemoEnemyRole::Flanker)
+    if (MixedRoles.IsEmpty()||MixedRoles.Num()>16) { UE_LOG(LogFPSDemo,Warning,TEXT("AI mixed role count invalid")); return false; }
+    for (const EDemoEnemyRole Entry:MixedRoles) // 明确拒绝递归Mixed及非法序列化值。
+        if (Entry==EDemoEnemyRole::Mixed||static_cast<uint8>(Entry)>static_cast<uint8>(EDemoEnemyRole::Charger)) { UE_LOG(LogFPSDemo,Warning,TEXT("AI mixed role entry invalid")); return false; }
+    return static_cast<uint8>(Role) <= static_cast<uint8>(EDemoEnemyRole::Charger)
         && FMath::IsFinite(MinimumRange) && MinimumRange >= 250 && MinimumRange < PreferredRange
         && FMath::IsFinite(PreferredRange) && PreferredRange < MaximumRange
         && FMath::IsFinite(MaximumRange) && MaximumRange <= 2500
@@ -28,7 +31,7 @@ void UDemoEnemyTactics::Configure(const FDemoEnemyTacticsSettings& Settings, int
     bActive = bEnabled && bValid && Config.bEnabled;
     if (!bValid) UE_LOG(LogFPSDemo,Warning,TEXT("AI_TACTICS invalid settings: legacy fallback"));
     FormationSlot = FMath::Max(0,Slot);
-    Role = Config.Role == EDemoEnemyRole::Mixed ? static_cast<EDemoEnemyRole>(1+FormationSlot%3) : Config.Role;
+    Role = !bActive ? EDemoEnemyRole::Chaser : (Config.Role == EDemoEnemyRole::Mixed ? Config.MixedRoles[FormationSlot%Config.MixedRoles.Num()] : Config.Role); // 关闭战术时保留旧角色行为，不意外创建纯近身兵。
     bRage=false; ResetMovement();
     UE_LOG(LogFPSDemo,Log,TEXT("AI_ROLE actor=%s role=%d slot=%d enabled=%d"),*GetNameSafe(GetOwner()),static_cast<int32>(Role),FormationSlot,bActive);
 }

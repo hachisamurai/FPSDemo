@@ -156,7 +156,8 @@ public sealed class ProfileService
         log.LogDebug("[CALL] Snapshot");
         // 三个有界检查点嵌入同一投影，使GET得到同一版本的永久进度和存档槽。
         var slots = JsonSerializer.Deserialize<JsonElement>(profile.GetValue("slots", new BsonArray()).ToJson(new MongoDB.Bson.IO.JsonWriterSettings { OutputMode = MongoDB.Bson.IO.JsonOutputMode.RelaxedExtendedJson })); // 业务JSON内版本为字符串，避免BSON Int64扩展语法。
-        return new { serverProfileId = profile["_id"].AsString, serverRevision = profile["serverRevision"].AsInt64.ToString(CultureInfo.InvariantCulture), clearedDifficulties = profile["clearedDifficulties"].AsBsonArray.Select(value => value.AsString).ToArray(), unlockedWeaponIds = profile["unlockedWeaponIds"].AsBsonArray.Select(value => value.AsString).ToArray(), lastSelectedPrimary = profile["lastSelectedPrimary"].AsString, slots }; // 同步LINQ不捕获外部状态，仅转换字段值。
+        var unlocked = WeaponUnlockRules.Resolve(profile["clearedDifficulties"].AsBsonArray.Select(value => value.AsString)); // 同步Lambda无捕获，只投影当前文档事实；旧hard档GET立即派生散弹权限，不写库或伪增修订。
+        return new { serverProfileId = profile["_id"].AsString, serverRevision = profile["serverRevision"].AsInt64.ToString(CultureInfo.InvariantCulture), clearedDifficulties = profile["clearedDifficulties"].AsBsonArray.Select(value => value.AsString).ToArray(), unlockedWeaponIds = unlocked, lastSelectedPrimary = profile["lastSelectedPrimary"].AsString, slots }; // 同步LINQ不捕获外部状态，仅转换字段值。
     }
 
     /// <summary>按认证账号读取当前紧凑投影；不存在时返回明确错误，不读取任意用户文档。</summary>
@@ -181,7 +182,7 @@ public sealed class ProfileService
         {
             if (claim is null) throw new ApiFailure(400, "invalid_clear");
             claim.RunId = GuidKey(claim.RunId);
-            if (!seen.Add(claim.RunId) || claim.DifficultyId is not ("easy" or "normal" or "hard")
+            if (!seen.Add(claim.RunId) || claim.DifficultyId is not ("easy" or "normal" or "hard" or "hard_pistol" or "hell")
                 || !DateTimeOffset.TryParse(claim.CompletedUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var completed)) throw new ApiFailure(400, "invalid_clear"); // completed校验日期，不把客户端日期当服务器证明。
             claim.CompletedUtc = completed.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
         }
@@ -204,17 +205,20 @@ public sealed class ProfileService
         log.LogInformation("[CALL] ValidateCheckpoint");
         if (data is null) throw new ApiFailure(400, "invalid_checkpoint");
         data.RunId = GuidKey(data.RunId);
-        // 同时接受V1/V2/V3；保留上传原格式，客户端显式迁移，避免规范化哈希改变。
-        if (data.Version is not (1 or 2 or 3 or 4) || !DateTime.TryParse(data.CreatedLocal, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _)
+        // 同时接受V1..V5；保留上传原格式，客户端显式迁移，避免规范化哈希改变。
+        if (data.Version is not (1 or 2 or 3 or 4 or 5) || !DateTime.TryParse(data.CreatedLocal, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _)
             || !DateTimeOffset.TryParse(data.SavedUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _)
-            || data.Difficulty is not ("easy" or "normal" or "hard") || data.Coins is < 0 or > 100000000 || data.Kills is < 0 or > 10000000 || data.Purchases is < 0 or > 100000
+            || data.Difficulty is not ("easy" or "normal" or "hard" or "hell") || data.Coins is < 0 or > 100000000 || data.Kills is < 0 or > 10000000 || data.Purchases is < 0 or > 100000
             || data.SilverCoins is < 0 or > 100000000 || data.GoldPurchases is < 0 or > 100000 || data.SilverPurchases is < 0 or > 100000
             || data.Version >= 2 && data.Purchases != data.GoldPurchases + data.SilverPurchases
             || data.MaxHealth is < 100 or > 10000000 || data.Health <= 0 || data.Health > data.MaxHealth || data.DamageBonus is < 0 or > 10000 || data.MagazineBonus is < 0 or > 10000
             || data.HealAmount is < 35 or > 100000 || data.DashSpeed is < 1300 or > 100000 || data.ActiveSlot is not (1 or 2)
             || data.Weapons is null || data.Weapons.Count > 4 || data.PrimaryId is not ("" or "rifle" or "shotgun" or "sniper")) throw new ApiFailure(400, "invalid_checkpoint");
         if (data.Version >= 3) ValidateUpgradeProgress(data); // 新字段必须与既有总属性/次数一致，不能吞字段后上传成功。
-        if (!(data.Phase == "Hub" && data.CompletedLevel == 0 || data.Phase is "Reward" or "Intermission" && data.CompletedLevel is >= 1 and <= 9 || data.Phase == "Victory" && data.CompletedLevel == 10)) throw new ApiFailure(400, "invalid_checkpoint_phase");
+        // V5模式和挑战元数据有界；旧DTO默认值不能伪装新模式或新资格。
+        if (data.PistolChallenge is < 0 or > 2 || data.BestEndlessLevel < 0 || data.BEndless && (data.Difficulty != "hell" || data.BestEndlessLevel < data.CompletedLevel)
+            || data.Version < 5 && (data.BEndless || data.BestEndlessLevel != 0 || data.PistolChallenge != 0 || data.Difficulty == "hell")) throw new ApiFailure(400,"invalid_challenge_state");
+        if (!(data.Phase == "Hub" && data.CompletedLevel == 0 || data.Phase is "Reward" or "Intermission" && data.CompletedLevel >= 1 && (data.BEndless ? data.CompletedLevel < int.MaxValue : data.CompletedLevel <= 9) || data.Phase == "Victory" && data.CompletedLevel == 10 && !data.BEndless)) throw new ApiFailure(400, "invalid_checkpoint_phase");
         if (data.Version >= 4)
         {
             var ammo = data.UnlockedAmmoIds; // 与钱包作为同一槽CAS快照保存，不单独合并集合。
@@ -280,12 +284,11 @@ public sealed class ProfileService
                 var claimHash = Hash(JsonSerializer.Serialize(claim, Json)); // 与此次上传其他字段无关的事实指纹。
                 if (existing is not null && existing["claimHash"].AsString != claimHash) throw new ApiFailure(409, "run_id_reused");
                 if (existing is null) await Collection("campaign_runs").InsertOneAsync(transaction, new BsonDocument { { "_id", Guid.NewGuid().ToString("D") }, { "playerId", caller.PlayerId }, { "runId", claim.RunId }, { "difficultyId", claim.DifficultyId }, { "clientCompletedAt", DateTime.Parse(claim.CompletedUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) }, { "receivedAt", DateTime.UtcNow }, { "completedLevels", 10 }, { "rulesVersion", "campaign-10-v1" }, { "acceptance", "offline_accepted" }, { "claimHash", claimHash } }, cancellationToken: token);
+                // 地狱通关必须建立在已接受的困难手枪凭据上；离线事实仍不是防作弊服务器战斗认证。
+                if (claim.DifficultyId == "hell" && !difficulties.Contains("hard_pistol")) throw new ApiFailure(400,"hell_locked");
                 if (!difficulties.Contains(claim.DifficultyId)) difficulties.Add(claim.DifficultyId);
             }
-            var unlocked = new BsonArray { "pistol" }; // 只由已接受的难度记录派生，三档独立。
-            if (difficulties.Contains("easy")) unlocked.Add("rifle");
-            if (difficulties.Contains("normal")) unlocked.Add("shotgun");
-            if (difficulties.Contains("hard")) unlocked.Add("sniper");
+            var unlocked = new BsonArray(WeaponUnlockRules.Resolve(difficulties.Select(value => value.AsString))); // 同步Lambda无捕获，按同一规则验证装备并更新投影；困难可以同时解锁散弹/狙击。
             var slots = profile.GetValue("slots", new BsonArray()).AsBsonArray; // 有界三个槽，在当前事务内做版本校验和替换。
             foreach (var change in request.Slots) // 按独立slotRevision拒绝重叠的跨设备修改。
             {
@@ -293,6 +296,8 @@ public sealed class ProfileService
                 var previous = slots.FirstOrDefault(value => value["slotIndex"].AsInt32 == change.SlotIndex); // 已存在的该槽或null。
                 var slotRevision = previous is null ? "0" : previous["serverRevision"].AsString; // 字符串Int64是对客户端的稳定协议。
                 if (slotRevision != change.BaseSlotRevision) throw new ApiFailure(409, "slot_conflict");
+                // 同一请求先合并通关事实再检查模式，离线解锁与检查点可原子提交。
+                if (change.Snapshot.Difficulty == "hell" && !difficulties.Contains("hard_pistol") || change.Snapshot.BEndless && !difficulties.Contains("hell")) throw new ApiFailure(400,"checkpoint_mode_locked");
                 foreach (var weapon in change.Snapshot.Weapons) // 上传检查点不能绕过永久武器解锁。
                     if (!unlocked.Contains(weapon.Id)) throw new ApiFailure(400, "checkpoint_weapon_locked");
                 var replacement = new BsonDocument { { "slotIndex", change.SlotIndex }, { "serverRevision", checked(long.Parse(slotRevision, CultureInfo.InvariantCulture) + 1).ToString(CultureInfo.InvariantCulture) }, { "snapshot", BsonDocument.Parse(JsonSerializer.Serialize(change.Snapshot, Json)) } }; // DTO白名单序列化，禁止客户端Mongo操作符。

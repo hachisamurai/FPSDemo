@@ -1,12 +1,31 @@
 #include "GAS/DemoAbilitySystemComponent.h"
 #include "GAS/DemoGameplayAbility.h"
 #include "Debug/DemoLog.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/DemoFPAnimInstance.h"
 
 UDemoAbilitySystemComponent::UDemoAbilitySystemComponent()
 {
 	DEMO_LOG_CALL();
 	SetIsReplicatedByDefault(true);
 	SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+}
+
+bool UDemoAbilitySystemComponent::SetFirstPersonAnimationMesh(USkeletalMeshComponent* Arms)
+{
+	DEMO_LOG_CALL();
+	if (!AbilityActorInfo.IsValid() || !Arms || Arms->GetOwner() != GetAvatarActor()
+		|| !Cast<UDemoFPAnimInstance>(Arms->GetAnimInstance()))
+	{
+		UE_LOG(LogFPSDemo, Warning, TEXT("FP_ASC_CONTEXT_REJECT mesh=%s avatar=%s"), *GetNameSafe(Arms), *GetNameSafe(GetAvatarActor()));
+		return false;
+	}
+	// UE默认查找第一个SkeletalMesh；显式绑定主手臂，Linked Layer仍不拥有独立GAS Montage通道。
+	AbilityActorInfo->SkeletalMeshComponent = Arms;
+	AbilityActorInfo->AnimInstance = Arms->GetAnimInstance();
+	AbilityActorInfo->AffectedAnimInstanceTag = NAME_None;
+	UE_LOG(LogFPSDemo, Log, TEXT("FP_ASC_CONTEXT mesh=%s anim=%s"), *Arms->GetName(), *GetNameSafe(Arms->GetAnimInstance()));
+	return true;
 }
 
 void UDemoAbilitySystemComponent::GrantStartupAbilities()

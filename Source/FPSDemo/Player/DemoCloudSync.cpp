@@ -293,7 +293,8 @@ void UDemoCloudSync::Upload()
         if (ExitState == EDemoCloudExitState::Pending && State->Outbox.IsEmpty())
         {
             ExitState = EDemoCloudExitState::Complete;
-            UE_LOG(LogFPSDemo, Log, TEXT("EXIT_SYNC complete: latest local snapshots confirmed"));
+            // 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
+            UE_LOG(LogFPSDemo, Display, TEXT("EXIT_SYNC complete: latest local snapshots confirmed"));
         }
         return;
     }
@@ -378,7 +379,8 @@ void UDemoCloudSync::Reply(bool bSuccess, int32 Code, const FString& Body)
     State->Outbox.Empty(); State->OutboxProfileId.Empty();
     if (!Persist()) return;
     bNeedPull = true; Status = TEXT("云存档已确认保存"); NextAttempt = FPlatformTime::Seconds() + 2;
-    UE_LOG(LogFPSDemo, Log, TEXT("CLOUD_ACK localRevision=%d"), Revision);
+    // 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
+    UE_LOG(LogFPSDemo, Display, TEXT("CLOUD_ACK localRevision=%d"), Revision);
 }
 void UDemoCloudSync::ResolveConflict(bool bKeepLocal)
 {

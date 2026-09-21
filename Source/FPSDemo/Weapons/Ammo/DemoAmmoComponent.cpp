@@ -1,4 +1,5 @@
 #include "Weapons/Ammo/DemoAmmoComponent.h"
+#include "Economy/DemoShopComponent.h" // 购买及权限已迁入权威交易服务。
 #include "Weapons/Ammo/DemoAmmoCatalog.h"
 #include "Characters/DemoCharacter.h"
 #include "Player/DemoPlayerController.h"
@@ -9,6 +10,9 @@
 #include "Engine/GameInstance.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Debug/DemoLog.h"
+#if WITH_EDITOR
+#include "Player/DemoPlayerProfile.h" // 临时全解锁由GI统一持有，Pawn换图/重生不丢失。
+#endif
 
 UDemoAmmoComponent::UDemoAmmoComponent()
 {
@@ -17,33 +21,30 @@ UDemoAmmoComponent::UDemoAmmoComponent()
     Catalog=Data.Object;
 }
 const UDemoAmmoCatalog* UDemoAmmoComponent::GetCatalog() const { DEMO_LOG_TICK(); return Catalog?Catalog.Get():GetDefault<UDemoAmmoCatalog>(); }
-bool UDemoAmmoComponent::IsUnlocked(int32 Index) const { DEMO_LOG_TICK(); return Index==0 || (GetCatalog()->Entries.IsValidIndex(Index) && (GetCatalog()->Entries[Index].bUnlockedByDefault||Unlocked.Contains(UDemoAmmoCatalog::IdAt(Index)))); }
+bool UDemoAmmoComponent::IsUnlocked(int32 Index) const
+{
+    DEMO_LOG_TICK();
+    if (Index < 0 || Index > 3) return false; // Debug也不允许越过稳定目录白名单。
+#if WITH_EDITOR
+    const UGameInstance* Instance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr; // CDO/销毁期间可能没有World，仅读当前GI。
+    const UDemoPlayerProfile* Profile = Instance ? Instance->GetSubsystem<UDemoPlayerProfile>() : nullptr; // GI拥有，不跨调用保存。
+    if (Profile && Profile->IsDebugUnlockAllForSession()) return true; // 仅本次Editor会话临时权限。
+#endif
+    return Index==0 || (GetCatalog()->Entries.IsValidIndex(Index) && (GetCatalog()->Entries[Index].bUnlockedByDefault||Unlocked.Contains(UDemoAmmoCatalog::IdAt(Index))));
+}
 int32 UDemoAmmoComponent::GetSelected() const { DEMO_LOG_TICK(); return Selected; }
 FString UDemoAmmoComponent::GetBlockReason() const
 {
     DEMO_LOG_TICK();
-    ADemoCharacter* Player=Cast<ADemoCharacter>(GetOwner()); // 当前Pawn，只借用本调用。
-    const auto* PC=Player?Cast<ADemoPlayerController>(Player->GetController()):nullptr; // UI入口仍需权威校验。
-    const auto* Mode=GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 单人权威交易服务。
-    const auto* State=GetWorld()->GetGameState<ADemoGameState>(); // 当前钱包/阶段。
-    if(!Player||!Player->HasAuthority()||!PC||!PC->IsAmmoMenuOpen()||PC->HasBlockingOverlay()||!Mode||!State||State->Phase!=EDemoPhase::Hub)return TEXT("仅可在安全区弹药终端操作");
-    if(GetWorld()->IsPaused())return TEXT("暂停期间不能装配或购买");
-    if(GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->GetActiveSlot()==INDEX_NONE)return TEXT("请先选择存档");
-    return Mode->GetTerminalBlockReason(Player);
+    const AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 旧库存API只转发权限，方便既有HUD和测试复用。
+    return Mode ? Mode->GetShopSystem()->GetAmmoBlockReason(Cast<ADemoCharacter>(GetOwner())) : TEXT("商店服务不可用");
 }
 bool UDemoAmmoComponent::Purchase(int32 Index,int32 QuotedCost,FString& OutMessage)
 {
     DEMO_LOG_CALL();
-    OutMessage=GetBlockReason();
-    const UDemoAmmoCatalog* Data=GetCatalog(); // 确认时重新读取配置，拒绝过期报价。
-    auto* State=GetWorld()->GetGameState<ADemoGameState>(); // 钱包与检查点同一游戏线程提交。
-    if(!OutMessage.IsEmpty()||!Data->Validate()||!Data->Entries.IsValidIndex(Index)||IsUnlocked(Index)||Data->Entries[Index].UnlockGoldCost!=QuotedCost||State->Coins<QuotedCost)
-    { if(OutMessage.IsEmpty())OutMessage=TEXT("购买失败：已解锁、金币不足或价格已变化"); UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_PURCHASE_REJECT %s"),*OutMessage); return false; }
-    State->Coins-=QuotedCost; Unlocked.AddUnique(UDemoAmmoCatalog::IdAt(Index));
-    // 同步检查点将金币和解锁一起保存；期间无异步帧，写入失败回滚内存，不向UI发布成功。
-    if(!GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SaveCheckpoint())
-    { State->Coins+=QuotedCost; Unlocked.Remove(UDemoAmmoCatalog::IdAt(Index)); OutMessage=TEXT("保存失败，金币未扣除，请重试"); UE_LOG(LogFPSDemo,Error,TEXT("AMMO_PURCHASE_ROLLBACK")); return false; }
-    OutMessage=TEXT("已永久解锁，可免费装配"); UE_LOG(LogFPSDemo,Log,TEXT("AMMO_PURCHASE id=%d gold=%d"),Index,QuotedCost); return true;
+    AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 兼容旧UI入口，金币/报价/解锁提交唯一转交商店系统。
+    if (!Mode) { OutMessage=TEXT("商店服务不可用"); UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_PURCHASE_REJECT missing shop")); return false; }
+    return Mode->GetShopSystem()->PurchaseAmmo(Cast<ADemoCharacter>(GetOwner()), Index, QuotedCost, OutMessage);
 }
 bool UDemoAmmoComponent::Equip(int32 Index,FString& OutMessage)
 {

@@ -1,0 +1,135 @@
+[
+  {
+    "model": "Chaser",
+    "kind": "Idle",
+    "name": "A_Breach_Chaser_Idle",
+    "seconds": 2,
+    "loop": true
+  },
+  {
+    "model": "Chaser",
+    "kind": "Move",
+    "name": "A_Breach_Chaser_Move",
+    "seconds": 1,
+    "loop": true
+  },
+  {
+    "model": "Chaser",
+    "kind": "Melee",
+    "name": "A_Breach_Chaser_Melee",
+    "seconds": 0.625,
+    "loop": false
+  },
+  {
+    "model": "Chaser",
+    "kind": "Fire",
+    "name": "A_Breach_Chaser_Fire",
+    "seconds": 0.5,
+    "loop": false
+  },
+  {
+    "model": "Chaser",
+    "kind": "Hit",
+    "name": "A_Breach_Chaser_Hit",
+    "seconds": 0.375,
+    "loop": false
+  },
+  {
+    "model": "Chaser",
+    "kind": "Death",
+    "name": "A_Breach_Chaser_Death",
+    "seconds": 1.5,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Idle",
+    "name": "A_Breach_Warden_Idle",
+    "seconds": 2,
+    "loop": true
+  },
+  {
+    "model": "Warden",
+    "kind": "Move",
+    "name": "A_Breach_Warden_Move",
+    "seconds": 1,
+    "loop": true
+  },
+  {
+    "model": "Warden",
+    "kind": "Melee",
+    "name": "A_Breach_Warden_Melee",
+    "seconds": 0.625,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Fire",
+    "name": "A_Breach_Warden_Fire",
+    "seconds": 0.5,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Hit",
+    "name": "A_Breach_Warden_Hit",
+    "seconds": 0.375,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Death",
+    "name": "A_Breach_Warden_Death",
+    "seconds": 1.5,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Area",
+    "name": "A_Breach_Warden_Area",
+    "seconds": 1.25,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Global",
+    "name": "A_Breach_Warden_Global",
+    "seconds": 2.5,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Rise",
+    "name": "A_Breach_Warden_Rise",
+    "seconds": 1,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Hover",
+    "name": "A_Breach_Warden_Hover",
+    "seconds": 3,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Dive",
+    "name": "A_Breach_Warden_Dive",
+    "seconds": 0.625,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Recovery",
+    "name": "A_Breach_Warden_Recovery",
+    "seconds": 1,
+    "loop": false
+  },
+  {
+    "model": "Warden",
+    "kind": "Rage",
+    "name": "A_Breach_Warden_Rage",
+    "seconds": 1,
+    "loop": false
+  }
+]

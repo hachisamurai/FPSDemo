@@ -1,0 +1,1368 @@
+{
+  "status": "actual final UE animations imported; see final skin report and UE runtime validation",
+  "source_manifest": "Art\\Player\\Animations\\CurrentUE\\current_ue_workbench_manifest.json",
+  "profile": {
+    "version": 1,
+    "units": "centimetres",
+    "right_wrist_weapon_cm": [
+      -10.5,
+      1.5,
+      -2.0
+    ],
+    "right_elbow_from_shoulder_cm": [
+      12.0,
+      50.0,
+      -45.0
+    ],
+    "sniper_bolt_reach_clearance_cm": 6.0,
+    "support_wrist_weapon_cm": {
+      "Pistol": [
+        3.0,
+        -14.0,
+        -24.0
+      ],
+      "Rifle": [
+        12.0,
+        -2.0,
+        0.0
+      ],
+      "Shotgun": [
+        12.0,
+        -2.0,
+        0.0
+      ],
+      "Sniper": [
+        12.0,
+        -2.0,
+        0.0
+      ]
+    }
+  },
+  "models": [
+    {
+      "model": "Pistol",
+      "collection": "FP_Pistol",
+      "arms": "Arms_Pistol",
+      "gun": "Gun_Pistol",
+      "ue_to_blender": [
+        [
+          1.0,
+          6.833028578512312e-07,
+          -1.4061869251236203e-06,
+          0.00017790384299587458
+        ],
+        [
+          6.833045631537971e-07,
+          -1.0,
+          1.2218912388561876e-06,
+          -0.0001640605041757226
+        ],
+        [
+          1.4061861293157563e-06,
+          1.2218921483508893e-06,
+          1.0,
+          -6.064432454877533e-06
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "alignment_max_error_cm": 8.647116490239352e-05,
+      "shared_skeleton": "UE_Original_Arms_Skeleton",
+      "bones": 160,
+      "arm_vertices": 21570
+    },
+    {
+      "model": "Rifle",
+      "collection": "FP_Rifle",
+      "arms": "Arms_Rifle",
+      "gun": "Gun_Rifle",
+      "ue_to_blender": [
+        [
+          1.0,
+          1.6184800699647894e-07,
+          -1.266297203983413e-06,
+          0.00016528964624740183
+        ],
+        [
+          1.618479643639148e-07,
+          -1.0,
+          -2.7269482671954393e-08,
+          1.6242674973909743e-05
+        ],
+        [
+          1.266297203983413e-06,
+          -2.726927839091786e-08,
+          1.0,
+          8.175948096322827e-07
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "alignment_max_error_cm": 8.113730000911519e-05,
+      "shared_skeleton": "UE_Original_Arms_Skeleton",
+      "bones": 160,
+      "arm_vertices": 21570
+    },
+    {
+      "model": "Shotgun",
+      "collection": "FP_Shotgun",
+      "arms": "Arms_Shotgun",
+      "gun": "Gun_Shotgun",
+      "ue_to_blender": [
+        [
+          1.0,
+          1.6184800699647894e-07,
+          -1.266297203983413e-06,
+          0.00016528964624740183
+        ],
+        [
+          1.618479643639148e-07,
+          -1.0,
+          -2.7269482671954393e-08,
+          1.6242674973909743e-05
+        ],
+        [
+          1.266297203983413e-06,
+          -2.726927839091786e-08,
+          1.0,
+          8.175948096322827e-07
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "alignment_max_error_cm": 8.113730000911519e-05,
+      "shared_skeleton": "UE_Original_Arms_Skeleton",
+      "bones": 160,
+      "arm_vertices": 21570
+    },
+    {
+      "model": "Sniper",
+      "collection": "FP_Sniper",
+      "arms": "Arms_Sniper",
+      "gun": "Gun_Sniper",
+      "ue_to_blender": [
+        [
+          1.0,
+          1.6184800699647894e-07,
+          -1.266297203983413e-06,
+          0.00016528964624740183
+        ],
+        [
+          1.618479643639148e-07,
+          -1.0,
+          -2.7269482671954393e-08,
+          1.6242674973909743e-05
+        ],
+        [
+          1.266297203983413e-06,
+          -2.726927839091786e-08,
+          1.0,
+          8.175948096322827e-07
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "alignment_max_error_cm": 8.113730000911519e-05,
+      "shared_skeleton": "UE_Original_Arms_Skeleton",
+      "bones": 160,
+      "arm_vertices": 21570
+    }
+  ],
+  "candidate_actions": [
+    {
+      "model": "Pistol",
+      "variant": "Idle",
+      "action": "Candidate_Pistol_Idle",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553504943847656,
+            14.9763765335083,
+            -7.435138702392578
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152501031839
+        },
+        {
+          "phase": 0.3114754098360656,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5000001192092896,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53903579711914,
+            14.980135917663574,
+            -7.48691987991333
+          ],
+          "chain_length_cm": 55.02103790161817,
+          "shoulder_wrist_cm": 43.6348628915613
+        },
+        {
+          "phase": 0.32786885245901637,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5000001192092896,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53978729248047,
+            14.97994327545166,
+            -7.484241962432861
+          ],
+          "chain_length_cm": 55.021036132199114,
+          "shoulder_wrist_cm": 43.63572618665065
+        },
+        {
+          "phase": 0.7377049180327869,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.4999998807907104,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.56926345825195,
+            14.972187995910645,
+            -7.378353118896484
+          ],
+          "chain_length_cm": 55.021039844384205,
+          "shoulder_wrist_cm": 43.669895720967745
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553504943847656,
+            14.9763765335083,
+            -7.435138702392578
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152501031839
+        }
+      ]
+    },
+    {
+      "model": "Pistol",
+      "variant": "Tactical",
+      "action": "Candidate_Pistol_Tactical",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553504943847656,
+            14.9763765335083,
+            -7.435138702392578
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152501031839
+        },
+        {
+          "phase": 0.3150684931506849,
+          "right_wrist_weapon_cm": [
+            -10.499999046325684,
+            1.499999761581421,
+            -2.000006675720215
+          ],
+          "right_elbow_weapon_cm": [
+            -32.79591369628906,
+            14.444477081298828,
+            -10.828890800476074
+          ],
+          "chain_length_cm": 55.02102194477733,
+          "shoulder_wrist_cm": 41.544975808338926
+        },
+        {
+          "phase": 0.3287671232876712,
+          "right_wrist_weapon_cm": [
+            -10.499999046325684,
+            1.499999761581421,
+            -2.000006675720215
+          ],
+          "right_elbow_weapon_cm": [
+            -32.79591369628906,
+            14.444477081298828,
+            -10.828890800476074
+          ],
+          "chain_length_cm": 55.02102194477733,
+          "shoulder_wrist_cm": 41.544975808338926
+        },
+        {
+          "phase": 0.7397260273972602,
+          "right_wrist_weapon_cm": [
+            -10.499999046325684,
+            1.499999761581421,
+            -2.000006675720215
+          ],
+          "right_elbow_weapon_cm": [
+            -32.79591369628906,
+            14.444477081298828,
+            -10.828890800476074
+          ],
+          "chain_length_cm": 55.02102194477733,
+          "shoulder_wrist_cm": 41.544975808338926
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553504943847656,
+            14.9763765335083,
+            -7.435138702392578
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152501031839
+        }
+      ]
+    },
+    {
+      "model": "Pistol",
+      "variant": "Empty",
+      "action": "Candidate_Pistol_Empty",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553504943847656,
+            14.9763765335083,
+            -7.435138702392578
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152501031839
+        },
+        {
+          "phase": 0.3150684931506849,
+          "right_wrist_weapon_cm": [
+            -10.499999046325684,
+            1.499999761581421,
+            -2.000006675720215
+          ],
+          "right_elbow_weapon_cm": [
+            -32.79591369628906,
+            14.444477081298828,
+            -10.828890800476074
+          ],
+          "chain_length_cm": 55.02102194477733,
+          "shoulder_wrist_cm": 41.544975808338926
+        },
+        {
+          "phase": 0.3287671232876712,
+          "right_wrist_weapon_cm": [
+            -10.499999046325684,
+            1.499999761581421,
+            -2.000006675720215
+          ],
+          "right_elbow_weapon_cm": [
+            -32.79591369628906,
+            14.444477081298828,
+            -10.828890800476074
+          ],
+          "chain_length_cm": 55.02102194477733,
+          "shoulder_wrist_cm": 41.544975808338926
+        },
+        {
+          "phase": 0.7397260273972602,
+          "right_wrist_weapon_cm": [
+            -10.499999046325684,
+            1.499999761581421,
+            -2.000006675720215
+          ],
+          "right_elbow_weapon_cm": [
+            -32.79591369628906,
+            14.444477081298828,
+            -10.828890800476074
+          ],
+          "chain_length_cm": 55.02102194477733,
+          "shoulder_wrist_cm": 41.544975808338926
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.500001907348633,
+            1.5,
+            -1.999998688697815
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553504943847656,
+            14.9763765335083,
+            -7.435138702392578
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152501031839
+        }
+      ]
+    },
+    {
+      "model": "Rifle",
+      "variant": "Idle",
+      "action": "Candidate_Rifle_Idle",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.3114754098360656,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53902816772461,
+            14.980142593383789,
+            -7.4869256019592285
+          ],
+          "chain_length_cm": 55.02103790161817,
+          "shoulder_wrist_cm": 43.634866257352535
+        },
+        {
+          "phase": 0.32786885245901637,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53977966308594,
+            14.979944229125977,
+            -7.484232425689697
+          ],
+          "chain_length_cm": 55.021036132199114,
+          "shoulder_wrist_cm": 43.635729552375295
+        },
+        {
+          "phase": 0.7377049180327869,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.56925964355469,
+            14.97219467163086,
+            -7.37835168838501
+          ],
+          "chain_length_cm": 55.021039844384205,
+          "shoulder_wrist_cm": 43.66989925876491
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Rifle",
+      "variant": "Tactical",
+      "action": "Candidate_Rifle_Tactical",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.3176470588235294,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.32941176470588235,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.7411764705882353,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Rifle",
+      "variant": "Empty",
+      "action": "Candidate_Rifle_Empty",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.3176470588235294,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.32941176470588235,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.7411764705882353,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Idle",
+      "action": "Candidate_Shotgun_Idle",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.3114754098360656,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53902816772461,
+            14.980142593383789,
+            -7.4869256019592285
+          ],
+          "chain_length_cm": 55.02103790161817,
+          "shoulder_wrist_cm": 43.634866257352535
+        },
+        {
+          "phase": 0.32786885245901637,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53977966308594,
+            14.979944229125977,
+            -7.484232425689697
+          ],
+          "chain_length_cm": 55.021036132199114,
+          "shoulder_wrist_cm": 43.635729552375295
+        },
+        {
+          "phase": 0.7377049180327869,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.56925964355469,
+            14.97219467163086,
+            -7.37835168838501
+          ],
+          "chain_length_cm": 55.021039844384205,
+          "shoulder_wrist_cm": 43.66989925876491
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Tactical",
+      "action": "Candidate_Shotgun_Tactical",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.3157894736842105,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 0.3233082706766917,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 0.7368421052631579,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 0.7443609022556391,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Empty",
+      "action": "Candidate_Shotgun_Empty",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.3157894736842105,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 0.3233082706766917,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 0.7368421052631579,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 0.7443609022556391,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.4999959468841553,
+            -1.9999914169311523
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80675506591797,
+            13.628671646118164,
+            -11.895442962646484
+          ],
+          "chain_length_cm": 55.02101740184436,
+          "shoulder_wrist_cm": 41.515267241016495
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Sniper",
+      "variant": "Idle",
+      "action": "Candidate_Sniper_Idle",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.3114754098360656,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53902816772461,
+            14.980142593383789,
+            -7.4869256019592285
+          ],
+          "chain_length_cm": 55.02103790161817,
+          "shoulder_wrist_cm": 43.634866257352535
+        },
+        {
+          "phase": 0.32786885245901637,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.53977966308594,
+            14.979944229125977,
+            -7.484232425689697
+          ],
+          "chain_length_cm": 55.021036132199114,
+          "shoulder_wrist_cm": 43.635729552375295
+        },
+        {
+          "phase": 0.7377049180327869,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.56925964355469,
+            14.97219467163086,
+            -7.37835168838501
+          ],
+          "chain_length_cm": 55.021039844384205,
+          "shoulder_wrist_cm": 43.66989925876491
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Sniper",
+      "variant": "Tactical",
+      "action": "Candidate_Sniper_Tactical",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.31125827814569534,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.31788079470198677,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.32450331125827814,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.7350993377483444,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.7417218543046358,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.7483443708609272,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    },
+    {
+      "model": "Sniper",
+      "variant": "Empty",
+      "action": "Candidate_Sniper_Empty",
+      "samples": [
+        {
+          "phase": 0.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        },
+        {
+          "phase": 0.31125827814569534,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.31788079470198677,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.32450331125827814,
+          "right_wrist_weapon_cm": [
+            -10.499992370605469,
+            1.5000026226043701,
+            -2.000001907348633
+          ],
+          "right_elbow_weapon_cm": [
+            -32.80384826660156,
+            13.910087585449219,
+            -11.54690933227539
+          ],
+          "chain_length_cm": 55.02101287460933,
+          "shoulder_wrist_cm": 41.52529956450054
+        },
+        {
+          "phase": 0.7350993377483444,
+          "right_wrist_weapon_cm": [
+            -10.700037956237793,
+            7.050745010375977,
+            15.639921188354492
+          ],
+          "right_elbow_weapon_cm": [
+            -28.45894432067871,
+            16.29414176940918,
+            -2.847844123840332
+          ],
+          "chain_length_cm": 55.02104036443057,
+          "shoulder_wrist_cm": 41.689597946347945
+        },
+        {
+          "phase": 0.7417218543046358,
+          "right_wrist_weapon_cm": [
+            -10.700037956237793,
+            7.050745010375977,
+            15.639921188354492
+          ],
+          "right_elbow_weapon_cm": [
+            -28.45894432067871,
+            16.29414176940918,
+            -2.847844123840332
+          ],
+          "chain_length_cm": 55.02104036443057,
+          "shoulder_wrist_cm": 41.689597946347945
+        },
+        {
+          "phase": 0.7483443708609272,
+          "right_wrist_weapon_cm": [
+            -10.700037956237793,
+            7.050745010375977,
+            15.639921188354492
+          ],
+          "right_elbow_weapon_cm": [
+            -28.45894432067871,
+            16.29414176940918,
+            -2.847844123840332
+          ],
+          "chain_length_cm": 55.02104036443057,
+          "shoulder_wrist_cm": 41.689597946347945
+        },
+        {
+          "phase": 1.0,
+          "right_wrist_weapon_cm": [
+            -10.5,
+            1.499999761581421,
+            -2.000002861022949
+          ],
+          "right_elbow_weapon_cm": [
+            -33.553497314453125,
+            14.97637939453125,
+            -7.435129642486572
+          ],
+          "chain_length_cm": 55.021030069718606,
+          "shoulder_wrist_cm": 43.65152846221465
+        }
+      ]
+    }
+  ],
+  "final_ue_actions": [
+    {
+      "action": "FinalUE_Pistol_Idle",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Pistol_Tactical",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Pistol_Empty",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Rifle_Idle",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Rifle_Tactical",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Rifle_Empty",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Shotgun_Idle",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Shotgun_Tactical",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Shotgun_Empty",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Sniper_Idle",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Sniper_Tactical",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    },
+    {
+      "action": "FinalUE_Sniper_Empty",
+      "vertices_max_error_cm": 0.0,
+      "reference_bone_matrix_max_error": 0.0,
+      "weights_max_error": 0.0
+    }
+  ],
+  "final_ue_skin_report": "workbench_final_ue_skin_diagnostic.json"
+}

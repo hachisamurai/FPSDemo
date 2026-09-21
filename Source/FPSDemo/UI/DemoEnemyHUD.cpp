@@ -2,6 +2,7 @@
 #include "GAS/Ammo/DemoAmmoEffects.h"
 #include "UI/DemoHUD.h"
 #include "AI/DemoEnemy.h"
+#include "Components/SkeletalMeshComponent.h" // 骨骼外观提供真正的头顶挂点，避免Boss背环遮住血条。
 #include "Characters/DemoCharacter.h"
 #include "Weapons/DemoWeaponComponent.h"
 #include "GAS/DemoTags.h"
@@ -23,11 +24,13 @@ bool ADemoHUD::GetEnemyStatusScreenAnchor(const ADemoEnemy* Enemy, FVector2D& Ou
 	int32 PixelHeight = 0;
 	PlayerOwner->GetViewportSize(PixelWidth, PixelHeight);
 	if (PixelWidth <= 0 || PixelHeight <= 0) return false;
-	// 只借用当前视角，不依赖Pawn朝向；世界竖直偏移保留在头顶，输出UI本身没有世界旋转。
+	// 只借用当前视角，不依赖Pawn朝向；世界挂点只决定位置，屏幕UI不继承骨骼旋转。
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	PlayerOwner->GetPlayerViewPoint(ViewLocation, ViewRotation);
-	const FVector Anchor = Enemy->GetActorLocation() + FVector(0, 0, Enemy->IsBoss() ? 160.f : 80.f); // 适配现有48/115cm敌人碰撞球。
+	const USkeletalMeshComponent* Body=Enemy->FindComponentByClass<USkeletalMeshComponent>(); // 本帧借用唯一主网格；无资产时仍支持旧球体回退。
+	const FVector Anchor=Body&&Body->DoesSocketExist(TEXT("HealthBar"))?Body->GetSocketLocation(TEXT("HealthBar"))
+		:Enemy->GetActorLocation()+FVector(0,0,Enemy->IsBoss()?160.f:80.f); // 实模按已校验挂点投影，单位厘米。
 	const FVector ToAnchor = Anchor - ViewLocation; // 摄像机到头顶，厘米；背后点不可投影成前方UI。
 	if (ToAnchor.SizeSquared() > FMath::Square(EnemyStatusMaxDistance) || FVector::DotProduct(ViewRotation.Vector(), ToAnchor) <= 0.f) return false;
 	if (!PlayerOwner->ProjectWorldLocationToScreen(Anchor, OutPixelAnchor)) return false;

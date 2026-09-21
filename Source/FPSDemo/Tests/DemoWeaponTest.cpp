@@ -79,18 +79,18 @@ bool ADemoWeaponTest::SelectAtTerminal(int32 Index)
     Player->SetActorLocation(PreviousLocation);
     return Check(Player->GetWeaponComponent()->GetPrimaryIndex() == Index, TEXT("weapon fixture selects via terminal and real equip guards"));
 }
-bool ADemoWeaponTest::CheckStaticVisual(const TCHAR* Label)
+bool ADemoWeaponTest::CheckWeaponVisual(const TCHAR* Label)
 {
     DEMO_LOG_CALL();
     // 所有引用仅借用本步骤已初始化的 Pawn；终端装备与动画稳定后才进行测量。
     ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this, 0));
     ADemoWeaponBase* Weapon = Player ? Player->GetWeaponComponent()->GetActiveWeapon() : nullptr;
-    UStaticMeshComponent* Visual = Weapon ? Weapon->FindComponentByClass<UStaticMeshComponent>() : nullptr;
-    USkeletalMeshComponent* Legacy = Weapon ? Weapon->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
-    if (!Check(Visual && Weapon->Config.StaticMesh && Visual->GetStaticMesh() == Weapon->Config.StaticMesh
-        && Legacy && !Legacy->GetSkeletalMeshAsset() && !Weapon->IsHidden()
+    UStaticMeshComponent* Legacy = Weapon ? Weapon->FindComponentByClass<UStaticMeshComponent>() : nullptr; // 迁移后旧静态外观应为空。
+    USkeletalMeshComponent* Visual = Weapon ? Weapon->FindComponentByClass<USkeletalMeshComponent>() : nullptr; // 实际活动枪械骨骼，枪口也必须来自这里。
+    if (!Check(Visual && Weapon->Config.Mesh && Visual->GetSkeletalMeshAsset() == Weapon->Config.Mesh
+        && !Weapon->Config.StaticMesh && Legacy && !Legacy->GetStaticMesh() && !Weapon->IsHidden()
         && Visual->GetCollisionEnabled() == ECollisionEnabled::NoCollision
-        && Visual->DoesSocketExist(Weapon->Config.MuzzleSocket), TEXT("static mesh active, legacy gun empty, no collision, muzzle socket present"))) return false;
+        && Visual->DoesSocketExist(Weapon->Config.MuzzleSocket), TEXT("skeletal gun active, static visual empty, no collision, muzzle socket present"))) return false;
     // 相机局部坐标厘米，+X 前、+Y 右、+Z 上；用于验证模型朝向与第一人称占屏。
     const FTransform Camera = Player->GetFirstPersonCameraComponent()->GetComponentTransform();
     const FVector LocalMuzzle = Camera.InverseTransformPosition(Weapon->GetMuzzleLocation());
@@ -99,11 +99,11 @@ bool ADemoWeaponTest::CheckStaticVisual(const TCHAR* Label)
     UE_LOG(LogFPSDemo, Display, TEXT("WEAPON_MESH_POSE %s origin=%s rotation=%s muzzle=%s grip=%s"), Label,
         *LocalOrigin.ToString(), *LocalRotation.ToString(), *LocalMuzzle.ToString(),
         *Player->GetMesh1P()->GetSocketTransform(Weapon->Config.AttachSocket).ToString());
-    // 手部参考点只用于挂接检查，静态武器不在运行时改手臂骨架或附加 IK。
+    // 稳定武器锚点独立于双手；待机支撑手由公共IK校正，换弹双手使用成对烘焙动作。
     const FVector RightHand = Camera.InverseTransformPosition(Player->GetMesh1P()->GetSocketLocation(TEXT("hand_r")));
     const FVector LeftHand = Camera.InverseTransformPosition(Player->GetMesh1P()->GetSocketLocation(TEXT("hand_l")));
     UE_LOG(LogFPSDemo, Display, TEXT("WEAPON_HAND_POSE right=%s left=%s"), *RightHand.ToString(), *LeftHand.ToString());
-    if (!Check(Weapon->GetMuzzleLocation().Equals(Visual->GetSocketLocation(Weapon->Config.MuzzleSocket), .01f), TEXT("ballistics uses actual static muzzle"))) return false;
+    if (!Check(Weapon->GetMuzzleLocation().Equals(Visual->GetSocketLocation(Weapon->Config.MuzzleSocket), .01f), TEXT("ballistics uses actual skeletal muzzle"))) return false;
     // 验证实际待机朝向与镜前位置；错轴 FBX/握点偏移不能只靠截图发现。
     if (!Check(LocalMuzzle.X > 20.f && FMath::Abs(LocalRotation.Yaw) < 2.f && FMath::Abs(LocalRotation.Pitch) < 2.f
         && Player->GetMesh1P()->IsBoneHiddenByName(TEXT("upperarm_l")) == Weapon->Config.bHideSupportArm,
@@ -159,8 +159,11 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         break;
     case 2:
         Pistol = Weapon;
+        // 使用当前蓝图的策划伤害值校验实例；当前资产为18，旧硬编码20会在真实换枪成功后误报。
         if (!Check(Equipment->GetActiveSlot() == 2 && Weapon->Config.FireMode == EDemoFireMode::SemiAutomatic
-            && Weapon->Config.BaseDamage == 20.f, TEXT("physical 2 maps to default pistol BP"))) return;
+            && Weapon->GetClass()->GetFName() == TEXT("BP_Weapon_Pistol_C")
+            && Weapon->Config.BaseDamage == Weapon->GetClass()->GetDefaultObject<ADemoWeaponBase>()->Config.BaseDamage,
+            TEXT("physical 2 maps to current pistol BP and authored damage"))) return;
         SendKey(EKeys::Two, false);
         if (!SelectAtTerminal(1)) return; // 已解锁散弹也必须走终端，旧B键不再授予武器。
         Advance();
@@ -370,7 +373,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         Advance(.5f);
         break;
     case 33:
-        if (!CheckStaticVisual(TEXT("Mesh-Rifle"))) return;
+        if (!CheckWeaponVisual(TEXT("Mesh-Rifle"))) return;
         Advance(.5f);
         break;
     case 34:
@@ -379,7 +382,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         break;
     case 35:
         SendKey(EKeys::Two, false);
-        if (!CheckStaticVisual(TEXT("Mesh-Pistol"))) return;
+        if (!CheckWeaponVisual(TEXT("Mesh-Pistol"))) return;
         Advance(.5f);
         break;
     case 36:
@@ -387,7 +390,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         Advance(.5f);
         break;
     case 37:
-        if (!CheckStaticVisual(TEXT("Mesh-Shotgun"))) return;
+        if (!CheckWeaponVisual(TEXT("Mesh-Shotgun"))) return;
         Advance(.5f);
         break;
     case 38:
@@ -395,11 +398,11 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         Advance(.5f);
         break;
     case 39:
-        if (!CheckStaticVisual(TEXT("Mesh-Sniper"))) return;
+        if (!CheckWeaponVisual(TEXT("Mesh-Sniper"))) return;
         Advance(.5f);
         break;
     case 40:
-        UE_LOG(LogFPSDemo, Display, TEXT("DEMO_WEAPON_SUCCESS: real key mapping, four BP static meshes and sockets, empty-trigger reload, finite reserve, cancellation, shotgun damage, sniper scope"));
+        UE_LOG(LogFPSDemo, Display, TEXT("DEMO_WEAPON_SUCCESS: real key mapping, four BP skeletal meshes and sockets, empty-trigger reload, finite reserve, cancellation, shotgun damage, sniper scope"));
         SetActorTickEnabled(false);
         FPlatformMisc::RequestExitWithStatus(false, 0);
         break;

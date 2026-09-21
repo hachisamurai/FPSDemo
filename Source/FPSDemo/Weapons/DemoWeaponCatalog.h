@@ -11,4 +11,6 @@ namespace DemoWeaponCatalog
     int32 IndexOf(FName Id);
     /** Index同目录；返回中文解锁条件，非法返回错误提示。 */
     FString UnlockText(int32 Index);
+    /** DifficultyId为真实easy/normal/hard/hard_pistol/hell事实；向OutIds追加派生权限但不补造较低难度记录，未知返回false。 */
+    bool AppendUnlocksForClear(const FString& DifficultyId, TArray<FName>& OutIds);
 }

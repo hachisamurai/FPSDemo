@@ -33,6 +33,8 @@ protected:
 private:
 	// 装填任务启动时锁定的武器弱引用，切枪/销毁后绝不给新枪补弹。
 	TWeakObjectPtr<class ADemoWeaponBase> ReloadWeapon;
+	// 激活时复制武器动作序号；旧WaitDelay即使迟到也不能完成该武器的新一轮装填。
+	int32 ReloadSequence = 0;
 	/** WaitDelay 在游戏线程回调；技能取消后任务销毁，不会再补充弹药。 */
 	UFUNCTION() void OnReloadFinished();
 };

@@ -60,6 +60,10 @@ void ADemoEnemyAttackTest::Tick(float DeltaSeconds)
     DEMO_LOG_TICK();
     Super::Tick(DeltaSeconds);
     // 复用已隔离的EnemyAttack测试入口；专项不同时驱动原攻击状态机。
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoSpawnSystemTest"))) { TickSpawnSystemTest(); return; } // 框架回归复用本地临时档/禁云入口。
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoCloseCombatTest"))) { TickCloseCombatTest(); return; } // 复用存档/禁云隔离，不向正常游戏注入测试Actor。
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoEnemyHitZoneTest"))) { TickHitZoneTest(); return; } // 复用隔离试玩档和禁云上下文。
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoEnemyAnimationTest"))) { TickAnimationTest(); return; } // 使用同一禁云/临时存档入口。
     if (FParse::Param(FCommandLine::Get(),TEXT("DemoBossDiveTest"))) { TickDiveTest(); return; } // 同一测试隔离/禁云入口，不注册普通游戏任务。
     if (FParse::Param(FCommandLine::Get(),TEXT("DemoEnemyTacticsTest"))) { TickTacticsTest(); return; } // 战术专项沿用本测试隔离档和禁云规则。
     if (FParse::Param(FCommandLine::Get(),TEXT("DemoEnemyNavigationTest"))) { TickNavigationTest(); return; }

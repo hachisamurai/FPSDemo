@@ -12,7 +12,7 @@ struct FDemoClearRecord
     GENERATED_BODY()
     // 每轮挑战的GUID，StartRun或胜利续玩分配；重复胜利通知按此去重，不重复授予进度。
     UPROPERTY() FString RunId;
-    // 稳定协议键 easy/normal/hard；每种难度只解锁对应主武器。
+    // 稳定事实键easy/normal/hard/hard_pistol/hell；hard_pistol含困难通关和手枪挑战，hell解锁无尽。
     UPROPERTY() FString DifficultyId;
     // UTC ISO8601，供展示和未来审计；客户端时间不能作为服务器授权依据。
     UPROPERTY() FString CompletedUtc;
@@ -23,8 +23,8 @@ USTRUCT()
 struct FDemoPlayerProfileData
 {
     GENERATED_BODY()
-    // V2分离服务器确认难度和待上传通关；V1记录作为待上传迁移，未来版本保护只读。
-    UPROPERTY() int32 SchemaVersion = 2;
+    // V3保留V2分离的服务器基线与待上传通关，并支持挑战事实；未来版本保护只读。
+    UPROPERTY() int32 SchemaVersion = 3; // V3加入hard_pistol/hell挑战凭据；旧客户端应保护未来版本。
     // 首次创建的本地GUID，不是认证账号；未来服务端需单独绑定登录身份。
     UPROPERTY() FString ProfileId;
     // 单调递增的本地内容修订号；JSON使用int32以避免JS大整数精度问题。
@@ -37,7 +37,7 @@ struct FDemoPlayerProfileData
     UPROPERTY() FString UpdatedUtc;
     // 待服务器确认的十关通关记录；确认并落盘后移除，避免每次无限上传历史。
     UPROPERTY() TArray<FDemoClearRecord> Clears;
-    // 服务器已确认的难度，最多三种；与本地待上传记录共同派生永久解锁。
+    // 服务器已确认的难度/挑战事实，最多五种；与本地待上传记录共同派生永久解锁。
     UPROPERTY() TArray<FString> CloudClearedDifficulties;
     // 最近128个已确认RunId，防止胜利通知在收到HTTP确认后重复进入队列；服务端仍永久去重。
     UPROPERTY() TArray<FString> RecentAcceptedRuns;
@@ -75,6 +75,16 @@ public:
     const FDemoPlayerProfileData& GetData() const;
     /** Id是稳定目录键；无效武器始终false，手枪始终解锁。 */
     bool IsUnlocked(FName Id) const;
+#if WITH_EDITOR
+    /** 仅编辑器控制台调用：解锁本GI所有枪械/弹药；不制造通关、金币或云端事实，停止试玩销毁。 */
+    void DebugUnlockAllForSession();
+    /** 仅编辑器弹药权限与测试读取；同GI跨地图/存档有效，无网络复制和持久化。 */
+    bool IsDebugUnlockAllForSession() const;
+#endif
+    /** 账号永久挑战解锁；依据已确认云记录或待上传通关事实，不依据当前持枪。 */
+    bool IsHellUnlocked() const;
+    /** 地狱完整通关后解锁；Editor仍仅限本次试玩。 */
+    bool IsEndlessUnlocked() const;
     /** RunId来自权威GameMode；只在最终Victory且对应难度时接受，保存失败仍保留内存进度。 */
     bool RecordVictory(const FString& RunId, EDemoDifficulty Difficulty);
     /** Id为已成功在终端装备的主武器，保存选择偏好，不生成武器。 */
@@ -96,6 +106,9 @@ public:
     /** 本地档可写且未确认修改存在时才上传；bNeedsSave必须先落盘，不能只上传内存进度。 */
     bool CanSync() const;
 private:
+#if WITH_EDITOR
+    bool bDebugUnlockAllForSession = false; // 本次Editor GI的调试覆盖，不写Profile、不进入任何包体。
+#endif
     /** 从通关记录重建解锁、修正失效选择，拒绝损坏ID/版本/修订字段；Data为可规范化值。 */
     bool Normalize(FDemoPlayerProfileData& Data) const;
     /** 内容变更时推进修订和UTC并立即尝试落盘；失败留下可重试状态。 */

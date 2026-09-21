@@ -1,0 +1,10 @@
+[
+  {
+    "Name": "Default",
+    "HealthGrowth": 1.18,
+    "DamageGrowth": 1.1,
+    "CountGrowth": 1.12,
+    "SilverGrowth": 1.12,
+    "MaxAlive": 12
+  }
+]

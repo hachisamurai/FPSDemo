@@ -16,7 +16,8 @@ void UDemoPlayerProfile::Initialize(FSubsystemCollectionBase& Collection)
         || FParse::Param(FCommandLine::Get(), TEXT("DemoUIValidation")) || FParse::Param(FCommandLine::Get(), TEXT("DemoSmokeTest"))
         // 敌人攻击/导航专项在非Editor打包验证时也必须隔离，不能加载正式武器解锁档案。
         || FParse::Param(FCommandLine::Get(), TEXT("DemoCampaignTest")) || FParse::Param(FCommandLine::Get(), TEXT("DemoEnemyAttackTest"))
-        || FParse::Param(FCommandLine::Get(), TEXT("DemoAmmoTest")); // 弹药打包回归也使用临时武器档案，退出精确删除本GI文件。
+        || FParse::Param(FCommandLine::Get(), TEXT("DemoAmmoTest"))
+        || FParse::Param(FCommandLine::Get(), TEXT("DemoWeaponAnimationTest")); // 动画夹具会解锁四枪，任何目标均隔离临时档案，退出精确清理。
     SlotName = bTestSlot ? TEXT("DemoProfileTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits) : TEXT("DemoPlayerProfile");
 #if WITH_EDITOR
     // 编辑器试玩不读取正式解锁，也不沿用云端测试身份；Standalone -game同样使用临时档。
@@ -40,7 +41,7 @@ bool UDemoPlayerProfile::ReloadFromDisk()
     DEMO_LOG_CALL();
     if (bNeedsSave) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE reload rejected: unsaved in-memory changes")); return false; }
     UDemoProfileSave* Loaded = Cast<UDemoProfileSave>(UGameplayStatics::LoadGameFromSlot(SlotName, 0)); // 临时加载快照，通过校验才替换内存。
-    if (Loaded && Loaded->Data.SchemaVersion > 2)
+    if (Loaded && Loaded->Data.SchemaVersion > 3)
     {
         bReadOnly = true;
         Status = TEXT("存档版本较新，已保护原文件；请使用对应版本");
@@ -81,16 +82,17 @@ bool UDemoPlayerProfile::Normalize(FDemoPlayerProfileData& Data) const
 {
     DEMO_LOG_CALL();
     FGuid ParsedId; // 解析后的临时GUID，拒绝空标识或损坏文件。
-    if ((Data.SchemaVersion != 1 && Data.SchemaVersion != 2) || !FGuid::Parse(Data.ProfileId, ParsedId) || !ParsedId.IsValid()
+    if ((Data.SchemaVersion != 1 && Data.SchemaVersion != 2 && Data.SchemaVersion != 3) || !FGuid::Parse(Data.ProfileId, ParsedId) || !ParsedId.IsValid()
         || Data.LocalRevision < 0 || Data.SyncedRevision < 0 || Data.SyncedRevision > Data.LocalRevision)
     { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE invalid schema/identity/revision")); return false; }
     Data.UnlockedWeaponIds = { TEXT("pistol") };
     if (Data.SchemaVersion == 1) { Data.SchemaVersion = 2; Data.PreferenceRevision = Data.LastSelectedPrimary.IsNone() ? 0 : Data.LocalRevision; } // 老档记录完整保留，首次联网再按RunId幂等迁移。
-    if (Data.PreferenceRevision < 0 || Data.PreferenceRevision > Data.LocalRevision || Data.SyncedPreferenceRevision < 0 || Data.SyncedPreferenceRevision > Data.LocalRevision || Data.CloudClearedDifficulties.Num() > 3 || Data.RecentAcceptedRuns.Num() > 128) return false;
+    Data.SchemaVersion = 3; // 保留旧V1/V2通关记录，但不追认无法证明的手枪专精。
+    if (Data.PreferenceRevision < 0 || Data.PreferenceRevision > Data.LocalRevision || Data.SyncedPreferenceRevision < 0 || Data.SyncedPreferenceRevision > Data.LocalRevision || Data.CloudClearedDifficulties.Num() > 5 || Data.RecentAcceptedRuns.Num() > 128) return false;
     for (const FString& Difficulty : Data.CloudClearedDifficulties) // 云端基线也要验证，磁盘字段不是可信授权。
     {
-        if (Difficulty != TEXT("easy") && Difficulty != TEXT("normal") && Difficulty != TEXT("hard")) return false;
-        Data.UnlockedWeaponIds.AddUnique(Difficulty == TEXT("easy") ? FName(TEXT("rifle")) : Difficulty == TEXT("normal") ? FName(TEXT("shotgun")) : FName(TEXT("sniper")));
+        if (Difficulty != TEXT("easy") && Difficulty != TEXT("normal") && Difficulty != TEXT("hard") && Difficulty != TEXT("hard_pistol") && Difficulty != TEXT("hell")) return false;
+        if (!DemoWeaponCatalog::AppendUnlocksForClear(Difficulty, Data.UnlockedWeaponIds)) return false; // 云基线与本地待确认事实共用规则，历史困难档自动补散弹权限。
     }
     FDateTime ParsedUtc; // 校验时间格式，协议中只允许UTC ISO8601字符串。
     if (!Data.UpdatedUtc.IsEmpty() && !FDateTime::ParseIso8601(*Data.UpdatedUtc, ParsedUtc)) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE invalid update timestamp")); return false; }
@@ -100,16 +102,47 @@ bool UDemoPlayerProfile::Normalize(FDemoPlayerProfileData& Data) const
         FGuid Run; // 每条凭据必须有有效且唯一的通关GUID。
         if (!FGuid::Parse(Clear.RunId, Run) || !Run.IsValid() || Seen.Contains(Clear.RunId)
             || !FDateTime::ParseIso8601(*Clear.CompletedUtc, ParsedUtc)
-            || (Clear.DifficultyId != TEXT("easy") && Clear.DifficultyId != TEXT("normal") && Clear.DifficultyId != TEXT("hard")))
+            || (Clear.DifficultyId != TEXT("easy") && Clear.DifficultyId != TEXT("normal") && Clear.DifficultyId != TEXT("hard") && Clear.DifficultyId != TEXT("hard_pistol") && Clear.DifficultyId != TEXT("hell")))
         { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE invalid completion record")); return false; }
         Seen.Add(Clear.RunId);
-        Data.UnlockedWeaponIds.AddUnique(Clear.DifficultyId == TEXT("easy") ? FName(TEXT("rifle")) : Clear.DifficultyId == TEXT("normal") ? FName(TEXT("shotgun")) : FName(TEXT("sniper")));
+        if (!DemoWeaponCatalog::AppendUnlocksForClear(Clear.DifficultyId, Data.UnlockedWeaponIds)) return false; // 只派生解锁，不改记录集合、修订或金币。
     }
     if (!Data.UnlockedWeaponIds.Contains(Data.LastSelectedPrimary) || Data.LastSelectedPrimary == TEXT("pistol")) Data.LastSelectedPrimary = NAME_None;
     return true;
 }
 const FDemoPlayerProfileData& UDemoPlayerProfile::GetData() const { DEMO_LOG_TICK(); return Profile; }
-bool UDemoPlayerProfile::IsUnlocked(FName Id) const { DEMO_LOG_TICK(); return DemoWeaponCatalog::IndexOf(Id) != INDEX_NONE && Profile.UnlockedWeaponIds.Contains(Id); }
+bool UDemoPlayerProfile::IsHellUnlocked() const
+{
+    DEMO_LOG_TICK();
+    if (Profile.CloudClearedDifficulties.Contains(TEXT("hard_pistol"))) return true;
+    for (const FDemoClearRecord& Clear : Profile.Clears) if (Clear.DifficultyId==TEXT("hard_pistol")) return true; // 待上传的本地事实同样立即解锁。
+    return false;
+}
+bool UDemoPlayerProfile::IsEndlessUnlocked() const
+{
+    DEMO_LOG_TICK();
+    if (Profile.CloudClearedDifficulties.Contains(TEXT("hell"))) return true;
+    for (const FDemoClearRecord& Clear : Profile.Clears) if (Clear.DifficultyId==TEXT("hell")) return true; // 幂等记录跨地图有效。
+    return false;
+}
+bool UDemoPlayerProfile::IsUnlocked(FName Id) const
+{
+    DEMO_LOG_TICK();
+    if (DemoWeaponCatalog::IndexOf(Id) == INDEX_NONE) return false; // 调试也不能授权未知武器ID。
+#if WITH_EDITOR
+    if (bDebugUnlockAllForSession) return true; // 编辑器权限覆盖与通关事实分离，避免误解锁难度/领取奖励。
+#endif
+    return Profile.UnlockedWeaponIds.Contains(Id);
+}
+#if WITH_EDITOR
+void UDemoPlayerProfile::DebugUnlockAllForSession()
+{
+    DEMO_LOG_CALL();
+    bDebugUnlockAllForSession = true; // 幂等开关；不改档案修订、钱包或当前装备，跨地图由GI自然保留。
+    UE_LOG(LogFPSDemo, Display, TEXT("DEBUG_UNLOCK_ALL all weapons/ammo unlocked for this editor session"));
+}
+bool UDemoPlayerProfile::IsDebugUnlockAllForSession() const { DEMO_LOG_TICK(); return bDebugUnlockAllForSession; }
+#endif
 const FString& UDemoPlayerProfile::GetStatus() const { DEMO_LOG_TICK(); return Status; }
 const FString& UDemoPlayerProfile::GetSlotName() const { DEMO_LOG_TICK(); return SlotName; }
 bool UDemoPlayerProfile::RecordVictory(const FString& RunId, EDemoDifficulty Difficulty)
@@ -118,19 +151,21 @@ bool UDemoPlayerProfile::RecordVictory(const FString& RunId, EDemoDifficulty Dif
     const ADemoGameState* State = GetWorld() ? GetWorld()->GetGameState<ADemoGameState>() : nullptr; // 当前权威世界的真实胜利状态。
     FGuid ParsedRun; // 通关幂等标识，不能接受空GUID或非法难度。
     if (!GetWorld() || !GetWorld()->GetAuthGameMode() || !State || State->Phase != EDemoPhase::Victory || State->LevelNumber != DemoCombatConfig::LevelCount
-        || State->Difficulty != Difficulty || static_cast<uint8>(Difficulty) > 2 || !FGuid::Parse(RunId, ParsedRun) || !ParsedRun.IsValid())
+        || State->Difficulty != Difficulty || static_cast<uint8>(Difficulty) > 3 || State->bEndless || !FGuid::Parse(RunId, ParsedRun) || !ParsedRun.IsValid())
     { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE victory rejected: invalid final state/run")); return false; }
     for (const FDemoClearRecord& Existing : Profile.Clears) // 仅同局幂等，不将重复回调计为另一次通关。
         if (Existing.RunId == RunId) { UE_LOG(LogFPSDemo, Log, TEXT("PROFILE duplicate victory ignored")); return true; }
     if (Profile.RecentAcceptedRuns.Contains(RunId)) { UE_LOG(LogFPSDemo, Log, TEXT("PROFILE already confirmed victory ignored")); return true; }
     FDemoClearRecord Record; // 即将追加的持久化值，不包含World引用。
     Record.RunId = RunId;
-    Record.DifficultyId = Difficulty == EDemoDifficulty::Easy ? TEXT("easy") : Difficulty == EDemoDifficulty::Normal ? TEXT("normal") : TEXT("hard");
+    // 手枪挑战作为独立的幂等通关事实，上传后仍能从云端基线推导解锁，不只依赖本机bool。
+    Record.DifficultyId = Difficulty == EDemoDifficulty::Hell ? TEXT("hell") : Difficulty == EDemoDifficulty::Hard && State->PistolChallenge == 1 ? TEXT("hard_pistol") : Difficulty == EDemoDifficulty::Easy ? TEXT("easy") : Difficulty == EDemoDifficulty::Normal ? TEXT("normal") : TEXT("hard");
     Record.CompletedUtc = FDateTime::UtcNow().ToIso8601();
     Profile.Clears.Add(Record);
     Normalize(Profile);
     CommitChange();
-    UE_LOG(LogFPSDemo, Log, TEXT("PROFILE victory recorded difficulty=%s; unlock only, no equip"), *Record.DifficultyId);
+    // 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
+    UE_LOG(LogFPSDemo, Display, TEXT("PROFILE victory recorded difficulty=%s; unlock only, no equip"), *Record.DifficultyId);
     return true;
 }
 void UDemoPlayerProfile::RememberPrimary(FName Id)
@@ -177,7 +212,7 @@ bool UDemoPlayerProfile::ApplyCloud(const TSharedPtr<FJsonObject>& Cloud, const 
     int64 OldRevision = 0; // 初次离线为空等同0。
     LexTryParseString(OldRevision, *Profile.ServerRevision);
     if (!Cloud->TryGetStringField(TEXT("serverRevision"), Revision) || !LexTryParseString(NewRevision, *Revision) || NewRevision < 0
-        || !Cloud->TryGetStringField(TEXT("lastSelectedPrimary"), Primary) || !Cloud->TryGetArrayField(TEXT("clearedDifficulties"), Difficulties) || Difficulties->Num() > 3) return false;
+        || !Cloud->TryGetStringField(TEXT("lastSelectedPrimary"), Primary) || !Cloud->TryGetArrayField(TEXT("clearedDifficulties"), Difficulties) || Difficulties->Num() > 5) return false;
     FDemoPlayerProfileData Candidate = Profile; // 先完整验证，失败不污染当前游戏内数据。
     if (bAckPreference) Candidate.SyncedPreferenceRevision = FMath::Max(Candidate.SyncedPreferenceRevision, AckRevision); // 只有实际携带偏好变化的请求才确认它。
     if (NewRevision >= OldRevision)

@@ -19,7 +19,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Replicated, Category="Demo") EDemoPhase Phase = EDemoPhase::Lobby;
 	// 难度只在第0关Hub终端修改，通关续玩可重新选择；复制供UI展示，不代表完整联机支持。
 	UPROPERTY(BlueprintReadOnly, Replicated, Category="Demo") EDemoDifficulty Difficulty = EDemoDifficulty::Normal;
-	// 当前/已完成关卡编号，0 表示尚未进入第一关，范围 0..10。
+	UPROPERTY(BlueprintReadOnly, Replicated, Category="Demo") bool bEndless = false; // 独立模式，使用地狱难度基线且没有第十关终局。
+	UPROPERTY(BlueprintReadOnly, Replicated, Category="Demo") int32 BestEndlessLevel = 0; // 本存档最高已完成关数，死亡/放弃保留。
+	UPROPERTY(BlueprintReadOnly, Replicated, Category="Demo") int32 PistolChallenge = 0; // 0尚未开火/1仅手枪/2已失格；实际成功开火更新，2不可逆。
+	// 当前/已完成关卡编号，0 表示尚未进入第一关，固定战役0..10，无尽可继续递增；显示当前战斗关或最近完成关。
 	UPROPERTY(BlueprintReadOnly, Replicated, Category="Demo") int32 LevelNumber = 0;
 	// 本关未死亡敌人数量，包含 Boss；只有死亡事件才能推进清场。
 	UPROPERTY(BlueprintReadOnly, Replicated, Category="Demo") int32 EnemiesRemaining = 0;

@@ -110,7 +110,7 @@ void ADemoCampaignTest::Tick(float DeltaSeconds)
 		// 直接读模板计算独立预期，避免只拿 Resolve 自己的结果测试自己。
 		const UDataTable* Templates = LoadObject<UDataTable>(nullptr, TEXT("/Game/Data/DT_Enemies.DT_Enemies"));
 		int32 Count = 0; // 本次活怪数量，不计延迟销毁的上一关尸体。
-		ADemoEnemy* AttackProbe = nullptr; // 本步骤借用，选首关小怪和 5/10 Boss 做真实伤害。
+		ADemoEnemy* AttackProbe = nullptr; // 本步骤借用，选首关小怪和第10关Boss做伤害观察，旧单次伤害断言不等同于当前AI专项。
 		for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 当前 World 活怪遍历。
 		{
 			if (!It->IsAlive()) continue;

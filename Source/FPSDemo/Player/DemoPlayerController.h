@@ -12,7 +12,7 @@ enum class EDemoTerminalPage : uint8 { Stats, Weapons, Ammo };
 
 /** 置顶模态页；暂停可覆盖奖励/终端，关闭后恢复下层而不丢失必须领取的奖励。 */
 UENUM()
-enum class EDemoMenuPage : uint8 { None, Saves, CreateSave, Pause, ReturnHub, Settings, QuitSaving };
+enum class EDemoMenuPage : uint8 { None, Saves, CreateSave, Pause, ReturnHub, Settings, QuitSaving, EndlessUnlock }; // 新提示追加，旧菜单值保持不变。
 
 /** 保存退出的本地UI阶段；失败保留窗口，成功展示片刻后才结束游戏。 */
 enum class EDemoQuitState : uint8 { Idle, SavingLocal, WaitingCloud, Saved, Failed };
@@ -123,6 +123,10 @@ public:
 	void StartGamePressed();
 	/** Difficulty来自初始安全区终端；有效选择同时确认出发，第一关开始后锁定。 */
 	void DifficultyPressed(EDemoDifficulty Difficulty);
+	/** 安全区下一关终端选择无尽；权威再次验证解锁，不允许旧热区绕过。 */
+	void EndlessPressed();
+	/** 地狱完整通关后覆盖结算页的提示；确认/ESC关闭后恢复原结算页。 */
+	void ShowEndlessUnlockTip();
 	/** 大厅/暂停打开真实设置草稿页；分辨率、画质、鼠标和窗口由应用按钮提交。 */
 	void SettingsPressed();
 	/** 主大厅/暂停接受退出；先显示保存窗口，落盘并等待云端确认后走引擎QuitGame。 */

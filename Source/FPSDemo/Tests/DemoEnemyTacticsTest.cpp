@@ -31,13 +31,13 @@ void ADemoEnemyAttackTest::TickTacticsTest()
     {
         if (!Check(Mode->StartRun(),TEXT("start isolated tactics campaign"))) return;
         Mode->StartNextLevel(); PC->OnRunReady();
-        int32 Roles[4]={0,0,0,0}; // 本关实际生成角色计数，验证生产GM而非只测辅助函数。
+        int32 Roles[6]={0,0,0,0,0,0}; // 追加近战/冲刺角色后扩容，避免真实生产混编越界写入。
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 冻结真实波次，保留GM注册表避免专项清场。
         {
             ++Roles[static_cast<int32>(It->FindComponentByClass<UDemoEnemyTactics>()->GetRole())];
             It->SetActorTickEnabled(false); It->SetActorEnableCollision(false);
         }
-        if (!Check(Roles[1]>0 && Roles[2]>0 && Roles[3]>0,TEXT("production table and GM spawn all three roles"))) return;
+        if (!Check(Roles[4]>0 && Roles[5]>0 && Roles[1]==0 && Roles[2]==0 && Roles[3]==0,TEXT("production first level only spawns melee and charger"))) return; // 后续测试直接生成旧战术角色，战役池不再包括追击/侧翼。
         FDemoEnemyTacticsSettings Invalid; // 只修改测试值，不污染表；乱序范围必须拒绝。
         Invalid.MinimumRange=Invalid.MaximumRange;
         if (!Check(!Invalid.IsValid(),TEXT("invalid tactical distance ordering rejected"))) return;

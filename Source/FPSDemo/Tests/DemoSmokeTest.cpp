@@ -288,7 +288,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		Advance(14,0.3f);
 		break;
 	case 14:
-		// 按真实配置推进第 3..10 关；5/10 留下 Boss 验证不能提前结束。
+		// 按真实配置推进第3..10关；第10关留下Boss验证不能提前结束，第5关只有混编小怪。
 		if (!Check(State->Phase == EDemoPhase::Combat, TEXT("remaining campaign level starts combat"))) return;
 		if (State->LevelNumber != 5 && State->LevelNumber != 10) { ClearCurrentLevel(); Advance(15,0.3f); break; }
 		// 仅击杀小怪，验证 Boss 活着时不会提前胜利。
@@ -300,7 +300,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		Advance(8,0.3f);
 		break;
 	case 8:
-		if (!Check(State->Phase == EDemoPhase::Combat && State->EnemiesRemaining == 1 && ShotTarget.IsValid() && ShotTarget->GetMonsterLevel() == State->LevelNumber,TEXT("level-5/10 Boss alive prevents early clear"))) return;
+		if (!Check(State->Phase == EDemoPhase::Combat && State->EnemiesRemaining == 1 && ShotTarget.IsValid() && ShotTarget->GetMonsterLevel() == State->LevelNumber,TEXT("level-10 Boss alive prevents early clear"))) return;
 		Capture(TEXT("05-Boss"));
 		Advance(9,0.3f);
 		break;

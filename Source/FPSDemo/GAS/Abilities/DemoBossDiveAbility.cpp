@@ -1,5 +1,6 @@
 #include "GAS/Abilities/DemoBossDiveAbility.h"
 #include "AI/DemoEnemy.h"
+#include "Animation/DemoEnemyPresentation.h" // 阶段动作跟随原权威飞行状态，不决定飞行或伤害。
 #include "AI/DemoBossDiveVFX.h"
 #include "Characters/DemoCharacter.h"
 #include "GAS/DemoAttributeSet.h"
@@ -70,6 +71,13 @@ void UDemoBossDiveAbility::SetPhase(EDemoDivePhase Next)
     DEMO_LOG_CALL();
     if (Immunity.IsValid()) { GetAbilitySystemComponentFromActorInfo()->RemoveActiveGameplayEffect(Immunity); Immunity.Invalidate(); } // 离开悬停立即撤销，仅移除本次Handle。
     Phase=Next; PhaseStart=GetWorld()->GetTimeSeconds();
+    // 本次阶段借用Avatar表现组件；按真实阶段时长适配动作，悬停固定3秒。
+    if (UDemoEnemyPresentation* Presentation=GetAvatarActorFromActorInfo()->FindComponentByClass<UDemoEnemyPresentation>())
+    {
+        const FName Action=Phase==EDemoDivePhase::Rising?TEXT("Rise"):Phase==EDemoDivePhase::Hovering?TEXT("Hover"):Phase==EDemoDivePhase::Diving?TEXT("Dive"):TEXT("Recovery"); // 稳定外观配置键。
+        const float Duration=Phase==EDemoDivePhase::Rising?Settings.RiseSeconds:Phase==EDemoDivePhase::Hovering?3.f:Phase==EDemoDivePhase::Diving?FlightSeconds:Settings.RecoverySeconds; // 与权威World时钟同长。
+        Presentation->Play(Action,Duration);
+    }
     if (Phase==EDemoDivePhase::Hovering)
     {
         const FGameplayEffectSpecHandle Spec=MakeOutgoingGameplayEffectSpec(UDemoBossInvulnerableEffect::StaticClass(),1); // 活动实例创建Spec，不修改共享CDO。
@@ -182,6 +190,7 @@ void UDemoBossDiveAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,co
     ADemoEnemy* Enemy=ActorInfo?Cast<ADemoEnemy>(ActorInfo->AvatarActor.Get()):nullptr; // GAS结束上下文只同步借用。
     if (Enemy)
     {
+        if (UDemoEnemyPresentation* Presentation=Enemy->FindComponentByClass<UDemoEnemyPresentation>()) Presentation->Cancel(); // 中断回收同时停止旧飞行动作。
         if (IgnoredPlayer.IsValid()) CastChecked<UPrimitiveComponent>(Enemy->GetRootComponent())->IgnoreActorWhenMoving(IgnoredPlayer.Get(),false);
         Enemy->OnDiveFinished();
     }

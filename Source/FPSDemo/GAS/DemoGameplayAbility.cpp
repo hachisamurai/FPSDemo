@@ -1,4 +1,5 @@
 #include "GAS/DemoGameplayAbility.h"
+#include "Animation/DemoWeaponAnimationComponent.h"
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoTags.h"
@@ -94,8 +95,12 @@ void UDemoGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 			Character->GetWeaponComponent()->StopAim();
 			ReloadWeapon = Character->GetWeaponComponent()->GetActiveWeapon();
 			if (!ReloadWeapon.IsValid() || !ReloadWeapon->BeginReload()) { EndAbility(Handle,ActorInfo,ActivationInfo,true,true); return; }
+			ReloadSequence = ReloadWeapon->GetReloadSequence();
+			// 动画可降级但不拥有补弹：本次类型/时长/序号均从BeginReload的冻结快照读取。
+			if (Character->GetWeaponAnimationComponent() && ReloadWeapon->Config.WeaponAnimLayerClass)
+				Character->GetWeaponAnimationComponent()->BeginReloadPresentation(ReloadWeapon.Get(), this, ReloadSequence, ReloadWeapon->GetReloadDuration(), ReloadWeapon->IsEmptyReload());
 			// UObject 任务归技能所有，AddDynamic 弱绑定 this，取消/卸载时由 GAS 自动结束任务。
-			UAbilityTask_WaitDelay* DelayTask = UAbilityTask_WaitDelay::WaitDelay(this, ReloadWeapon->Config.ReloadSeconds);
+			UAbilityTask_WaitDelay* DelayTask = UAbilityTask_WaitDelay::WaitDelay(this, ReloadWeapon->GetReloadDuration());
 			if (!DelayTask) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
 			DelayTask->OnFinish.AddDynamic(this, &UDemoGameplayAbility::OnReloadFinished);
 			DelayTask->ReadyForActivation();
@@ -116,7 +121,7 @@ void UDemoGameplayAbility::OnReloadFinished()
 	ADemoCharacter* Character = Cast<ADemoCharacter>(GetAvatarActorFromActorInfo());
 	const UDemoAttributeSet* Attributes = Character ? Character->GetDemoAttributes() : nullptr;
 	if (Attributes && Attributes->GetHealth() > 0.f && Character->CanUseCombatAbilities()
-		&& ReloadWeapon.IsValid() && Character->GetWeaponComponent()->IsEquipped(ReloadWeapon.Get()))
+		&& ReloadWeapon.IsValid() && ReloadWeapon->GetReloadSequence() == ReloadSequence && Character->GetWeaponComponent()->IsEquipped(ReloadWeapon.Get()))
 	{
 		ReloadWeapon->CompleteReload();
 	}
@@ -131,8 +136,9 @@ void UDemoGameplayAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, c
 	UE_LOG(LogFPSDemo, Log, TEXT("Ability ended action=%d cancelled=%d"), static_cast<int32>(Action), bWasCancelled);
 	if (Action == EDemoAbilityAction::Reload)
 	{
-		if (ReloadWeapon.IsValid()) ReloadWeapon->CancelReload();
+		if (ReloadWeapon.IsValid() && ReloadWeapon->GetReloadSequence() == ReloadSequence) ReloadWeapon->CancelReload();
 		ReloadWeapon.Reset();
+		ReloadSequence = 0;
 	}
 	if (Action == EDemoAbilityAction::Aim)
 		if (ADemoCharacter* Character = ActorInfo ? Cast<ADemoCharacter>(ActorInfo->AvatarActor.Get()) : nullptr) Character->GetWeaponComponent()->EndAim();

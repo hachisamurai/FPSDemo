@@ -1,5 +1,6 @@
-#include "Weapons/Ammo/DemoAmmoCatalog.h"
 #include "Save/DemoRunSave.h"
+// 对应头文件先于依赖，保证UE独立编译能检查本类声明自包含。
+#include "Weapons/Ammo/DemoAmmoCatalog.h"
 #include "Debug/DemoLog.h"
 #include "Weapons/DemoWeaponCatalog.h"
 #include "Kismet/GameplayStatics.h"
@@ -11,8 +12,8 @@ bool UDemoRunSave::Validate() const
 {
     DEMO_LOG_CALL();
     FGuid Id; // 本次临时解析，不依赖本地时间唯一性。
-    if ((Version < 1 || Version > 4) || CreatedLocal.GetTicks() <= 0 || !FGuid::Parse(RunId, Id) || !Id.IsValid()
-        || static_cast<uint8>(Difficulty) > 2 || Coins < 0 || Coins > 100000000 || Kills < 0 || Kills > 10000000 || Purchases < 0 || Purchases > 100000
+    if ((Version < 1 || Version > 5) || CreatedLocal.GetTicks() <= 0 || !FGuid::Parse(RunId, Id) || !Id.IsValid()
+        || static_cast<uint8>(Difficulty) > 3 || PistolChallenge < 0 || PistolChallenge > 2 || BestEndlessLevel < 0 || (bEndless && Difficulty != EDemoDifficulty::Hell) || Coins < 0 || Coins > 100000000 || Kills < 0 || Kills > 10000000 || Purchases < 0 || Purchases > 100000
         || SilverCoins < 0 || SilverCoins > 100000000 || GoldPurchases < 0 || GoldPurchases > 100000 || SilverPurchases < 0 || SilverPurchases > 100000
         || (Version >= 2 && Purchases != GoldPurchases + SilverPurchases) // V1无分币种次数，先校验旧字段再迁移。
         || !FMath::IsFinite(MaxHealth) || MaxHealth < 100 || MaxHealth > 10000000 || !FMath::IsFinite(Health) || Health <= 0 || Health > MaxHealth
@@ -20,6 +21,10 @@ bool UDemoRunSave::Validate() const
         || !FMath::IsFinite(HealAmount) || HealAmount < 35 || HealAmount > 100000 || !FMath::IsFinite(DashSpeed) || DashSpeed < 1300 || DashSpeed > 100000
         || (ActiveSlot != 1 && ActiveSlot != 2) || Weapons.Num() > 4)
     { UE_LOG(LogFPSDemo, Warning, TEXT("RUN_SAVE invalid fields/version")); return false; }
+    // V1..V4无挑战证明；拒绝伪装为旧格式携带新模式，V5无尽纪录不得低于已完成关数。
+    if ((Version<5 && (bEndless || BestEndlessLevel!=0 || PistolChallenge!=0 || Difficulty==EDemoDifficulty::Hell))
+        || (bEndless && (Phase==EDemoPhase::Reward || Phase==EDemoPhase::Intermission) && BestEndlessLevel<CompletedLevel))
+    { UE_LOG(LogFPSDemo,Warning,TEXT("RUN_SAVE inconsistent challenge version/record")); return false; }
     if(Version>=4)
     {
         TSet<FName> AmmoIds; // 本槽稳定ID白名单与唯一性检查，拒绝伪造未解锁装备。
@@ -31,8 +36,8 @@ bool UDemoRunSave::Validate() const
         || DamageBonus < UpgradeProgress.PermanentDamage || MaxHealth < 100.f + UpgradeProgress.PermanentHealth || MagazineBonus < UpgradeProgress.PermanentMagazine))
     { UE_LOG(LogFPSDemo, Warning, TEXT("RUN_SAVE inconsistent permanent progression")); return false; }
     if (!((Phase == EDemoPhase::Hub && CompletedLevel == 0)
-        || ((Phase == EDemoPhase::Reward || Phase == EDemoPhase::Intermission) && CompletedLevel >= 1 && CompletedLevel < 10)
-        || (Phase == EDemoPhase::Victory && CompletedLevel == 10)))
+        || ((Phase == EDemoPhase::Reward || Phase == EDemoPhase::Intermission) && CompletedLevel >= 1 && (bEndless ? CompletedLevel < MAX_int32 : CompletedLevel < 10))
+        || (Phase == EDemoPhase::Victory && CompletedLevel == 10 && !bEndless)))
     { UE_LOG(LogFPSDemo, Warning, TEXT("RUN_SAVE invalid checkpoint phase/level")); return false; }
     TSet<FName> Seen; // 校验重复ID，阻止不一致库存。
     for (const FDemoSavedWeapon& Weapon : Weapons) // 数值快照由存档持有，只读借用。
@@ -63,6 +68,7 @@ bool UDemoRunSave::UpgradeLegacy()
         UE_LOG(LogFPSDemo, Log, TEXT("RUN_SAVE migrated to V3 refund=%lld gold=%d; legacy growth temporary"), Refund, Coins);
     }
     if(Version<4){UnlockedAmmoIds={FName(TEXT("normal"))};SelectedAmmoId=TEXT("normal");Version=4;UE_LOG(LogFPSDemo,Log,TEXT("RUN_SAVE migrated V4 ammo normal"));}
+    if (Version < 5) { PistolChallenge = CompletedLevel > 0 ? 2 : 0; bEndless = false; BestEndlessLevel = 0; Version = 5; UE_LOG(LogFPSDemo,Log,TEXT("RUN_SAVE migrated V5; old active runs cannot prove pistol challenge")); }
     return true;
 }
 void UDemoRunSave::ResetTemporaryGrowth()
@@ -89,7 +95,8 @@ void UDemoRunSaves::Initialize(FSubsystemCollectionBase& Collection)
     // 自动化入口统一隔离；测试随GI而非静态变量，跨OpenLevel仍使用同一前缀。
     bTest = FString(FCommandLine::Get()).Contains(TEXT("DemoSessionTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoSmokeTest"))
         || FString(FCommandLine::Get()).Contains(TEXT("DemoCampaignTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoWeaponTest"))
-        || FString(FCommandLine::Get()).Contains(TEXT("DemoArmoryTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoUIValidation")) || FString(FCommandLine::Get()).Contains(TEXT("DemoEnemyAttackTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoAmmoTest")) /* 弹药专项不使用正式账号或存档。 */;
+        || FString(FCommandLine::Get()).Contains(TEXT("DemoArmoryTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoUIValidation")) || FString(FCommandLine::Get()).Contains(TEXT("DemoEnemyAttackTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoAmmoTest"))
+        || FString(FCommandLine::Get()).Contains(TEXT("DemoWeaponAnimationTest")); // 动画专项通过真实终端存档，必须沿用本GI临时前缀。
     Prefix = bTest ? TEXT("DemoRunTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits) : TEXT("DemoRun");
 #if WITH_EDITOR
     // 不能使用GIsEditor判断：UnrealEditor -game的GIsEditor为false，也必须遵守临时本地规则。
@@ -135,7 +142,7 @@ void UDemoRunSaves::RefreshSlots()
     {
         Exists[Index] = UGameplayStatics::DoesSaveGameExist(SlotName(Index), 0) || UGameplayStatics::DoesSaveGameExist(SlotName(Index)+TEXT("_Backup"), 0);
         Slots[Index] = Exists[Index] ? Cast<UDemoRunSave>(UGameplayStatics::LoadGameFromSlot(SlotName(Index), 0)) : nullptr;
-        if (Slots[Index] && Slots[Index]->Version > 4) { Slots[Index] = nullptr; ReportStatus(TEXT("存档版本较新，原文件已保护"), true); continue; }
+        if (Slots[Index] && Slots[Index]->Version > 5) { Slots[Index] = nullptr; ReportStatus(TEXT("存档版本较新，原文件已保护"), true); continue; }
         if (Exists[Index] && (!Slots[Index] || !Slots[Index]->UpgradeLegacy()))
         {
             Slots[Index] = Cast<UDemoRunSave>(UGameplayStatics::LoadGameFromSlot(SlotName(Index)+TEXT("_Backup"), 0));
@@ -194,10 +201,11 @@ bool UDemoRunSaves::Store(UDemoRunSave* Snapshot)
     Slots[ActiveSlot] = DuplicateObject<UDemoRunSave>(Snapshot, this);
     ++ChangeSerial; // 区分上传期间产生的新检查点，旧回执不能把它误报为已同步。
     ReportStatus(TEXT("检查点已自动保存"));
-    UE_LOG(LogFPSDemo, Log, TEXT("RUN_SAVE slot=%d phase=%d completed=%d"), ActiveSlot, static_cast<int32>(Snapshot->Phase), Snapshot->CompletedLevel);
+    // 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
+    UE_LOG(LogFPSDemo, Display, TEXT("RUN_SAVE slot=%d phase=%d completed=%d"), ActiveSlot, static_cast<int32>(Snapshot->Phase), Snapshot->CompletedLevel);
     return true;
 }
-bool UDemoRunSaves::ResetActive(EDemoDifficulty Difficulty, int32 Gold, const FDemoUpgradeProgress& Progress)
+bool UDemoRunSaves::ResetActive(EDemoDifficulty Difficulty, int32 Gold, const FDemoUpgradeProgress& Progress, const UDemoRunSave* Loadout)
 {
     DEMO_LOG_CALL();
     if (!Progress.Validate()) { ReportStatus(TEXT("永久成长账本无效，取消重置"), true); return false; }
@@ -208,13 +216,39 @@ bool UDemoRunSaves::ResetActive(EDemoDifficulty Difficulty, int32 Gold, const FD
     Fresh->RunId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
     Fresh->Difficulty = Difficulty;
     if(const UDemoRunSave* Previous=GetSlot(ActiveSlot)) { Fresh->UnlockedAmmoIds=Previous->UnlockedAmmoIds; Fresh->SelectedAmmoId=Previous->SelectedAmmoId; } // 已提交购买/装配随同槽保留。
+    if (const UDemoRunSave* Previous = GetSlot(ActiveSlot)) { Fresh->bEndless = Previous->bEndless; Fresh->BestEndlessLevel = Previous->BestEndlessLevel; } // 重开保留模式与已通关纪录，手枪资格回到0。
     Fresh->Coins = Gold; // 新快照只清空银币与关卡，不丢失金币余额或永久来源。
     Fresh->UpgradeProgress = Progress;
     Fresh->ResetTemporaryGrowth();
+    // 重开仅重置战斗成长；装备由同槽快照或当前Pawn提供，不能用跨槽的账号偏好覆盖实际装备。
+    const UDemoRunSave* Equipment = Loadout ? Loadout : GetSlot(ActiveSlot); // 同步借用，不保留旧World/UObject引用。
+    if (Equipment)
+    {
+        Fresh->Weapons = Equipment->Weapons;
+        Fresh->PrimaryId = Equipment->PrimaryId;
+        Fresh->ActiveSlot = Equipment->ActiveSlot;
+        Fresh->UnlockedAmmoIds = Equipment->UnlockedAmmoIds;
+        Fresh->SelectedAmmoId = Equipment->SelectedAmmoId;
+    }
+    if (!Fresh->Validate()) { ReportStatus(TEXT("重开装备快照无效，已保留原存档"), true); return false; } // 无活动槽也必须校验。
     if (!Store(Fresh)) return false;
+    UE_LOG(LogFPSDemo, Log, TEXT("RUN_RESET_LOADOUT primary=%s active=%d weapons=%d"), *Fresh->PrimaryId.ToString(), Fresh->ActiveSlot, Fresh->Weapons.Num());
     if (ActiveSlot == INDEX_NONE) DetachedRestart = Fresh; // 只由GI持有直到重开/结束试玩，不创建匿名磁盘档。
     bPending = true;
     return true;
+}
+
+bool UDemoRunSaves::StoreChallenge(int32 ChallengeStatus, int32 Best)
+{
+    DEMO_LOG_CALL();
+    if (ChallengeStatus<0 || ChallengeStatus>2 || Best<0) { UE_LOG(LogFPSDemo,Warning,TEXT("Challenge checkpoint rejected: range")); return false; }
+    const UDemoRunSave* Previous=GetSlot(ActiveSlot); // 借用出发前快照，不采集半场金币/生命/敌人。
+    if (ActiveSlot==INDEX_NONE) return true; // 无槽开发World只保留GameState内存。
+    if (!Previous) { UE_LOG(LogFPSDemo,Warning,TEXT("Challenge checkpoint missing")); return false; }
+    if (Previous->PistolChallenge==ChallengeStatus && Previous->BestEndlessLevel>=Best) return true;
+    UDemoRunSave* Snapshot=DuplicateObject<UDemoRunSave>(Previous,this); // Store另存值副本，原检查点不被未落盘写入污染。
+    Snapshot->PistolChallenge=FMath::Max(Previous->PistolChallenge,ChallengeStatus); Snapshot->BestEndlessLevel=FMath::Max(Previous->BestEndlessLevel,Best);
+    return Store(Snapshot);
 }
 
 TSharedPtr<FJsonObject> UDemoRunSaves::ExportCloud(int32 Index) const
@@ -227,7 +261,7 @@ TSharedPtr<FJsonObject> UDemoRunSaves::ExportCloud(int32 Index) const
     // 时间/枚举/None明确规范化，避免UE版本序列化差异成为网络协议。
     Json->SetStringField(TEXT("createdLocal"), Snapshot->CreatedLocal.ToIso8601());
     Json->SetStringField(TEXT("savedUtc"), Snapshot->SavedUtc.ToIso8601());
-    Json->SetStringField(TEXT("difficulty"), Snapshot->Difficulty == EDemoDifficulty::Easy ? TEXT("easy") : Snapshot->Difficulty == EDemoDifficulty::Normal ? TEXT("normal") : TEXT("hard"));
+    Json->SetStringField(TEXT("difficulty"), Snapshot->Difficulty == EDemoDifficulty::Hell ? TEXT("hell") : Snapshot->Difficulty == EDemoDifficulty::Easy ? TEXT("easy") : Snapshot->Difficulty == EDemoDifficulty::Normal ? TEXT("normal") : TEXT("hard"));
     Json->SetStringField(TEXT("primaryId"), Snapshot->PrimaryId.IsNone() ? TEXT("") : Snapshot->PrimaryId.ToString());
     // 非Editor的FName不保留输入大小写，normal可能复用先注册的Normal（难度名）。协议ID必须显式规范化，不能依赖Editor中的ToString表现。
     TArray<TSharedPtr<FJsonValue>> AmmoIds; // 当前导出独占的JSON值数组，与金币共同进入本次请求快照。
@@ -248,8 +282,8 @@ bool UDemoRunSaves::ImportCloud(int32 Index, const TSharedPtr<FJsonObject>& Data
     FString Saved; // UTC时间仅作展示，冲突处理使用服务器版本。
     if (!Json->TryGetStringField(TEXT("difficulty"), Difficulty) || !Json->TryGetStringField(TEXT("primaryId"), Primary)
         || !Json->TryGetStringField(TEXT("createdLocal"), Created) || !Json->TryGetStringField(TEXT("savedUtc"), Saved)
-        || (Difficulty != TEXT("easy") && Difficulty != TEXT("normal") && Difficulty != TEXT("hard"))) return false;
-    Json->SetStringField(TEXT("difficulty"), Difficulty == TEXT("easy") ? TEXT("Easy") : Difficulty == TEXT("normal") ? TEXT("Normal") : TEXT("Hard"));
+        || (Difficulty != TEXT("easy") && Difficulty != TEXT("normal") && Difficulty != TEXT("hard") && Difficulty != TEXT("hell"))) return false;
+    Json->SetStringField(TEXT("difficulty"), Difficulty == TEXT("hell") ? TEXT("Hell") : Difficulty == TEXT("easy") ? TEXT("Easy") : Difficulty == TEXT("normal") ? TEXT("Normal") : TEXT("Hard"));
     Json->SetStringField(TEXT("primaryId"), Primary.IsEmpty() ? TEXT("None") : Primary);
     if (!FJsonObjectConverter::JsonObjectToUStruct(Json, UDemoRunSave::StaticClass(), Candidate, 0, 0)
         || !FDateTime::ParseIso8601(*Created, Candidate->CreatedLocal) || !FDateTime::ParseIso8601(*Saved, Candidate->SavedUtc) || !Candidate->UpgradeLegacy())
