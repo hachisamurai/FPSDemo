@@ -39,7 +39,9 @@
 - 小怪/Boss支持飞行物；Boss保留原范围攻击，并有2秒红光前摇的全图伤害/减速，冲刺窗口躲避成功恢复5HP。
 - 现有武器外观/动画复用模板资源，可在各武器BP配置替换；当前没有四套独立成品枪械美术。
 
-## 维护文档
+<!-- 维护入口默认折叠，简化仓库首页；文档及链接仍保留，点击标题可展开。 -->
+<details>
+<summary>维护文档</summary>
 
 - [Git与Git LFS协作、克隆及忽略规则](Documentation/Git版本管理.md)
 - [强制日志、注释与文档规则](AGENTS.md)
@@ -53,5 +55,7 @@
 - [武器音效](Documentation/Audio/武器音效.md)
 - [UI设计](Documentation/UI预览设计.md)
 - [调试与验证](Documentation/调试与验证.md)
+
+</details>
 
 HUD使用原生Canvas，当前为单人键鼠原型；已有复制基础不等于完整联机支持。
