@@ -1,0 +1,711 @@
+{
+  "version": 1,
+  "units": "centimetres",
+  "palette": {
+    "Frame": [
+      [
+        0.045,
+        0.06,
+        0.072,
+        1
+      ],
+      0.65,
+      0.34
+    ],
+    "Armor": [
+      [
+        0.62,
+        0.66,
+        0.66,
+        1
+      ],
+      0.38,
+      0.32
+    ],
+    "Steel": [
+      [
+        0.24,
+        0.29,
+        0.32,
+        1
+      ],
+      0.85,
+      0.27
+    ],
+    "Rubber": [
+      [
+        0.012,
+        0.017,
+        0.02,
+        1
+      ],
+      0.05,
+      0.78
+    ],
+    "Amber": [
+      [
+        1.0,
+        0.12,
+        0.009,
+        1
+      ],
+      0.2,
+      0.26
+    ],
+    "Dark": [
+      [
+        0.006,
+        0.011,
+        0.015,
+        1
+      ],
+      0.25,
+      0.58
+    ]
+  },
+  "enemies": [
+    {
+      "name": "Chaser",
+      "mesh": "SK_Breach_Chaser",
+      "skeleton": "SKEL_Breach_Drone",
+      "sockets": {
+        "Muzzle_L": {
+          "bone": "weapon_l",
+          "world_cm": [
+            38.0,
+            -65.0,
+            -35.0
+          ],
+          "blender_bone_local_cm": [
+            3.5999932289123535,
+            18.33575439453125,
+            7.199995040893555
+          ]
+        },
+        "Muzzle_R": {
+          "bone": "weapon_r",
+          "world_cm": [
+            38.0,
+            65.0,
+            -35.0
+          ],
+          "blender_bone_local_cm": [
+            3.5999984741210938,
+            18.335758209228516,
+            7.200002670288086
+          ]
+        },
+        "CoreFX": {
+          "bone": "core",
+          "world_cm": [
+            34.0,
+            0,
+            -15.0
+          ],
+          "blender_bone_local_cm": [
+            -7.868050033721374e-07,
+            10.000001907348633,
+            -18.0
+          ]
+        },
+        "HealthBar": {
+          "bone": "body",
+          "world_cm": [
+            0,
+            0,
+            60.0
+          ],
+          "blender_bone_local_cm": [
+            0.0,
+            58.0,
+            0.0
+          ]
+        },
+        "ThrusterFX_L": {
+          "bone": "thruster_l",
+          "world_cm": [
+            -10.0,
+            -23.5,
+            -41.0
+          ],
+          "blender_bone_local_cm": [
+            1.4708666640217416e-07,
+            23.0,
+            8.74227794156468e-07
+          ]
+        },
+        "ThrusterFX_R": {
+          "bone": "thruster_r",
+          "world_cm": [
+            -10.0,
+            23.5,
+            -41.0
+          ],
+          "blender_bone_local_cm": [
+            -1.4708666640217416e-07,
+            23.0,
+            8.74227794156468e-07
+          ]
+        }
+      },
+      "triangles": 16124,
+      "bounds_cm": [
+        [
+          -27.94999885559082,
+          -76.0,
+          -47.86391067504883
+        ],
+        [
+          39.54999923706055,
+          76.0,
+          41.25
+        ]
+      ],
+      "bones": [
+        {
+          "name": "root",
+          "parent": null,
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "body",
+          "parent": "root",
+          "head_cm": [
+            0,
+            0,
+            2.0
+          ]
+        },
+        {
+          "name": "core",
+          "parent": "body",
+          "head_cm": [
+            24.0,
+            0,
+            3.0
+          ]
+        },
+        {
+          "name": "aim_yaw",
+          "parent": "body",
+          "head_cm": [
+            22.0,
+            0,
+            15.0
+          ]
+        },
+        {
+          "name": "aim_pitch",
+          "parent": "aim_yaw",
+          "head_cm": [
+            26.0,
+            0,
+            15.0
+          ]
+        },
+        {
+          "name": "armor_l",
+          "parent": "body",
+          "head_cm": [
+            5.0,
+            -33.0,
+            26.0
+          ]
+        },
+        {
+          "name": "fin_l",
+          "parent": "body",
+          "head_cm": [
+            -17.0,
+            -28.000000000000004,
+            25.0
+          ]
+        },
+        {
+          "name": "arm_l",
+          "parent": "body",
+          "head_cm": [
+            0,
+            -49.0,
+            10.5
+          ]
+        },
+        {
+          "name": "forearm_l",
+          "parent": "arm_l",
+          "head_cm": [
+            0.5,
+            -60.0,
+            -14.000000000000002
+          ]
+        },
+        {
+          "name": "weapon_l",
+          "parent": "forearm_l",
+          "head_cm": [
+            18.0,
+            -65.0,
+            -34.0
+          ]
+        },
+        {
+          "name": "thruster_l",
+          "parent": "body",
+          "head_cm": [
+            -10.0,
+            -23.5,
+            -18.000000000000004
+          ]
+        },
+        {
+          "name": "armor_r",
+          "parent": "body",
+          "head_cm": [
+            5.0,
+            33.0,
+            26.0
+          ]
+        },
+        {
+          "name": "fin_r",
+          "parent": "body",
+          "head_cm": [
+            -17.0,
+            28.000000000000004,
+            25.0
+          ]
+        },
+        {
+          "name": "arm_r",
+          "parent": "body",
+          "head_cm": [
+            0,
+            49.0,
+            10.5
+          ]
+        },
+        {
+          "name": "forearm_r",
+          "parent": "arm_r",
+          "head_cm": [
+            0.5,
+            60.0,
+            -14.000000000000002
+          ]
+        },
+        {
+          "name": "weapon_r",
+          "parent": "forearm_r",
+          "head_cm": [
+            18.0,
+            65.0,
+            -34.0
+          ]
+        },
+        {
+          "name": "thruster_r",
+          "parent": "body",
+          "head_cm": [
+            -10.0,
+            23.5,
+            -18.000000000000004
+          ]
+        }
+      ],
+      "parts": 63
+    },
+    {
+      "name": "Warden",
+      "mesh": "SK_Breach_Warden",
+      "skeleton": "SKEL_Breach_Warden",
+      "sockets": {
+        "Muzzle_L": {
+          "bone": "wrist_l",
+          "world_cm": [
+            67.0,
+            -139.0,
+            -52.0
+          ],
+          "blender_bone_local_cm": [
+            8.169126510620117,
+            35.02485656738281,
+            7.451393127441406
+          ]
+        },
+        "Muzzle_R": {
+          "bone": "wrist_r",
+          "world_cm": [
+            67.0,
+            139.0,
+            -52.0
+          ],
+          "blender_bone_local_cm": [
+            6.972799301147461,
+            35.02489471435547,
+            8.581245422363281
+          ]
+        },
+        "CoreFX": {
+          "bone": "core",
+          "world_cm": [
+            72.0,
+            0,
+            24.0
+          ],
+          "blender_bone_local_cm": [
+            9.179391327052144e-07,
+            48.00000762939453,
+            21.0
+          ]
+        },
+        "HealthBar": {
+          "bone": "body",
+          "world_cm": [
+            0,
+            0,
+            212.0
+          ],
+          "blender_bone_local_cm": [
+            0.0,
+            210.0,
+            0.0
+          ]
+        },
+        "ThrusterFX_L": {
+          "bone": "thruster_l",
+          "world_cm": [
+            -11.0,
+            -43.0,
+            -70.0
+          ],
+          "blender_bone_local_cm": [
+            -5.551783033297397e-08,
+            39.5,
+            9.616505849407986e-07
+          ]
+        },
+        "ThrusterFX_R": {
+          "bone": "thruster_r",
+          "world_cm": [
+            -11.0,
+            43.0,
+            -70.0
+          ],
+          "blender_bone_local_cm": [
+            5.551783033297397e-08,
+            39.5,
+            9.616505849407986e-07
+          ]
+        }
+      },
+      "triangles": 32820,
+      "bounds_cm": [
+        [
+          -62.5,
+          -164.99685668945312,
+          -92.05268096923828
+        ],
+        [
+          82.79508972167969,
+          164.99685668945312,
+          187.0
+        ]
+      ],
+      "bones": [
+        {
+          "name": "root",
+          "parent": null,
+          "head_cm": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "body",
+          "parent": "root",
+          "head_cm": [
+            0,
+            0,
+            2.0
+          ]
+        },
+        {
+          "name": "core",
+          "parent": "body",
+          "head_cm": [
+            24.0,
+            0,
+            3.0
+          ]
+        },
+        {
+          "name": "aim_yaw",
+          "parent": "body",
+          "head_cm": [
+            22.0,
+            0,
+            15.0
+          ]
+        },
+        {
+          "name": "aim_pitch",
+          "parent": "aim_yaw",
+          "head_cm": [
+            26.0,
+            0,
+            15.0
+          ]
+        },
+        {
+          "name": "shutter_top",
+          "parent": "body",
+          "head_cm": [
+            48.0,
+            3.3065463576978537e-15,
+            78.0
+          ]
+        },
+        {
+          "name": "shutter_right",
+          "parent": "body",
+          "head_cm": [
+            48.0,
+            54.0,
+            24.0
+          ]
+        },
+        {
+          "name": "shutter_bottom",
+          "parent": "body",
+          "head_cm": [
+            48.0,
+            -9.919639073093561e-15,
+            -30.000000000000004
+          ]
+        },
+        {
+          "name": "shutter_left",
+          "parent": "body",
+          "head_cm": [
+            48.0,
+            -54.0,
+            24.000000000000004
+          ]
+        },
+        {
+          "name": "halo",
+          "parent": "body",
+          "head_cm": [
+            -52.0,
+            0,
+            60.0
+          ]
+        },
+        {
+          "name": "halo_segment_01",
+          "parent": "halo",
+          "head_cm": [
+            -52.0,
+            0,
+            60.0
+          ]
+        },
+        {
+          "name": "halo_segment_02",
+          "parent": "halo",
+          "head_cm": [
+            -52.0,
+            0,
+            60.0
+          ]
+        },
+        {
+          "name": "halo_segment_03",
+          "parent": "halo",
+          "head_cm": [
+            -52.0,
+            0,
+            60.0
+          ]
+        },
+        {
+          "name": "halo_segment_04",
+          "parent": "halo",
+          "head_cm": [
+            -52.0,
+            0,
+            60.0
+          ]
+        },
+        {
+          "name": "halo_segment_05",
+          "parent": "halo",
+          "head_cm": [
+            -52.0,
+            0,
+            60.0
+          ]
+        },
+        {
+          "name": "halo_segment_06",
+          "parent": "halo",
+          "head_cm": [
+            -52.0,
+            0,
+            60.0
+          ]
+        },
+        {
+          "name": "shoulder_l",
+          "parent": "body",
+          "head_cm": [
+            -5.0,
+            -66.0,
+            62.0
+          ]
+        },
+        {
+          "name": "arm_l",
+          "parent": "shoulder_l",
+          "head_cm": [
+            0.0,
+            -94.0,
+            56.00000000000001
+          ]
+        },
+        {
+          "name": "forearm_l",
+          "parent": "arm_l",
+          "head_cm": [
+            4.0,
+            -124.0,
+            3.0
+          ]
+        },
+        {
+          "name": "wrist_l",
+          "parent": "forearm_l",
+          "head_cm": [
+            34.0,
+            -137.0,
+            -36.0
+          ]
+        },
+        {
+          "name": "claw_l_01",
+          "parent": "wrist_l",
+          "head_cm": [
+            49.0,
+            -153.99999999999997,
+            -51.0
+          ]
+        },
+        {
+          "name": "claw_l_02",
+          "parent": "wrist_l",
+          "head_cm": [
+            49.0,
+            -139.0,
+            -51.0
+          ]
+        },
+        {
+          "name": "claw_l_03",
+          "parent": "wrist_l",
+          "head_cm": [
+            49.0,
+            -124.0,
+            -51.0
+          ]
+        },
+        {
+          "name": "thruster_l",
+          "parent": "body",
+          "head_cm": [
+            -11.0,
+            -43.0,
+            -30.499999999999993
+          ]
+        },
+        {
+          "name": "shoulder_r",
+          "parent": "body",
+          "head_cm": [
+            -5.0,
+            66.0,
+            62.0
+          ]
+        },
+        {
+          "name": "arm_r",
+          "parent": "shoulder_r",
+          "head_cm": [
+            0.0,
+            94.0,
+            56.00000000000001
+          ]
+        },
+        {
+          "name": "forearm_r",
+          "parent": "arm_r",
+          "head_cm": [
+            4.0,
+            124.0,
+            3.0
+          ]
+        },
+        {
+          "name": "wrist_r",
+          "parent": "forearm_r",
+          "head_cm": [
+            34.0,
+            137.0,
+            -36.0
+          ]
+        },
+        {
+          "name": "claw_r_01",
+          "parent": "wrist_r",
+          "head_cm": [
+            49.0,
+            124.0,
+            -51.0
+          ]
+        },
+        {
+          "name": "claw_r_02",
+          "parent": "wrist_r",
+          "head_cm": [
+            49.0,
+            139.0,
+            -51.0
+          ]
+        },
+        {
+          "name": "claw_r_03",
+          "parent": "wrist_r",
+          "head_cm": [
+            49.0,
+            153.99999999999997,
+            -51.0
+          ]
+        },
+        {
+          "name": "thruster_r",
+          "parent": "body",
+          "head_cm": [
+            -11.0,
+            43.0,
+            -30.499999999999993
+          ]
+        }
+      ],
+      "parts": 113
+    }
+  ]
+}

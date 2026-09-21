@@ -1,0 +1,122 @@
+[
+  {
+    "Name": "Level01",
+    "MonsterLevel": 1,
+    "ArenaIndex": 0,
+    "EnemyRow": "Drone",
+    "EnemyCount": 5,
+    "BossRow": "None",
+    "HealthMultiplier": 1,
+    "AttackMultiplier": 1,
+    "EnemyCoinReward": 10,
+    "BossCoinReward": 50
+  },
+  {
+    "Name": "Level02",
+    "MonsterLevel": 2,
+    "ArenaIndex": 1,
+    "EnemyRow": "Drone",
+    "EnemyCount": 6,
+    "BossRow": "None",
+    "HealthMultiplier": 1.2,
+    "AttackMultiplier": 1.1,
+    "EnemyCoinReward": 12,
+    "BossCoinReward": 60
+  },
+  {
+    "Name": "Level03",
+    "MonsterLevel": 3,
+    "ArenaIndex": 2,
+    "EnemyRow": "Drone",
+    "EnemyCount": 7,
+    "BossRow": "None",
+    "HealthMultiplier": 1.4,
+    "AttackMultiplier": 1.2,
+    "EnemyCoinReward": 14,
+    "BossCoinReward": 70
+  },
+  {
+    "Name": "Level04",
+    "MonsterLevel": 4,
+    "ArenaIndex": 0,
+    "EnemyRow": "Drone",
+    "EnemyCount": 8,
+    "BossRow": "None",
+    "HealthMultiplier": 1.65,
+    "AttackMultiplier": 1.3,
+    "EnemyCoinReward": 16,
+    "BossCoinReward": 80
+  },
+  {
+    "Name": "Level05",
+    "MonsterLevel": 5,
+    "ArenaIndex": 2,
+    "EnemyRow": "Drone",
+    "EnemyCount": 8,
+    "BossRow": "Warden",
+    "HealthMultiplier": 1.9,
+    "AttackMultiplier": 1.4,
+    "EnemyCoinReward": 18,
+    "BossCoinReward": 100
+  },
+  {
+    "Name": "Level06",
+    "MonsterLevel": 6,
+    "ArenaIndex": 1,
+    "EnemyRow": "Drone",
+    "EnemyCount": 10,
+    "BossRow": "None",
+    "HealthMultiplier": 2.2,
+    "AttackMultiplier": 1.5,
+    "EnemyCoinReward": 20,
+    "BossCoinReward": 120
+  },
+  {
+    "Name": "Level07",
+    "MonsterLevel": 7,
+    "ArenaIndex": 0,
+    "EnemyRow": "Drone",
+    "EnemyCount": 11,
+    "BossRow": "None",
+    "HealthMultiplier": 2.5,
+    "AttackMultiplier": 1.65,
+    "EnemyCoinReward": 22,
+    "BossCoinReward": 140
+  },
+  {
+    "Name": "Level08",
+    "MonsterLevel": 8,
+    "ArenaIndex": 1,
+    "EnemyRow": "Drone",
+    "EnemyCount": 12,
+    "BossRow": "None",
+    "HealthMultiplier": 2.8,
+    "AttackMultiplier": 1.8,
+    "EnemyCoinReward": 24,
+    "BossCoinReward": 160
+  },
+  {
+    "Name": "Level09",
+    "MonsterLevel": 9,
+    "ArenaIndex": 0,
+    "EnemyRow": "Drone",
+    "EnemyCount": 13,
+    "BossRow": "None",
+    "HealthMultiplier": 3.2,
+    "AttackMultiplier": 1.95,
+    "EnemyCoinReward": 26,
+    "BossCoinReward": 180
+  },
+  {
+    "Name": "Level10",
+    "MonsterLevel": 10,
+    "ArenaIndex": 2,
+    "EnemyRow": "Drone",
+    "EnemyCount": 14,
+    "BossRow": "Warden",
+    "HealthMultiplier": 3.6,
+    "AttackMultiplier": 2.1,
+    "EnemyCoinReward": 28,
+    "BossCoinReward": 250
+  }
+]

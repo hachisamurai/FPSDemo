@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>BREACH · 元素图标</title>
+<style>
+/* 只用浏览器合成审阅版面，不改写源 PNG；深浅底检验 Alpha，32px 行检验缩小后的语义。 */
+*{box-sizing:border-box}body{margin:0;background:#101c24;color:#e6f0f3;font:16px 'Microsoft YaHei',sans-serif;padding:36px}h1{font-size:28px;margin:0 0 8px;letter-spacing:2px}.sub{color:#9ab2bc;margin:0 0 28px}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}.card{background:#18262d;border-radius:12px;overflow:hidden}.image{height:196px;display:flex;align-items:center;justify-content:center}.image img{width:176px;height:176px;object-fit:contain}.light{background:#e6eceb;height:116px}.light img{width:100px;height:100px}.label{padding:16px 20px 12px}.label small{display:block;color:#9ab2bc;font-size:12px;margin-top:6px}.tiny{padding:12px 20px 20px;display:flex;gap:14px;align-items:center;color:#9ab2bc;font-size:12px}.tiny img{width:32px;height:32px;object-fit:contain}.bottom{margin-top:24px;padding:22px;background:#1f313a;border-radius:12px;display:flex;align-items:center;gap:28px}.bar{width:238px}.bar strong{font-size:13px;display:block;margin-bottom:8px}.track{height:7px;background:#304954}.fill{height:100%;width:68%;background:#60dbcc}.states{display:flex;align-items:center;gap:4px}.states img{width:40px;height:40px;object-fit:contain}.note{color:#9ab2bc;font-size:13px;line-height:1.7}.accent{color:#60dbcc}
+/* 新增普通弹后使用六列，保持每张图等大且深浅底/32px 检查顺序一致。 */
+.grid{grid-template-columns:repeat(6,1fr)}
+</style>
+<h1>BREACH / 元素图标</h1><p class="sub">透明素材 · 深浅底检查 · 32px 小尺寸检查</p>
+<div class="grid">
+<div class="card"><div class="label">普通子弹<small>基础弹药 / NORMAL AMMO</small></div><div class="image"><img src="T_Ammo_Normal.png" alt="普通子弹"></div><div class="image light"><img src="T_Ammo_Normal.png" alt="浅底普通子弹"></div><div class="tiny"><img src="T_Ammo_Normal.png" alt="32px普通子弹">32px</div></div>
+<div class="card"><div class="label">火焰<small>敌人状态 / FIRE</small></div><div class="image"><img src="T_Status_Fire.png" alt="火焰"></div><div class="image light"><img src="T_Status_Fire.png" alt="浅底火焰"></div><div class="tiny"><img src="T_Status_Fire.png" alt="32px火焰">32px</div></div>
+<div class="card"><div class="label">冰块<small>敌人状态 / ICE</small></div><div class="image"><img src="T_Status_Ice.png" alt="冰块"></div><div class="image light"><img src="T_Status_Ice.png" alt="浅底冰块"></div><div class="tiny"><img src="T_Status_Ice.png" alt="32px冰块">32px</div></div>
+<div class="card"><div class="label">火焰子弹<small>弹药图标 / FIRE AMMO</small></div><div class="image"><img src="T_Ammo_Fire.png" alt="火焰子弹"></div><div class="image light"><img src="T_Ammo_Fire.png" alt="浅底火焰子弹"></div><div class="tiny"><img src="T_Ammo_Fire.png" alt="32px火焰子弹">32px</div></div>
+<div class="card"><div class="label">冰冻子弹<small>弹药图标 / FROST AMMO</small></div><div class="image"><img src="T_Ammo_Ice.png" alt="冰冻子弹"></div><div class="image light"><img src="T_Ammo_Ice.png" alt="浅底冰冻子弹"></div><div class="tiny"><img src="T_Ammo_Ice.png" alt="32px冰冻子弹">32px</div></div>
+<div class="card"><div class="label">穿透子弹<small>弹药图标 / PIERCING AMMO</small></div><div class="image"><img src="T_Ammo_Piercing.png" alt="穿透子弹"></div><div class="image light"><img src="T_Ammo_Piercing.png" alt="浅底穿透子弹"></div><div class="tiny"><img src="T_Ammo_Piercing.png" alt="32px穿透子弹">32px</div></div>
+</div>
+<div class="bottom"><div class="bar"><strong>敌人血条旁的排布示意</strong><div class="track"><div class="fill"></div></div></div><div class="states"><img src="T_Status_Fire.png" alt="燃烧状态"><img src="T_Status_Ice.png" alt="冰冻状态"></div><div class="note"><span class="accent">火焰 / 冰块：世界空间使用</span><br>此处仅为排布示意；状态触发、血条绑定由 Gameplay 控制。</div></div>
+</html>

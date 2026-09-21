@@ -1,0 +1,66 @@
+[
+  {
+    "Name": "Drone",
+    "DiveSlam": {"bEnabled": false,"Height":600,"RiseSeconds":0.6,"DiveSeconds":0.6,"MaxDiveSpeed":4000,"Radius":300,"Knockback":900,"KnockUp":220,"RecoverySeconds":1,"Cooldown":16,"InitialDelay":8},
+    "Tactics": {
+      "bEnabled": true,
+      "Role": "Mixed",
+      "PreferredRange": 850.0,
+      "MinimumRange": 550.0,
+      "MaximumRange": 1100.0,
+      "RepositionInterval": 2.5,
+      "FlankRange": 650.0,
+      "PressureSpeedMultiplier": 1.25,
+      "PredictionSeconds": 0.3,
+      "RageHealthFraction": 0.5,
+      "RageIntervalMultiplier": 0.75,
+      "RageSpeedMultiplier": 1.15
+    },
+    "BaseHealth": 60,
+    "BaseAttackPower": 9,
+    "MoveSpeed": 235,
+    "bBoss": false,
+    "Attack": {
+      "MeleeInterval": 1.2,
+      "AreaInterval": 2.6,
+      "ProjectileInterval": 2.4,
+      "GlobalInterval": 10.0,
+      "ProjectileSpeed": 1000.0,
+      "ProjectileRange": 3500.0,
+      "SlowMultiplier": 0.5,
+      "SlowDuration": 3.0
+    }
+  },
+  {
+    "Name": "Warden",
+    "DiveSlam": {"bEnabled": true,"Height":600,"RiseSeconds":0.6,"DiveSeconds":0.6,"MaxDiveSpeed":4000,"Radius":300,"Knockback":900,"KnockUp":220,"RecoverySeconds":1,"Cooldown":16,"InitialDelay":8},
+    "Tactics": {
+      "bEnabled": true,
+      "Role": "Ranged",
+      "PreferredRange": 850.0,
+      "MinimumRange": 550.0,
+      "MaximumRange": 1100.0,
+      "RepositionInterval": 2.5,
+      "FlankRange": 650.0,
+      "PressureSpeedMultiplier": 1.25,
+      "PredictionSeconds": 0.3,
+      "RageHealthFraction": 0.5,
+      "RageIntervalMultiplier": 0.75,
+      "RageSpeedMultiplier": 1.15
+    },
+    "BaseHealth": 350,
+    "BaseAttackPower": 18,
+    "MoveSpeed": 180,
+    "bBoss": true,
+    "Attack": {
+      "MeleeInterval": 1.2,
+      "AreaInterval": 2.6,
+      "ProjectileInterval": 1.8,
+      "GlobalInterval": 10.0,
+      "ProjectileSpeed": 1200.0,
+      "ProjectileRange": 3500.0,
+      "SlowMultiplier": 0.5,
+      "SlowDuration": 3.0
+    }
+  }
+]

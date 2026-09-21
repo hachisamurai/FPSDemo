@@ -1,0 +1,5 @@
+# 本地环境/凭据以及运行产物不得进入版本控制。
+.env.local
+**/bin/
+**/obj/
+**/TestResults/

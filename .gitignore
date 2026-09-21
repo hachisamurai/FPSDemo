@@ -1,0 +1,39 @@
+# UE/IDE产物可由源码与资产重建；不提交本机缓存、日志、打包结果和试玩/云身份。
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+.idea/
+*.sln
+*.suo
+*.user
+*.VC.db
+*.VC.opendb
+**/FileOpenOrder/
+
+# 后端/Python构建输出不属于项目源文件，插件嵌套目录同样适用。
+**/bin/
+**/obj/
+**/TestResults/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 真实服务配置和认证材料仅保留本地；示例模板允许版本控制。
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.pfx
+*.p12
+*.key
+*.cloudkey
+Identity.bin
+
+# 系统临时文件不参与协作。
+.DS_Store
+Thumbs.db
+*.tmp
