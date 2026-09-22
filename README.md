@@ -2,6 +2,48 @@
 
 基于UE5.4 C++第一人称模板，当前支持单人Standalone/单人PIE。十个逻辑关卡复用三个白模战斗区。
 
+## 完整获取项目源码与资产（首次下载必读）
+
+<!-- 首次克隆必须下载LFS实际对象；将获取与环境说明放在首页顶部，避免把资源指针当作完整工程。 -->
+**本项目使用 Git LFS 存储 UE 资产、模型、贴图、音频和视频。请安装 Git 与 Git LFS，并使用以下命令下载；仅获取源码文件或 LFS 指针不能正常打开工程。**
+
+在准备存放项目的目录打开 PowerShell，执行：
+
+```powershell
+git lfs install
+git clone --branch main https://github.com/hachisamurai/FPSDemo.git
+cd FPSDemo
+git lfs pull origin main
+git lfs fsck
+git status --short --branch
+```
+
+等待所有命令成功结束，`git lfs fsck` 应显示 `Git LFS fsck OK`。`git lfs pull` 会补齐当前版本的实际大文件并写入工作目录；下载失败时先解决网络、仓库权限或 LFS 配额问题，再重新执行该命令。不要在资源未下载完成时启动 Unreal Editor。推荐使用上述克隆方式，不以 GitHub 的 **Download ZIP** 代替完整的 Git/LFS 获取流程。
+
+如果已经克隆过项目，先保存并提交自己的修改，再更新：
+
+```powershell
+git pull --ff-only origin main
+git lfs pull origin main
+git lfs fsck
+```
+
+若拉取提示本地修改冲突或无法快进，请先处理本地工作与分支差异，不要通过强制重置丢弃自己的修改。以上步骤获取的是远端 `main` 已提交的版本，不包含其他开发者尚未提交或推送的本地改动。
+
+### 首次编译与打开
+
+1. 安装 **UE 5.4.4、Visual Studio 2022 的“使用 C++ 的游戏开发”工作负载及 Windows SDK**。引擎、编译器不包含在仓库内；当前 Shipping 配置使用源码引擎独立构建。
+2. 项目保存的是开发机的源码引擎关联 GUID。在新电脑上右键 `FPSDemo.uproject` → **Switch Unreal Engine version**，选择本机对应的 UE 5.4 引擎，然后执行 **Generate Visual Studio project files**。
+3. 打开生成的 `FPSDemo.sln`，选择 **Development Editor / Win64** 编译项目（目标为 `FPSDemoEditor`）；成功后打开 `FPSDemo.uproject`。
+4. 打开 `Content/Whitebox/Maps/L_ThreeSector_Whitebox` 并以单人 PIE 运行。已提交的 UE 资产下载完整后可直接使用，无需重新执行全部资源导入脚本。
+
+### 仓库包含与不包含的内容
+
+- **已包含**：`Source`、`Config`、`Content`、`SourceAssets`、`Art`、`Backend` 源码、制作工具和说明文档；运行工程不需要开发机上的 `F:\Lyra\Lyra` 目录。
+- **由本机生成**：`Binaries`、`Intermediate`、`DerivedDataCache`、`Saved`、IDE 工程文件等构建和运行产物。克隆后没有这些文件是正常的；仓库提供工程，不提供已编译的可执行包。
+- **另行配置**：后端真实 `.env.local`、数据库密码、玩家云身份与存档不会上传。编辑器试玩只使用本地临时数据，不需要连接云服务；部署后端请参考 `Backend/.env.local.example` 和维护文档。
+- **资源制作工具**：Blender、Python 库和 FFmpeg 需在重新制作相关资源时自行安装；使用已提交的 UE 资产运行游戏不需要这些离线制作工具。
+
 ## 运行
 
 1. 使用UE5.4.4编译 `FPSDemoEditor / Win64 / Development`，新增原生类后保存资源并重启已打开的Editor。
