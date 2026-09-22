@@ -45,8 +45,10 @@ public:
     UFUNCTION(BlueprintCallable, Category="Hit Zones") bool ValidateSkeleton(const USkeletalMesh* Mesh) const;
     /** Bone为资产/调试查询的精确骨名；OutRegion/OutMultiplier仅成功时有效，本函数不证明发生了真实命中。 */
     UFUNCTION(BlueprintCallable, Category="Hit Zones") bool ResolveBone(FName Bone, EDemoEnemyHitRegion& OutRegion, float& OutMultiplier) const;
-    /** Hit为权威WeaponTrace结果；OutRegion/OutMultiplier仅成功时有效，非敌人/缺骨/假组件/无刚体均拒绝。 */
+    /** Hit为真实WeaponTrace结果；OutRegion/OutMultiplier仅成功有效，保留旧蓝图/测试三参数接口。 */
     UFUNCTION(BlueprintCallable, Category="Hit Zones") bool ResolveHit(const FHitResult& Hit, EDemoEnemyHitRegion& OutRegion, float& OutMultiplier) const;
+    /** Hit为真实阻挡，QueryChannel只允许WeaponTrace或PlayerProjectile；输出仅成功有效，C++显式传通道避免UHT隐藏枚举默认值。 */
+    bool ResolveHitForChannel(const FHitResult& Hit, EDemoEnemyHitRegion& OutRegion, float& OutMultiplier, ECollisionChannel QueryChannel) const;
 
     // 三项规则随UDataAsset一起Cook；运行时只读，不修改CDO或已加载配置。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Hit Zones") TArray<FDemoEnemyHitZoneRule> Regions;
@@ -56,8 +58,10 @@ public:
 
 namespace DemoEnemyHitZones
 {
-    // 与DefaultEngine.ini中WeaponTrace保持一致；所有玩家武器查询均使用这一通道。
+    // 与DefaultEngine.ini中WeaponTrace保持一致；只负责瞄准/受击资产查询，实体飞行伤害改用下方对象通道。
     constexpr ECollisionChannel TraceChannel = ECC_GameTraceChannel2;
+    // 与DefaultEngine.ini中PlayerProjectile对象通道一致；敌人根球忽略、真实骨骼刚体阻挡。
+    constexpr ECollisionChannel ProjectileChannel = ECC_GameTraceChannel3;
     /** Configured为可空的只读资产；缺失/结构非法时统一回退原生规则，原生也损坏才返回nullptr；骨架漏配仍由调用方拒绝。 */
     FPSDEMO_API const UDemoEnemyHitProfile* SelectValidProfile(const UDemoEnemyHitProfile* Configured);
     /** Region为已验证区域；返回稳定日志标识，未知枚举返回Invalid而不猜测部位。 */

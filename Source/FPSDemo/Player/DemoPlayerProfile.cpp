@@ -16,6 +16,7 @@ void UDemoPlayerProfile::Initialize(FSubsystemCollectionBase& Collection)
         || FParse::Param(FCommandLine::Get(), TEXT("DemoUIValidation")) || FParse::Param(FCommandLine::Get(), TEXT("DemoSmokeTest"))
         // 敌人攻击/导航专项在非Editor打包验证时也必须隔离，不能加载正式武器解锁档案。
         || FParse::Param(FCommandLine::Get(), TEXT("DemoCampaignTest")) || FParse::Param(FCommandLine::Get(), TEXT("DemoEnemyAttackTest"))
+        || FParse::Param(FCommandLine::Get(), TEXT("DemoProjectileTest")) // 实体子弹专项同样使用隔离档案。
         || FParse::Param(FCommandLine::Get(), TEXT("DemoAmmoTest"))
         || FParse::Param(FCommandLine::Get(), TEXT("DemoWeaponAnimationTest")); // 动画夹具会解锁四枪，任何目标均隔离临时档案，退出精确清理。
     SlotName = bTestSlot ? TEXT("DemoProfileTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits) : TEXT("DemoPlayerProfile");

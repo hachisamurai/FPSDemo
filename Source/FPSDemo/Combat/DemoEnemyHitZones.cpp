@@ -126,17 +126,24 @@ bool UDemoEnemyHitProfile::ResolveBone(FName Bone, EDemoEnemyHitRegion& OutRegio
 bool UDemoEnemyHitProfile::ResolveHit(const FHitResult& Hit, EDemoEnemyHitRegion& OutRegion, float& OutMultiplier) const
 {
     DEMO_LOG_CALL();
+    return ResolveHitForChannel(Hit,OutRegion,OutMultiplier,DemoEnemyHitZones::TraceChannel); // 旧查询契约不变，真实弹丸必须走显式新通道入口。
+}
+
+bool UDemoEnemyHitProfile::ResolveHitForChannel(const FHitResult& Hit, EDemoEnemyHitRegion& OutRegion, float& OutMultiplier, ECollisionChannel QueryChannel) const
+{
+    DEMO_LOG_CALL();
     OutRegion = EDemoEnemyHitRegion::Body;
     OutMultiplier = 0.f; // 所有早退也保留零输出，不因未命中而给敌人整身伤害。
     const USkeletalMeshComponent* Mesh = Cast<USkeletalMeshComponent>(Hit.GetComponent()); // 必须是真骨骼查询，根球和其他组件不会获得部位伤害。
     const UPhysicsAsset* Physics = Mesh ? Mesh->GetPhysicsAsset() : nullptr; // 只借用当前组件实际使用的刚体资产，支持显式override。
-    if (!Hit.bBlockingHit || !Cast<ADemoEnemy>(Hit.GetActor()) || !Mesh || Mesh->GetOwner() != Hit.GetActor()
+    if ((QueryChannel != DemoEnemyHitZones::TraceChannel && QueryChannel != DemoEnemyHitZones::ProjectileChannel)
+        || !Hit.bBlockingHit || !Cast<ADemoEnemy>(Hit.GetActor()) || !Mesh || Mesh->GetOwner() != Hit.GetActor()
         || Hit.BoneName.IsNone() || Mesh->GetBoneIndex(Hit.BoneName) == INDEX_NONE
         || !Physics || Physics->FindBodyIndex(Hit.BoneName) == INDEX_NONE
-        || Mesh->GetCollisionResponseToChannel(DemoEnemyHitZones::TraceChannel) != ECR_Block)
+        || Mesh->GetCollisionResponseToChannel(QueryChannel) != ECR_Block)
     {
-        UE_LOG(LogFPSDemo, Warning, TEXT("HIT_ZONE_REJECT actor=%s component=%s bone=%s missing/disabled skeletal enemy query body"),
-            *GetNameSafe(Hit.GetActor()), *GetNameSafe(Hit.GetComponent()), *Hit.BoneName.ToString());
+        UE_LOG(LogFPSDemo, Warning, TEXT("HIT_ZONE_REJECT actor=%s component=%s bone=%s channel=%d missing/disabled skeletal enemy query body"),
+            *GetNameSafe(Hit.GetActor()), *GetNameSafe(Hit.GetComponent()), *Hit.BoneName.ToString(), static_cast<int32>(QueryChannel));
         return false;
     }
     return ResolveBone(Hit.BoneName, OutRegion, OutMultiplier);

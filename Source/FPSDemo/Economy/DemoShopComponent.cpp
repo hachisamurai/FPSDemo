@@ -1,5 +1,6 @@
 #include "Economy/DemoShopComponent.h"
-#include "Game/FPSDemoGameMode.h"
+#include "Interaction/DemoTerminalComponent.h"
+#include "Game/DemoGameState.h"
 #include "Characters/DemoCharacter.h"
 #include "Player/DemoPlayerController.h"
 #include "Interaction/DemoInteractable.h"
@@ -24,6 +25,14 @@ namespace
 }
 
 UDemoShopComponent::UDemoShopComponent() { DEMO_LOG_CALL(); PrimaryComponentTick.bCanEverTick = false; }
+void UDemoShopComponent::InitializeServices(UDemoTerminalComponent* Terminal, FDemoSaveCheckpointRequest SaveRequest)
+{
+    DEMO_LOG_CALL();
+    if (bStopped || !Terminal || Terminal->GetOwner() != GetOwner() || !SaveRequest.IsBound()) { UE_LOG(LogFPSDemo, Error, TEXT("SHOP_INIT invalid dependencies")); return; }
+    Terminals = Terminal; SaveCheckpointRequest = MoveTemp(SaveRequest);
+}
+void UDemoShopComponent::Shutdown() { DEMO_LOG_CALL(); bStopped = true; SaveCheckpointRequest.Unbind(); Terminals.Reset(); }
+void UDemoShopComponent::EndPlay(const EEndPlayReason::Type EndPlayReason) { DEMO_LOG_CALL(); Shutdown(); Super::EndPlay(EndPlayReason); }
 
 int32 UDemoShopComponent::GetUpgradeCost(int32 Choice) const
 {
@@ -63,7 +72,7 @@ bool UDemoShopComponent::PurchaseUpgrade(int32 Choice, ADemoCharacter* Purchaser
 	++State->Purchases;
 	if (Choice == 1) DemoEffects::Apply(Purchaser->GetDemoASC(), Purchaser->GetDemoASC(), UDemoHealthEffect::StaticClass(), 25.f);
 	if (Choice == 2) Purchaser->GetWeaponComponent()->AddAmmoToAll(4); // 全局容量GE先生效，再给每把已持有武器补新增4发。
-	if (!GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SaveCheckpoint()) UE_LOG(LogFPSDemo, Warning, TEXT("SHOP_ATTRIBUTE save pending; in-memory purchase retained")); // 延续既有属性购买语义：保存失败保留内存成长，由保存状态UI提示并在后续检查点重试。
+	if (!SaveCheckpointRequest.Execute()) UE_LOG(LogFPSDemo, Warning, TEXT("SHOP_ATTRIBUTE save pending; in-memory purchase retained")); // 延续既有属性购买语义：保存失败保留内存成长，由保存状态UI提示并在后续检查点重试。
 	// 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
 	UE_LOG(LogFPSDemo, Display, TEXT("PURCHASE choice=%d cost=%d currency=%s gold=%d silver=%d"), Choice, Cost, State->Phase == EDemoPhase::Hub ? TEXT("gold") : TEXT("silver"), State->Coins, State->SilverCoins);
 	return true;
@@ -91,25 +100,22 @@ FString UDemoShopComponent::GetPurchaseBlockReason(ADemoCharacter* Purchaser, in
 
 FString UDemoShopComponent::GetTerminalBlockReason(ADemoCharacter* Player) const
 {
-	DEMO_LOG_TICK();
-	const AFPSDemoGameMode* Mode = Cast<AFPSDemoGameMode>(GetOwner()); // 借用所属玩法协调器，只查询当前终端，不在此生成场景。
-	const ADemoInteractable* ShopTerminal = Mode ? Mode->GetShopTerminal() : nullptr; // 终端World所有权仍由GameMode管理。
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 当前阶段快照，不能沿用打开菜单时的状态。
-	const ADemoPlayerController* PC = Player ? Cast<ADemoPlayerController>(Player->GetController()) : nullptr; // 拥有者检查，不接受其他Pawn代操作。
-	if (!GetOwner()->HasAuthority() || bTransactionInProgress || GetWorld()->IsPaused() || !State || !Player || !PC || PC->HasBlockingOverlay() || PC->GetPawn() != Player || !IsValid(ShopTerminal)) return ShopRejection(TEXT("终端或玩家尚未就绪"));
-	if (!Player->GetDemoAttributes() || Player->GetDemoAttributes()->GetHealth() <= 0.f) return ShopRejection(TEXT("当前玩家无法操作终端"));
-	if ((State->Phase != EDemoPhase::Hub && State->Phase != EDemoPhase::Intermission) || !PC->IsUpgradeMenuOpen() || PC->IsRewardMenu() || PC->IsNextLevelConfirmationOpen()) return ShopRejection(TEXT("请在备战阶段与升级终端交互"));
-	if (FVector::Dist(Player->GetActorLocation(), ShopTerminal->GetActorLocation()) > 250.f) return ShopRejection(TEXT("距离过远，请返回终端附近"));
-	return FString();
+    DEMO_LOG_TICK();
+    const ADemoPlayerController* PC = Player ? Cast<ADemoPlayerController>(Player->GetController()) : nullptr; // 菜单只提供会话，服务重新校验World/范围/生命。
+    if (bStopped || bTransactionInProgress || !Terminals.IsValid() || !SaveCheckpointRequest.IsBound() || !PC
+        || PC->HasBlockingOverlay() || !PC->IsUpgradeMenuOpen() || PC->IsRewardMenu() || PC->IsNextLevelConfirmationOpen())
+        return ShopRejection(TEXT("请在备战阶段与升级终端交互"));
+    if (PC->GetMenuTerminal() != Terminals->GetShopTerminal() || PC->GetMenuTerminalGeneration() == 0)
+        return ShopRejection(TEXT("终端交互已过期，请重新交互"));
+    return Terminals->ValidateInteraction(Player, PC->GetMenuTerminal(), PC->GetMenuTerminalGeneration());
 }
 
 FString UDemoShopComponent::GetAmmoBlockReason(ADemoCharacter* Player) const
 {
     DEMO_LOG_TICK();
     const auto* PC=Player?Cast<ADemoPlayerController>(Player->GetController()):nullptr; // UI入口仍需权威校验。
-    const auto* Mode=GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 单人权威交易服务。
     const auto* State=GetWorld()->GetGameState<ADemoGameState>(); // 当前钱包/阶段。
-    if(!Player||!Player->HasAuthority()||!PC||!PC->IsAmmoMenuOpen()||PC->HasBlockingOverlay()||!Mode||!State||State->Phase!=EDemoPhase::Hub)return ShopRejection(TEXT("仅可在安全区弹药终端操作"));
+    if(!Player||!Player->HasAuthority()||!PC||!PC->IsAmmoMenuOpen()||PC->HasBlockingOverlay()||!State||State->Phase!=EDemoPhase::Hub)return ShopRejection(TEXT("仅可在安全区弹药终端操作"));
     if(GetWorld()->IsPaused())return ShopRejection(TEXT("暂停期间不能装配或购买"));
     if(GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->GetActiveSlot()==INDEX_NONE)return ShopRejection(TEXT("请先选择存档"));
     return GetTerminalBlockReason(Player); // 共享范围/生命/阶段门控，避免弹药页另写权限。
@@ -128,7 +134,7 @@ bool UDemoShopComponent::PurchaseAmmo(ADemoCharacter* Player, int32 Index, int32
     TGuardValue<bool> TransactionGuard(bTransactionInProgress, true); // 同步保存结束前拒绝重入，失败自动释放。
     State->Coins-=QuotedCost; Ammo->Unlocked.AddUnique(UDemoAmmoCatalog::IdAt(Index));
     // 同步检查点将金币和解锁一起保存；期间无异步帧，写入失败回滚内存，不向UI发布成功。
-    if(!GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SaveCheckpoint())
+    if(!SaveCheckpointRequest.Execute())
     { State->Coins+=QuotedCost; Ammo->Unlocked.Remove(UDemoAmmoCatalog::IdAt(Index)); OutMessage=TEXT("保存失败，金币未扣除，请重试"); UE_LOG(LogFPSDemo,Error,TEXT("AMMO_PURCHASE_ROLLBACK")); return false; }
     // 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
     OutMessage=TEXT("已永久解锁，可免费装配"); UE_LOG(LogFPSDemo,Display,TEXT("AMMO_PURCHASE id=%d gold=%d"),Index,QuotedCost); return true;

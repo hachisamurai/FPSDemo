@@ -79,10 +79,13 @@ void UDemoEnemySpawnComponent::Fill()
     {
         if (!TrySpawn(bPendingBoss, NextMinion))
         {
-            UE_LOG(LogFPSDemo, Warning, TEXT("SPAWN_BLOCKED level=%d pass=%d pending=%d"), ActivePlan.Level, ++BlockedPasses, PendingMinions + (bPendingBoss ? 1 : 0));
+            ++BlockedPasses; // 重试计数必须独立于日志求值，包体裁掉详细日志也继续正确超限。
+            UE_LOG(LogFPSDemo, Log, TEXT("SPAWN_BLOCKED level=%d pass=%d pending=%d"), ActivePlan.Level, BlockedPasses, PendingMinions + (bPendingBoss ? 1 : 0));
+            if (BlockedPasses == 1) UE_LOG(LogFPSDemo, Warning, TEXT("SPAWN_BLOCKED begin level=%d; retries summarized"), ActivePlan.Level);
             if (BlockedPasses >= FrozenSettings.BlockedPassLimit) Fail(TEXT("出生点持续被阻挡，请检查刷怪区域或重试"));
             return;
         }
+        if (BlockedPasses > 0) UE_LOG(LogFPSDemo, Display, TEXT("SPAWN_RECOVERED level=%d retries=%d"), ActivePlan.Level, BlockedPasses);
         BlockedPasses = 0;
     }
     if (!bRunning) return;

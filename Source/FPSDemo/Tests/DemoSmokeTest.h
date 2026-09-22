@@ -32,6 +32,10 @@ private:
 	float NextStepTime = 2.f;
 	// 失败后停止本 Actor Tick，等待引擎退出。
 	bool bFailed = false;
-	// 测试射线命中的目标，不延长敌人生命周期。
+	// 测试实体弹命中的目标，不延长敌人生命周期。
 	TWeakObjectPtr<ADemoEnemy> ShotTarget;
+	float ShotHealthBefore=0.f; // 开火前目标HP，跨飞行帧保留用于真实伤害断言。
+	float ShotDeadline=0.f; // 当前子弹等待的World秒截止，防挂起掩盖漏碰。
+	int32 ExpectedCampaignKills=0; // 从本次正式十关配置累计小怪与Boss数，避免沿用每五关Boss时代的常量。
+	int32 ExpectedVictoryGold=0; // 当前难度表的完整挑战奖励；中途仍必须不发金币。
 };

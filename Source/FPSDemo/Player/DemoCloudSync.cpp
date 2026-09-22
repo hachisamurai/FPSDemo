@@ -62,7 +62,7 @@ void UDemoCloudSync::Initialize(FSubsystemCollectionBase& Collection)
     // 旧测试只验证本地玩法，默认不能向开发者真实云账号写测试通关。
     const FString Command = FCommandLine::Get(); // 只检测固定开关，不将任意命令行作为路径。
     bDisabled = !Api->IsEnabled() || Command.Contains(TEXT("DemoSessionTest")) || Command.Contains(TEXT("DemoArmoryTest")) || Command.Contains(TEXT("DemoWeaponTest"))
-        || Command.Contains(TEXT("DemoUIValidation")) || Command.Contains(TEXT("DemoSmokeTest")) || Command.Contains(TEXT("DemoCampaignTest")) || Command.Contains(TEXT("DemoEnemyAttackTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoAmmoTest")) /* 弹药专项不使用正式账号或存档。 */;
+        || Command.Contains(TEXT("DemoUIValidation")) || Command.Contains(TEXT("DemoSmokeTest")) || Command.Contains(TEXT("DemoCampaignTest")) || Command.Contains(TEXT("DemoEnemyAttackTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoProjectileTest")) /* 实体子弹测试禁用正式存档与云同步。 */ || FString(FCommandLine::Get()).Contains(TEXT("DemoAmmoTest")) /* 弹药专项不使用正式账号或存档。 */;
     if (bDisabled) { Status = TEXT("云存档已关闭（本地模式）"); return; }
 #if !UE_BUILD_SHIPPING
     FString CloudTest; FGuid CloudId; // 同一GUID用于测试账号、永久档案和检查点的两阶段恢复，不影响正式槽。

@@ -8,6 +8,7 @@ class UAnimSequence;
 class UParticleSystem;
 class UTexture2D;
 class UDemoWeaponLayerAnimInstance;
+class ADemoProjectileBase;
 
 /** Trigger方式只决定输入调度，真正射速由每把武器实例的冷却校验保证。 */
 UENUM(BlueprintType)
@@ -38,15 +39,17 @@ struct FPSDEMO_API FDemoWeaponConfig
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") FName MuzzleSocket = TEXT("Muzzle");
     // 单次/按住连射，松开或取消输入时都停止调度。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") EDemoFireMode FireMode = EDemoFireMode::Automatic;
+    // 实体子弹硬类引用，由武器CDO负责Cook依赖；蓝图只覆盖飞行/表现数据，伤害仍来自本武器。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") TSubclassOf<ADemoProjectileBase> ProjectileClass;
     // 每分钟射击次数 [1,1200]；唯一射速定义，间隔=60/RPM。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire", meta=(ClampMin="1", ClampMax="1200")) float RoundsPerMinute = 333.33334f;
     // 单颗弹丸基础伤害 [0,10000]；玩家全局加成按弹丸数量分摊。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire", meta=(ClampMin="0")) float BaseDamage = 25.f;
-    // 射线最大距离cm [100,100000]，有限正数；枪口阻挡仍优先于相机目标。
+    // 瞄准查询及实体子弹最大飞行距离cm [100,100000]；查询不造成伤害。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") float Range = 10000.f;
     // 腰射散布锥半角（度）[0,45]；步枪/手枪默认0保持模板命中体验。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") float SpreadHalfAngle = 0.f;
-    // 霰弹每次射击弹丸数[1,32]；普通Hitscan始终一条射线，不受此字段影响。
+    // 霰弹每次射击弹丸数[1,32]；兼容名Hitscan的单发武器只生成一颗实体子弹。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Shotgun", meta=(ClampMin="1", ClampMax="32")) int32 PelletCount = 8;
     // 开始衰减距离cm，[0,Range]；默认等于Range即不衰减。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") float FalloffStart = 10000.f;

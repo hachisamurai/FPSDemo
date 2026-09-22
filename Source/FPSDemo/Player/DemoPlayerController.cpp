@@ -18,9 +18,11 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
 
+#include "UI/Flow/DemoMenuFlowComponent.h"
 ADemoPlayerController::ADemoPlayerController()
 {
 	DEMO_LOG_CALL();
+    MenuFlow = CreateDefaultSubobject<UDemoMenuFlowComponent>(TEXT("MenuFlow")); // 页面状态独立，输入资源仍由PC持有。
 	PrimaryActorTick.bTickEvenWhenPaused = true; // 设置回退、退出保存轮询和成功提示在暂停时仍更新。
 	bShouldPerformFullTickWhenPaused = true;
 	// 原映射保留WASD/鼠标轴，武器Action由独立上下文管理，以免菜单数字键冲突。
@@ -89,282 +91,16 @@ void ADemoPlayerController::SetMenuInput(bool bEnabled)
 	if (bEnabled) SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
 	else SetInputMode(FInputModeGameOnly());
 }
-void ADemoPlayerController::OpenUpgradeMenu(bool bReward)
-{
-	DEMO_LOG_CALL();
-	// 确认框与升级菜单互斥，防止旧热区或重复交互覆盖正在处理的出发意图。
-	if (HasBlockingOverlay() || bNextLevelConfirmationOpen) { UE_LOG(LogFPSDemo, Log, TEXT("Upgrade menu rejected: next-level confirmation open")); return; }
-	bMenuOpen = true;
-	bRewardMenu = bReward;
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 每次交互默认进入属性页，清除上一终端的详情意图。
-	InspectedWeapon = INDEX_NONE;
-	MenuMessage.Empty();
-	// 仅借用当前 Pawn；命名避免遮蔽 AController::Character 成员。
-	if (ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn())) DemoPawn->StopFiring();
-	SetMenuInput(true);
-}
-void ADemoPlayerController::CloseUpgradeMenu()
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Close terminal ignored beneath overlay")); return; } // 顶层模态不允许Tab误关奖励/终端。
-	// 复用已有 Tab 绑定；取消确认只关闭本地窗口，不调用关卡推进。
-	if (bNextLevelConfirmationOpen) { CancelNextLevelConfirmation(); return; }
-	if(IsAmmoMenuOpen() && PendingAmmoPrice!=INDEX_NONE){ConfirmAmmoPurchase(false);return;} // Tab先取消购买确认。
-	if (IsWeaponMenuOpen() && InspectedWeapon != INDEX_NONE) { CloseWeaponTip(); return; } // Tab先关详情，再按关闭终端。
-	// 奖励必须选一次；按钮与快捷键拒绝时保留原阶段并记录原因。
-	if (!bMenuOpen || bRewardMenu) { UE_LOG(LogFPSDemo, Log, TEXT("Close menu rejected: open=%d reward=%d"), bMenuOpen, bRewardMenu); return; }
-	bMenuOpen = false;
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE;
-	InspectedWeapon = INDEX_NONE;
-	UE_LOG(LogFPSDemo, Log, TEXT("UI menu closed; restoring game input"));
-	SetMenuInput(false);
-}
-bool ADemoPlayerController::CanRequestNextLevel(const ADemoInteractable* Terminal) const
-{
-	DEMO_LOG_CALL();
-	const AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 同步借用单人权威流程。
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 本次检查的关卡快照。
-	const ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn()); // 当前拥有的 Avatar，不缓存跨重开引用。
-	if (!IsLocalController() || !Mode || !State || !DemoPawn || !IsValid(Terminal) || bMenuOpen || HasBlockingOverlay()
-		|| (State->Phase != EDemoPhase::Hub && State->Phase != EDemoPhase::Intermission)
-		|| State->LevelNumber < 0 || (!State->bEndless && State->LevelNumber >= DemoCombatConfig::LevelCount) || State->LevelNumber >= MAX_int32-1 // 无尽关间终端不受十关限制，防止编号整数溢出。
-		|| Mode->GetNextLevelTerminal() != Terminal
-		|| FVector::Dist(DemoPawn->GetActorLocation(), Terminal->GetActorLocation()) > 250.f)
-	{
-		UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL rejected: invalid owner/phase/menu/terminal/range"));
-		return false;
-	}
-	return true;
-}
-void ADemoPlayerController::OpenNextLevelConfirmation(ADemoInteractable* Terminal)
-{
-	DEMO_LOG_CALL();
-	if (bNextLevelConfirmationOpen) { UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL open rejected: confirmation already open")); return; }
-	if (!CanRequestNextLevel(Terminal)) return;
-	PendingNextLevelTerminal = Terminal;
-	PendingCompletedLevel = GetWorld()->GetGameState<ADemoGameState>()->LevelNumber;
-	bNextLevelConfirmationOpen = true;
-	bDifficultyChosen = false; // 安全区每次打开必须明确选择，避免Enter默认跳过。
-	ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn()); // 校验后的当前角色，仅本次调用借用。
-	DemoPawn->StopFiring();
-	DemoPawn->GetCharacterMovement()->StopMovementImmediately(); // 停止残余速度，避免弹窗期间滑出交互范围。
-	SetMenuInput(true);
-	UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL confirmation opened target=%d"), PendingCompletedLevel + 1);
-}
-void ADemoPlayerController::CancelNextLevelConfirmation()
-{
-	DEMO_LOG_CALL();
-	if (!bNextLevelConfirmationOpen) { UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL cancel ignored: no request")); return; }
-	bNextLevelConfirmationOpen = false;
-	PendingNextLevelTerminal.Reset();
-	PendingCompletedLevel = INDEX_NONE;
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 取消时重新读阶段，不能解除终局/大厅输入锁。
-	SetMenuInput(bMenuOpen || !State || State->Phase == EDemoPhase::Lobby || State->Phase == EDemoPhase::Victory || State->Phase == EDemoPhase::Defeat);
-	UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL confirmation closed; progress unchanged"));
-}
-void ADemoPlayerController::ConfirmNextLevel()
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Departure ignored beneath overlay")); return; } // 暂停页不接受下层Enter/旧按钮。
-	if (!bNextLevelConfirmationOpen) { UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL confirm ignored: no request")); return; }
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 本次确认的真实进度，不能沿用打开时的显示值。
-	if (!CanRequestNextLevel(PendingNextLevelTerminal.Get()) || !State || State->LevelNumber != PendingCompletedLevel)
-	{
-		UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL confirm rejected: request expired"));
-		CancelNextLevelConfirmation();
-		return;
-	}
-	if (State->Phase == EDemoPhase::Hub && !bDifficultyChosen) { UE_LOG(LogFPSDemo, Log, TEXT("Choose difficulty before first departure")); return; }
-	// 先消费请求再调用同步状态机：防止双击重复推进，也避免覆盖 StartNextLevel 失败后的终局输入。
-	UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL confirmed target=%d"), PendingCompletedLevel + 1);
-	CancelNextLevelConfirmation();
-	GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->StartNextLevel();
-}
-bool ADemoPlayerController::IsNextLevelConfirmationOpen() const { DEMO_LOG_TICK(); return bNextLevelConfirmationOpen; }
-void ADemoPlayerController::SelectUpgrade(int32 Choice)
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Upgrade ignored beneath overlay")); return; } // 防止暂停时数字键购买下层属性。
-	if (!bMenuOpen || TerminalPage!=EDemoTerminalPage::Stats) { UE_LOG(LogFPSDemo, Log, TEXT("Upgrade input ignored: closed/weapon page")); return; } // 武器页数字键不能误购属性。
-	if (Choice < 0 || Choice > 2) { MenuMessage = TEXT("无效的升级选项"); UE_LOG(LogFPSDemo, Warning, TEXT("Upgrade rejected: choice=%d"), Choice); return; }
-	// 单人本地服务器；网络客户端没有 AuthGameMode，明确拒绝而非发送未经实现的 RPC。
-	AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>();
-	if (!Mode) { MenuMessage = TEXT("当前仅支持单人模式"); UE_LOG(LogFPSDemo, Warning, TEXT("Upgrade rejected: no authority GameMode")); return; }
-	if (bRewardMenu)
-	{
-		if (Mode->ChooseReward(Choice)) { bRewardMenu = false; CloseUpgradeMenu(); }
-		else { MenuMessage = TEXT("奖励已领取或当前阶段不可选择"); UE_LOG(LogFPSDemo, Log, TEXT("Reward selection rejected")); }
-	}
-	else
-	{
-		// 读取原因用于准确反馈；PurchaseUpgrade 内仍重新检查，UI 不承担交易授权。
-		ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn()); // 仅本次输入借用当前 Avatar。
-		const FString Reason = Mode->GetPurchaseBlockReason(DemoPawn, Choice); // 当前所选项的阻塞原因，不能沿用伤害项价格。
-		const int32 Cost = Mode->GetUpgradeCost(Choice); // 成功文案使用该项扣费前价格。
-		if (!Reason.IsEmpty()) { MenuMessage = Reason; UE_LOG(LogFPSDemo, Log, TEXT("UI purchase rejected: %s"), *Reason); return; }
-		MenuMessage = Mode->PurchaseUpgrade(Choice, DemoPawn)
-			? FString::Printf(TEXT("升级成功，花费 %d %s · 属性已生效"), Cost, GetWorld()->GetGameState<ADemoGameState>()->Phase == EDemoPhase::Hub ? TEXT("金币") : TEXT("银币")) : TEXT("升级未生效，请重试并检查日志"); // 与权威购买使用同一区域判定，反馈不可错标另一钱包。
-		UE_LOG(LogFPSDemo, Log, TEXT("UI purchase result: %s"), *MenuMessage);
-	}
-}
-void ADemoPlayerController::SelectFirst() { DEMO_LOG_CALL(); SelectUpgrade(0); }
-void ADemoPlayerController::SelectSecond() { DEMO_LOG_CALL(); SelectUpgrade(1); }
-void ADemoPlayerController::SelectThird() { DEMO_LOG_CALL(); SelectUpgrade(2); }
-void ADemoPlayerController::ShowEndScreen()
-{
-	DEMO_LOG_CALL();
-	// 失败可在弹窗期间发生；丢弃出发意图，不能让旧按钮在结算后恢复战斗。
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 丢弃当前武器详情，终局不能沿用旧终端装备请求。
-	InspectedWeapon = INDEX_NONE;
-	bNextLevelConfirmationOpen = false;
-	PendingNextLevelTerminal.Reset();
-	PendingCompletedLevel = INDEX_NONE;
-	bMenuOpen = false;
-	bRewardMenu = false;
-	// 终局保留 Pawn 供界面读取属性，但清除持续射击。
-	if (ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn())) DemoPawn->StopFiring();
-	SetMenuInput(true);
-}
-bool ADemoPlayerController::IsUpgradeMenuOpen() const { DEMO_LOG_TICK(); return bMenuOpen; }
-bool ADemoPlayerController::IsRewardMenu() const { DEMO_LOG_TICK(); return bRewardMenu; }
-bool ADemoPlayerController::IsWeaponMenuOpen() const { DEMO_LOG_TICK(); return bMenuOpen && !bRewardMenu && TerminalPage==EDemoTerminalPage::Weapons; }
-int32 ADemoPlayerController::GetInspectedWeapon() const { DEMO_LOG_TICK(); return IsWeaponMenuOpen() ? InspectedWeapon : INDEX_NONE; }
-void ADemoPlayerController::SetTerminalWeaponPage(bool bWeapons)
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Terminal tab rejected: blocking overlay")); return; } // 暂停/设置覆盖终端时不能派发下层页签。
-	const AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 当前终端的权威状态，每次点击重新读取。
-	const FString Reason = Mode ? Mode->GetTerminalBlockReason(Cast<ADemoCharacter>(GetPawn())) : TEXT("当前仅支持单人模式"); // 拒绝原因供HUD展示。
-	if (!Reason.IsEmpty() || InspectedWeapon != INDEX_NONE) { MenuMessage = Reason; UE_LOG(LogFPSDemo, Log, TEXT("Terminal tab rejected: %s/tip"), *Reason); return; }
-	TerminalPage = bWeapons?EDemoTerminalPage::Weapons:EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 切页消费旧购买意图。
-	MenuMessage.Empty();
-	// 只在打开/重新进入武器页时读取软路径，异步结果由HUD保活，不在每帧UI绘制时加载。
-	if (bWeapons)
-	{
-		const ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn()); // 本次同步借用当前玩家目录。
-		if (ADemoHUD* HUD = GetHUD<ADemoHUD>()) HUD->PrepareWeaponIcons(DemoPawn ? DemoPawn->GetWeaponComponent() : nullptr); // HUD弱委托负责后续加载生命周期。
-	}
-	UE_LOG(LogFPSDemo, Log, TEXT("TERMINAL_PAGE weapons=%d"), bWeapons);
-}
-void ADemoPlayerController::InspectWeapon(int32 CatalogIndex)
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay() || !IsWeaponMenuOpen() || InspectedWeapon != INDEX_NONE || DemoWeaponCatalog::IdAt(CatalogIndex).IsNone()) // 顶层模态阻止旧帧卡片意图穿透。
-	{ UE_LOG(LogFPSDemo, Log, TEXT("Weapon tip rejected: page/modal/index")); return; }
-	InspectedWeapon = CatalogIndex;
-	MenuMessage.Empty();
-}
-void ADemoPlayerController::CloseWeaponTip()
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Weapon tip close rejected: blocking overlay")); return; } // 保留下层Tips，关闭顶层窗口后恢复。
-	InspectedWeapon = INDEX_NONE;
-	MenuMessage.Empty();
-}
-void ADemoPlayerController::EquipInspectedWeapon()
-{
-	DEMO_LOG_CALL();
-	ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn()); // 当前操作者，不缓存旧Pawn或Tips打开时的状态。
-	const AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 权威终端验证。
-	UDemoPlayerProfile* Profile = GetGameInstance()->GetSubsystem<UDemoPlayerProfile>(); // GI持有的持久进度。
-	if (HasBlockingOverlay() || !IsWeaponMenuOpen() || InspectedWeapon < 1 || InspectedWeapon > 3 || !DemoPawn || !Mode || !Profile) // 暂停/设置不得透传装备操作。
-	{ UE_LOG(LogFPSDemo, Log, TEXT("Weapon equip rejected: no primary tip")); return; }
-	const FString Reason = Mode->GetTerminalBlockReason(DemoPawn); // 展示当前失败原因；组件仍重复权限检查。
-	if (!Reason.IsEmpty()) { MenuMessage = Reason; UE_LOG(LogFPSDemo, Log, TEXT("Weapon equip rejected: %s"), *Reason); return; }
-	if (!Profile->IsUnlocked(DemoWeaponCatalog::IdAt(InspectedWeapon))) { MenuMessage = TEXT("尚未解锁，请先完成对应难度"); UE_LOG(LogFPSDemo, Log, TEXT("Weapon equip rejected: locked")); return; }
-	MenuMessage = DemoPawn->GetWeaponComponent()->SelectPrimary(InspectedWeapon - 1) ? TEXT("主武器已装备 · 关闭终端后按 1 / 2 切换") : TEXT("装备失败，请检查武器配置与日志");
-}
-void ADemoPlayerController::RetryProfileSave()
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay() || !IsWeaponMenuOpen() || InspectedWeapon != INDEX_NONE) { UE_LOG(LogFPSDemo, Log, TEXT("Save retry rejected: page/modal")); return; } // 只允许当前最上层终端发起保存。
-	if (UDemoPlayerProfile* Profile = GetGameInstance()->GetSubsystem<UDemoPlayerProfile>()) Profile->SaveProfile(); // 先写本地，再请求异步同步；不等待网络阻塞操作。
-	if (UDemoCloudSync* Cloud = GetGameInstance()->GetSubsystem<UDemoCloudSync>()) Cloud->Retry(); // GI持有同步器，跨地图保持队列。
-}
-void ADemoPlayerController::CloudAction(int32 Choice)
-{
-	DEMO_LOG_CALL();
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 当前世界阶段，旧帧按钮不能覆盖活动战役。
-	if (HasBlockingOverlay() || !State || State->Phase != EDemoPhase::Lobby || Choice < 0 || Choice > 2) { UE_LOG(LogFPSDemo, Warning, TEXT("Cloud action rejected: modal/phase/choice")); return; }
-	if (UDemoCloudSync* Cloud = GetGameInstance()->GetSubsystem<UDemoCloudSync>()) // 当前GI拥有，不缓存到控制器。
-	{ if (Choice == 0) Cloud->Retry(); else Cloud->ResolveConflict(Choice == 1); }
-}
-const FString& ADemoPlayerController::GetMenuMessage() const { DEMO_LOG_TICK(); return MenuMessage; }
-void ADemoPlayerController::RestartPressed()
-{
-	DEMO_LOG_CALL();
-	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Restart ignored beneath overlay")); return; } // 创建/暂停/设置必须用当前页的明确按钮操作。
-	// Enter 必须有正在显示的确认框才允许确认；普通备战阶段按 Enter 仍不会直接跳关。
-	if (bNextLevelConfirmationOpen) { ConfirmNextLevel(); return; }
-	// Enter在大厅打开存档页，死亡清空成长回安全区，胜利清空成长/银币并保留金币回安全区；系统错误回大厅，其他阶段GM拒绝。
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 借用当前状态。
-	if (State && State->Phase == EDemoPhase::Lobby) { StartGamePressed(); return; }
-	if (AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()) Mode->RestartDemo();
-}
-
-void ADemoPlayerController::ShowLobby()
-{
-	DEMO_LOG_CALL();
-	// 大厅切换清理本地待确认引用；不携带上一局入口或进度。
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 新大厅不携带武器页或详情窗口状态。
-	InspectedWeapon = INDEX_NONE;
-	bNextLevelConfirmationOpen = false;
-	PendingNextLevelTerminal.Reset();
-	PendingCompletedLevel = INDEX_NONE;
-	bMenuOpen = false;
-	bRewardMenu = false;
-	MenuPage = EDemoMenuPage::None;
-	bPauseMenuActive = false;
-	MenuMessage.Empty();
-	// Pawn 仍供 ASC 初始化使用；大厅背景图覆盖场景、菜单半透明且停用重力，等待 StartRun 放到安全区。
-	if (ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetPawn()))
-	{
-		DemoPawn->StopFiring();
-		DemoPawn->GetCharacterMovement()->DisableMovement();
-	}
-	SetMenuInput(true);
-}
-void ADemoPlayerController::StartGamePressed()
-{
-    DEMO_LOG_CALL();
-    const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 只显示选择页，不直接开始World。
-    if (!State || State->Phase != EDemoPhase::Lobby || HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Start menu rejected: phase/overlay")); return; }
-    GetGameInstance()->GetSubsystem<UDemoRunSaves>()->RefreshSlots();
-    MenuPage = EDemoMenuPage::Saves;
-    MenuMessage.Empty();
-    RefreshMenuInput();
-}
-void ADemoPlayerController::DifficultyPressed(EDemoDifficulty Difficulty)
-{
-    DEMO_LOG_CALL();
-    const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 难度只来自安全区出发弹窗。
-    if (!State || State->Phase != EDemoPhase::Hub || !bNextLevelConfirmationOpen || HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Difficulty input rejected: phase/departure/overlay")); return; }
-    if (GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SelectDifficulty(Difficulty)) { bDifficultyChosen = true; ConfirmNextLevel(); }
-}
-void ADemoPlayerController::EndlessPressed()
-{
-    DEMO_LOG_CALL();
-    const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 只接受安全区当前终端弹窗。
-    if (!State || State->Phase!=EDemoPhase::Hub || !bNextLevelConfirmationOpen || HasBlockingOverlay())
-    { UE_LOG(LogFPSDemo,Warning,TEXT("Endless input rejected: phase/menu")); return; }
-    if (GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SelectEndless()) { bDifficultyChosen=true; ConfirmNextLevel(); }
-}
-void ADemoPlayerController::ShowEndlessUnlockTip()
-{
-    DEMO_LOG_CALL();
-    const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 防止其他难度或半场战斗显示虚假解锁。
-    if (!State || State->Phase!=EDemoPhase::Victory || State->Difficulty!=EDemoDifficulty::Hell)
-    { UE_LOG(LogFPSDemo,Warning,TEXT("Endless tip rejected outside Hell victory")); return; }
-    MenuPage=EDemoMenuPage::EndlessUnlock;
-    MenuMessage.Empty(); RefreshMenuInput();
-}
-
+void ADemoPlayerController::SelectFirst()
+{ DEMO_LOG_CALL(); SelectUpgrade(0); }
+void ADemoPlayerController::SelectSecond()
+{ DEMO_LOG_CALL(); SelectUpgrade(1); }
+void ADemoPlayerController::SelectThird()
+{ DEMO_LOG_CALL(); SelectUpgrade(2); }
 void ADemoPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	DEMO_LOG_CALL();
-	// 外部停止试玩/旅行也解除退出意图；耐久队列由GI保存，不持有旧控制器回调。
-	if (MenuPage == EDemoMenuPage::QuitSaving)
-		if (UDemoCloudSync* Cloud = GetGameInstance()->GetSubsystem<UDemoCloudSync>()) Cloud->CancelExitSync();
+	MenuFlow->Shutdown(); // 先撤销页面/退出意图，再移除输入映射。
 	if (ULocalPlayer* Local = GetLocalPlayer())
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = Local->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
 		{
@@ -372,4 +108,289 @@ void ADemoPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			if (MappingContext) Subsystem->RemoveMappingContext(MappingContext);
 		}
 	Super::EndPlay(EndPlayReason);
+}
+void ADemoPlayerController::PlayerTick(float DeltaTime)
+{ DEMO_LOG_TICK(); Super::PlayerTick(DeltaTime); MenuFlow->UpdateRealtime(DeltaTime); }
+ADemoInteractable* ADemoPlayerController::GetMenuTerminal() const { DEMO_LOG_TICK(); return MenuFlow->GetMenuTerminal(); }
+uint64 ADemoPlayerController::GetMenuTerminalGeneration() const { DEMO_LOG_TICK(); return MenuFlow->GetMenuTerminalGeneration(); }
+UDemoMenuFlowComponent* ADemoPlayerController::GetMenuFlow() const { DEMO_LOG_TICK(); return MenuFlow; }
+void ADemoPlayerController::OpenUpgradeMenu(bool bReward)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->OpenUpgradeMenu(bReward);
+}
+void ADemoPlayerController::CloseUpgradeMenu()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->CloseUpgradeMenu();
+}
+void ADemoPlayerController::OpenNextLevelConfirmation(ADemoInteractable* Terminal)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->OpenNextLevelConfirmation(Terminal);
+}
+void ADemoPlayerController::CancelNextLevelConfirmation()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->CancelNextLevelConfirmation();
+}
+void ADemoPlayerController::ConfirmNextLevel()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ConfirmNextLevel();
+}
+bool ADemoPlayerController::IsNextLevelConfirmationOpen() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsNextLevelConfirmationOpen();
+}
+void ADemoPlayerController::SelectUpgrade(int32 Choice)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->SelectUpgrade(Choice);
+}
+void ADemoPlayerController::ShowEndScreen()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ShowEndScreen();
+}
+bool ADemoPlayerController::IsUpgradeMenuOpen() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsUpgradeMenuOpen();
+}
+bool ADemoPlayerController::IsRewardMenu() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsRewardMenu();
+}
+bool ADemoPlayerController::IsWeaponMenuOpen() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsWeaponMenuOpen();
+}
+int32 ADemoPlayerController::GetInspectedWeapon() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetInspectedWeapon();
+}
+void ADemoPlayerController::SetTerminalWeaponPage(bool bWeapons)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->SetTerminalWeaponPage(bWeapons);
+}
+void ADemoPlayerController::InspectWeapon(int32 CatalogIndex)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->InspectWeapon(CatalogIndex);
+}
+void ADemoPlayerController::CloseWeaponTip()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->CloseWeaponTip();
+}
+void ADemoPlayerController::EquipInspectedWeapon()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->EquipInspectedWeapon();
+}
+void ADemoPlayerController::RetryProfileSave()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->RetryProfileSave();
+}
+void ADemoPlayerController::CloudAction(int32 Choice)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->CloudAction(Choice);
+}
+const FString& ADemoPlayerController::GetMenuMessage() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetMenuMessage();
+}
+void ADemoPlayerController::RestartPressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->RestartPressed();
+}
+void ADemoPlayerController::ShowLobby()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ShowLobby();
+}
+void ADemoPlayerController::StartGamePressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->StartGamePressed();
+}
+void ADemoPlayerController::DifficultyPressed(EDemoDifficulty Difficulty)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->DifficultyPressed(Difficulty);
+}
+void ADemoPlayerController::EndlessPressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->EndlessPressed();
+}
+void ADemoPlayerController::ShowEndlessUnlockTip()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ShowEndlessUnlockTip();
+}
+EDemoMenuPage ADemoPlayerController::GetMenuPage() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetMenuPage();
+}
+bool ADemoPlayerController::HasBlockingOverlay() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->HasBlockingOverlay();
+}
+bool ADemoPlayerController::IsPauseMenuOpen() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsPauseMenuOpen();
+}
+void ADemoPlayerController::EscapePressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->EscapePressed();
+}
+void ADemoPlayerController::CloseOverlay()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->CloseOverlay();
+}
+void ADemoPlayerController::SelectSaveSlot(int32 Index)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->SelectSaveSlot(Index);
+}
+void ADemoPlayerController::ConfirmCreateSave(bool Confirm)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ConfirmCreateSave(Confirm);
+}
+void ADemoPlayerController::OnRunReady()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->OnRunReady();
+}
+void ADemoPlayerController::ReturnHubPressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ReturnHubPressed();
+}
+void ADemoPlayerController::ConfirmReturnHub(bool Confirm)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ConfirmReturnHub(Confirm);
+}
+void ADemoPlayerController::ReturnLobbyPressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ReturnLobbyPressed();
+}
+void ADemoPlayerController::SettingsPressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->SettingsPressed();
+}
+bool ADemoPlayerController::IsSettingsOpen() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsSettingsOpen();
+}
+void ADemoPlayerController::CycleSetting(int32 Setting, int32 Direction)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->CycleSetting(Setting, Direction);
+}
+FString ADemoPlayerController::GetSettingText(int32 Setting) const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetSettingText(Setting);
+}
+void ADemoPlayerController::ApplyUserSettings()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ApplyUserSettings();
+}
+void ADemoPlayerController::ConfirmDisplaySettings(bool Confirm)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ConfirmDisplaySettings(Confirm);
+}
+float ADemoPlayerController::GetDisplayConfirmSeconds() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetDisplayConfirmSeconds();
+}
+EDemoQuitState ADemoPlayerController::GetQuitState() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetQuitState();
+}
+bool ADemoPlayerController::IsQuitLocalSaved() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsQuitLocalSaved();
+}
+void ADemoPlayerController::QuitPressed()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->QuitPressed();
+}
+void ADemoPlayerController::RetryQuitSave()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->RetryQuitSave();
+}
+void ADemoPlayerController::QuitWithLocalSave()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->QuitWithLocalSave();
+}
+void ADemoPlayerController::CancelQuitSave()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->CancelQuitSave();
+}
+bool ADemoPlayerController::IsAmmoMenuOpen() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->IsAmmoMenuOpen();
+}
+int32 ADemoPlayerController::GetInspectedAmmo() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetInspectedAmmo();
+}
+int32 ADemoPlayerController::GetPendingAmmoPrice() const
+{
+	DEMO_LOG_TICK(); // 兼容入口；业务与状态唯一属于分类服务。
+	return MenuFlow->GetPendingAmmoPrice();
+}
+void ADemoPlayerController::OpenAmmoMenu()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->OpenAmmoMenu();
+}
+void ADemoPlayerController::InspectAmmo(int32 Index)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->InspectAmmo(Index);
+}
+void ADemoPlayerController::AmmoAction()
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->AmmoAction();
+}
+void ADemoPlayerController::ConfirmAmmoPurchase(bool Confirm)
+{
+	DEMO_LOG_CALL(); // 兼容入口；业务与状态唯一属于分类服务。
+	MenuFlow->ConfirmAmmoPurchase(Confirm);
 }

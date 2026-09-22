@@ -17,6 +17,29 @@ WB=CONTACT.WB
 
 
 @WB.traced
+def rotation_degrees(first, second):
+    """两单位四元数取最短物理转角，q/-q同姿态，避免把符号翻转记成360度动作。"""
+    return math.degrees(2*math.acos(min(1,abs(first.dot(second)))))
+
+
+@WB.traced
+def motion_audit(entry):
+    """从实际UE组件矩阵移除枪/腕旋转，确认转腕及指骨张合都真实存在于导出资源。"""
+    rotations,tip_rotations=[],[]  # 本片段关键帧的局部旋转副本，不读取作者候选轨迹。
+    for sample in entry['samples']:
+        hand=Matrix(sample['component_bones']['hand_l']['matrix4x4_column_vector'])
+        gun=Matrix(sample['weapon_mesh_to_arms_component']['matrix4x4_column_vector'])
+        rotations.append((gun.inverted() @ hand).to_quaternion())
+        tip_rotations.append({finger:(hand.inverted() @ Matrix(sample['component_bones'][f'{finger}_03_l']['matrix4x4_column_vector'])).to_quaternion() for finger in ('index','middle','ring','pinky','thumb')})
+    wrist=max(rotation_degrees(rotations[0],value) for value in rotations)
+    fingers={finger:max(rotation_degrees(tip_rotations[0][finger],value[finger]) for value in tip_rotations) for finger in tip_rotations[0]}
+    result={'model':entry['model'],'variant':entry['variant'],'wrist_rotation_degrees':wrist,'finger_tip_relative_hand_degrees':fingers}
+    if entry['variant']!='Idle' and (wrist<45 or min(fingers.values())<10):
+        raise RuntimeError(f'UE left hand motion missing: {result}')
+    return result
+
+
+@WB.traced
 def main():
     """逐帧应用真实UE动作并验证；通过与失败均完整保存，不能用候选报告替代。"""
     bpy.ops.wm.open_mainfile(filepath=str(OUT/'Breach_FP_LeftHand_Contacts.blend'))
@@ -24,7 +47,7 @@ def main():
     reference=json.loads((OUT/'Reference/arms_reference.json').read_text(encoding='utf-8'))
     source=json.loads((OUT/'LeftContactUE/current_ue_workbench_manifest.json').read_text(encoding='utf-8'))
     groups={model:bpy.data.collections[f'FP_{model}'] for model in WB.MODELS}
-    records,stock_records,checks,actions=[],[],[],{}
+    records,stock_records,checks,actions,motion_checks=[],[],[],{},[]  # 实体/参考一致性/真实动作幅度分别记账。
     for model in WB.MODELS:
         WB.show_group(groups,model)
         ctx=CONTACT.context(model,manifest,reference)
@@ -32,6 +55,7 @@ def main():
         trees=CONTACT.gun_trees(ctx)
         for entry in (row for row in source['animations'] if row['model']==model):
             variant=entry['variant']
+            motion_checks.append(motion_audit(entry))
             action,check=FINAL.import_verified_action(entry,'LeftContactUE','LeftContactUE')
             checks.append(check)
             actions[(model,variant)]=action
@@ -56,7 +80,7 @@ def main():
                 WB.set_frame(float(action.frame_range[0])+phase*intervals)
                 CONTACT.preview(ctx,f'UE_{variant}_{round(phase*100):02d}')
     report={'scope':'Actual UE FBX, all left skin vertices vs all rigid gun triangle surfaces; both arms vs stock; not continuous triangle CCD',
-            'contact_noise_cm':.02,'source_unchanged':source['source_content_unchanged'],'reference_checks':checks,
+            'contact_noise_cm':.02,'source_unchanged':source['source_content_unchanged'],'reference_checks':checks,'motion_checks':motion_checks,
             'sample_count':len(records),'failed_samples':sum(bool(row['hits']) for row in records),
             'max_depth_cm':max((hit['max_depth_cm'] for row in records for hit in row['hits']),default=0),
             'stock_sample_count':len(stock_records),'stock_failed_samples':sum(bool(row['penetrating_vertices']) for row in stock_records),
@@ -67,6 +91,20 @@ def main():
     WB.assign_action(bpy.data.objects['Arms_Rifle'],actions[('Rifle','Tactical')])
     WB.assign_action(bpy.data.objects['Gun_Rifle'],bpy.data.actions['A_Breach_Rifle_Reload_Tactical'])
     WB.set_frame(float(actions[('Rifle','Tactical')].frame_range[0])+.32*round(1.4*60))
+    # 默认编辑视角看清手掌与弹匣的接触，避免沿用最后渲染的狙击相机。
+    mapping=Matrix(next(row['ue_to_blender'] for row in manifest['models'] if row['model']=='Rifle'))
+    target=bpy.data.objects['Gun_Rifle'].matrix_world @ WB.GUN_BLENDER_TO_UE @ WB.Vector((6,0,-4))
+    camera=bpy.data.objects['WorkbenchCamera']
+    camera.location=target+mapping.to_3x3() @ WB.Vector((30,-95,12))
+    camera.rotation_euler=(target-camera.location).to_track_quat('-Z','Y').to_euler()
+    camera.data.type='ORTHO'; camera.data.ortho_scale=56; camera.data.clip_start=.5
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type=='VIEW_3D':
+                area.spaces.active.region_3d.view_location=target
+                area.spaces.active.region_3d.view_rotation=camera.rotation_euler.to_quaternion()
+                area.spaces.active.region_3d.view_distance=60
+                area.spaces.active.region_3d.view_perspective='ORTHO'
     bpy.context.preferences.filepaths.save_version=0
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'Breach_FP_LeftHand_Contacts.blend'))
     # 页面只使用UE_前缀结果，不把作者候选照片展示为UE验收结果。

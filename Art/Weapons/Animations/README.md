@@ -1,5 +1,7 @@
 # Breach 四枪换弹机械资源
 
+2026-09-22左手接触重制同步将Pistol/Rifle/Shotgun/Sniper完全拔出阶段下移改为12/6/8/7cm（交接段再增加最多3cm），保留原片长和声音节点。手腕、掌心朝向、15根指骨及外侧绕行由`Art/Player/Animations/left_hand_contacts.json`和接触作者生成，不能继续使用旧`magazine_grip_cm`推算新版左手。旧字段保留源清单兼容，当前导入读取新接触轨迹。真实UE全枪接触验证、维护流程与最新结果见`Documentation/武器系统.md`的2026-09-22记录及`Art/Player/Animations/README.md`；本文件下方2026-09-21数值属于历史对照。
+
 本目录是 `Tools/Blender/build_breach_weapon_animations.py` 的独立输出。源模型读取自 `Art/Weapons/Models/Breach_Weapons.blend`，不会保存或覆盖原静态模型。运行框架、GAS和主/子AnimBP说明统一维护在 `Documentation/武器系统.md`；本文件只记录离线骨骼和动作资源契约。
 
 ## 文件与使用

@@ -178,7 +178,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         break;
     case 5:
         if (!Check(Weapon->IsA<ADemoSniperWeapon>() && Weapon->Config.bSupportsScope && Weapon->GetAmmo() == 5, TEXT("terminal selects sniper BP with persisted config"))) return;
-        State->Phase = EDemoPhase::Combat; // 专项阶段夹具，保留真实终端供后续换型号；完整推进由战役/武器库测试验证。
+        State->Phase = EDemoPhase::Combat; State->LevelNumber=1; // 合法战斗快照需正关号；保留安全区终端用于本测试的真实装备权限。
         // 隔离攻击/碰撞；测试靶子另行生成，不引起自动清关。
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) { It->SetActorTickEnabled(false); It->SetActorEnableCollision(false); }
         Player->SetActorLocation(Mode->GetAreaCenter(0) + FVector(0,0,700));
@@ -287,7 +287,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         SendKey(EKeys::One, false);
         if (!SelectAtTerminal(1)) return; // 临时移到终端并恢复射击位置，仍执行生产装备权限。
         {
-            // 大靶子包住600cm处6度散布，用于准确断言8弹丸聚合伤害而非概率命中。
+            // 大靶子包住600cm处6度散布，用于准确断言8颗实体弹丸累计伤害而非概率命中。
             FActorSpawnParameters Spawn;
             Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
             ADemoEnemy* Probe = GetWorld()->SpawnActor<ADemoEnemy>(ADemoEnemy::StaticClass(), Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(500,0,0), FRotator::ZeroRotator, Spawn);
@@ -304,7 +304,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         Advance(.9f);
         break;
     case 23:
-        if (!Check(Weapon->GetAmmo() == 5 && Target.IsValid() && FMath::IsNearlyEqual(Target->GetHealth(),931.f,.01f), TEXT("shotgun held input costs one shell, 8 pellets total64 plus global5, one target aggregation"))) return;
+        if (!Check(Weapon->GetAmmo() == 5 && Target.IsValid() && FMath::IsNearlyEqual(Target->GetHealth(),931.f,.01f), TEXT("shotgun held input costs one shell, 8 projectiles total64 plus global5 after actual flight"))) return;
         SendKey(EKeys::LeftMouseButton, false);
         // 关闭靶子碰撞，后续狙击/自动步枪检查只关心成本和时序。
         Target->SetActorEnableCollision(false);
@@ -350,10 +350,13 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
     case 30:
         if (!Check(Weapon->GetAmmo() == 12 && !Weapon->IsReloading(), TEXT("new empty rifle press reloads; held key never auto-resumes"))) return;
         SendKey(EKeys::LeftMouseButton, false);
-        // 隔离测试只检查菜单输入所有权：此处未在终端范围，购买应拒绝，但不能切换副武器。
-        State->Phase = EDemoPhase::Intermission;
+        // 菜单输入所有权必须通过真实终端打开；远距离直接Open会被新的生产权限守卫正确拒绝。
+        if (!Check(Mode->GetShopTerminal()!=nullptr,TEXT("input-menu fixture retains real hub terminal"))) return;
+        MenuReturnLocation=Player->GetActorLocation(); State->Phase = EDemoPhase::Hub;
         State->Coins = 100;
-        PC->OpenUpgradeMenu(false);
+        Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
+        Mode->GetShopTerminal()->Interact(Player);
+        if (!Check(PC->IsUpgradeMenuOpen(),TEXT("real in-range terminal opens input-blocking menu"))) return;
         Advance();
         break;
     case 31:
@@ -365,6 +368,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         SendKey(EKeys::Two, false);
         PC->CloseUpgradeMenu();
         Equipment->CancelActions();
+        Player->SetActorLocation(MenuReturnLocation); // 菜单关闭后才回到靶场，保持真实会话范围约束。
         // 原有功能断言通过后，额外走四把实模的稳定帧截图，避免请求截图同帧切枪。
         // 清理先前的放大靶子并返回战斗画面；只影响专项夹具，四张截图使用相同朝向。
         if (Target.IsValid()) Target->Destroy();

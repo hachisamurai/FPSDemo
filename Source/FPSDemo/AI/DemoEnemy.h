@@ -103,11 +103,13 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Demo|Audio") TObjectPtr<USoundBase> HitSound;
 	// Configure 中默认生命100可能降低到60；初始化/重配置不是受伤，不允许触发命中反馈。
 	bool bHealthConfigured = false;
-	/** Data 是本次生命变化；由归零边沿触发一次死亡和银币通知。 */
-	void OnHealthChanged(const FOnAttributeChangeData& Data);
+    /** Data 是本次生命变化；子弹按ShotContext去重肉体声/受击动作，归零边沿仍只触发一次死亡和银币通知。 */
+    void OnHealthChanged(const FOnAttributeChangeData& Data);
+    /** 构造后/配置后重新设置查询响应，防旧蓝图CDO覆盖新通道；不启用缺失或非法PhysicsAsset的碰撞。 */
+    void ConfigureWeaponCollisionResponses();
 	/** Boss 预警结束回调；重新检查阶段/玩家位置，仅伤害仍在圈内的玩家。 */
 	void ResolveBossAttack();
-	// 球体仅为移动/AI视线判定根，单位厘米；敌人间阻挡，但忽略玩家WeaponTrace以露出真实部位。
+    // 球体仅为移动/AI视线判定根，单位厘米；忽略玩家WeaponTrace和PlayerProjectile以露出真实骨骼部位。
 	UPROPERTY() TObjectPtr<USphereComponent> Collision;
 	// 资产缺失时保留的球体回退，不单独碰撞；正常配置骨骼后隐藏。
 	UPROPERTY() TObjectPtr<UStaticMeshComponent> Visual;

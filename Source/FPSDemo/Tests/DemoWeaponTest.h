@@ -36,4 +36,5 @@ private:
     TWeakObjectPtr<ADemoWeaponBase> Pistol;
     TWeakObjectPtr<ADemoWeaponBase> Rifle;
     TWeakObjectPtr<ADemoEnemy> Target;
+    FVector MenuReturnLocation=FVector::ZeroVector; // 菜单输入专项借用真实终端后恢复空中靶场，防截图/后续开火位置漂移。
 };

@@ -1,4 +1,5 @@
 #include "Tests/DemoEnemyAttackTest.h"
+#include "Tests/DemoProjectileFixtures.h"
 #include "AI/DemoEnemy.h"
 #include "Animation/DemoEnemyPresentation.h"
 #include "Combat/DemoEnemyHitZones.h"
@@ -149,19 +150,23 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
         DemoHitZoneTest::Ammo(Player,TEXT("normal")); DemoHitZoneTest::Aim(Shooter.Get(),Player,HitZonePoints[0],700); Advance(.2f); break;
     }
     case 2:
-        HitZoneHealth=Shooter->GetHealth(); DemoHitZoneTest::Fire(Player);
+        if (!bHitZoneShotPending) HitZoneHealth=Shooter->GetHealth(); // 保存开火前快照，等待期间不能重复覆盖。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(FMath::IsNearlyEqual(HitZoneHealth-Shooter->GetHealth(),20.f,.02f),TEXT("body real Fire GA damage 20 x 1"))) return;
         DemoHitZoneTest::Aim(Shooter.Get(),Player,HitZonePoints[1],700); Advance(.5f); break;
     case 3:
-        HitZoneHealth=Shooter->GetHealth(); DemoHitZoneTest::Fire(Player);
+        if (!bHitZoneShotPending) HitZoneHealth=Shooter->GetHealth(); // 保存开火前快照，等待期间不能重复覆盖。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(FMath::IsNearlyEqual(HitZoneHealth-Shooter->GetHealth(),13.f,.02f),TEXT("arm real Fire GA damage 20 x .65"))) return;
         DemoHitZoneTest::Aim(Shooter.Get(),Player,HitZonePoints[2],700); Advance(.5f); break;
     case 4:
-        HitZoneHealth=Shooter->GetHealth(); DemoHitZoneTest::Fire(Player);
+        if (!bHitZoneShotPending) HitZoneHealth=Shooter->GetHealth(); // 保存开火前快照，等待期间不能重复覆盖。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(FMath::IsNearlyEqual(HitZoneHealth-Shooter->GetHealth(),40.f,.02f),TEXT("core real Fire GA damage 20 x 2"))) return;
         DemoHitZoneTest::Ammo(Player,TEXT("fire")); Advance(.5f); break;
     case 5:
-        HitZoneHealth=Shooter->GetHealth(); DemoHitZoneTest::Fire(Player);
+        if (!bHitZoneShotPending) HitZoneHealth=Shooter->GetHealth(); // 保存开火前快照，等待期间不能重复覆盖。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(FMath::IsNearlyEqual(HitZoneHealth-Shooter->GetHealth(),40.f,.02f),TEXT("fire direct core damage retains regional bonus"))) return;
         HitZoneHealth=Shooter->GetHealth(); Advance(AmmoConfig->BurnPeriod+.08f); break;
     case 6:
@@ -172,14 +177,20 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
         Advance(.5f); break;
     case 7:
     {
-        ADemoShotgunWeapon* Shotgun=GetWorld()->SpawnActor<ADemoShotgunWeapon>(); // 单独实例验证生产多弹丸聚合，不更改解锁或当前库存。
-        Shotgun->Config.SpreadHalfAngle=0; Shotgun->Config.RecoilPitch=0; Shotgun->Config.MuzzleSocket=NAME_None;
-        Shotgun->Config.FalloffStart=4000; Shotgun->Config.Range=5000; // 此用例隔离分区/聚合，避免700cm处默认散弹距离衰减改变预期基数。
-        Shotgun->InitializeForOwner(Player); Shotgun->SetEquipped(true);
-        HitZoneHealth=Shooter->GetHealth(); Shotgun->PayShotCost(); Shotgun->ExecuteCommittedShot();
+        if (!bHitZoneShotPending)
+        {
+            if (!Check(DemoProjectileFixtures::EquipPrimary(Player,1),TEXT("shotgun uses real terminal-equipped instance"))) return;
+            ADemoWeaponBase* PreparedWeapon=Player->GetWeaponComponent()->GetActiveWeapon(); // 准备凭据必须对应装备组件真正的当前实例。
+            PreparedWeapon->Config.SpreadHalfAngle=0; PreparedWeapon->Config.RecoilPitch=0; PreparedWeapon->Config.MuzzleSocket=NAME_None;
+            PreparedWeapon->Config.FalloffStart=4000; PreparedWeapon->Config.Range=5000; // 排除700cm处默认距离衰减，只验证真实核心碰撞与每枪去重。
+            Shooter->FindComponentByClass<UDemoAmmoStatus>()->Clear(); HitZoneHealth=Shooter->GetHealth();
+        }
+        ADemoWeaponBase* Shotgun=Player->GetWeaponComponent()->GetActiveWeapon(); // World库存借用，不再用未装备临时Actor绕过GAS。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(FMath::IsNearlyEqual(HitZoneHealth-Shooter->GetHealth(),Shotgun->GetDamagePerPellet()*Shotgun->GetPelletCount()*2.f,.05f)
-            &&Shooter->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==1,TEXT("shotgun core pellets multiply before one GE and one burn stack"))) return;
-        Shotgun->Destroy(); Shooter->FindComponentByClass<UDemoAmmoStatus>()->Clear();
+            &&Shooter->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==1,TEXT("shotgun core projectiles apply independent GAS hits and one burn stack"))) return;
+        if (!Check(Player->GetWeaponComponent()->EquipSlot(2),TEXT("return to real pistol after shotgun"))) return;
+        Shooter->FindComponentByClass<UDemoAmmoStatus>()->Clear();
         DemoHitZoneTest::Ammo(Player,TEXT("piercing"));
         // 第二目标使用另一Chaser，精确放到真实枪口射线延长线上；不借用首目标的核心倍率。
         Boss->Destroy(); Boss=SpawnEnemy(FVector(1000,2000,3000),false);
@@ -195,11 +206,14 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
         const FVector Camera=Player->GetFirstPersonCameraComponent()->GetComponentLocation(); // 当次真实相机位置。
         const FVector Muzzle=Weapon->GetMuzzleLocation(); // 已配置稳定fallback，仍走生产接口。
         const FVector Direction=(Camera+FVector(700,0,0)-Muzzle).GetSafeNormal(); // 与零散布相机/枪口二段瞄准一致。
-        Boss->AddActorWorldOffset(FVector(0,Direction.Y/Direction.X*300,Direction.Z/Direction.X*300));
-        HitZoneHealth=Shooter->GetHealth(); const float RearHealth=Boss->GetHealth(); // 两目标独立伤前值。
-        DemoHitZoneTest::Fire(Player);
+        if (!bHitZoneShotPending)
+        {
+            Boss->AddActorWorldOffset(FVector(0,Direction.Y/Direction.X*300,Direction.Z/Direction.X*300));
+            HitZoneHealth=Shooter->GetHealth(); HitZoneRearHealth=Boss->GetHealth(); // 两目标伤前快照必须跨越真实飞行帧。
+        }
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(FMath::IsNearlyEqual(HitZoneHealth-Shooter->GetHealth(),20*AmmoConfig->PiercingDamageMultiplier*2,.05f)
-            &&FMath::IsNearlyEqual(RearHealth-Boss->GetHealth(),20*AmmoConfig->PiercingDamageMultiplier*AmmoConfig->SecondaryDamageRatio*.65f,.05f),TEXT("piercing core then arm uses independent regional multipliers"))) return;
+            &&FMath::IsNearlyEqual(HitZoneRearHealth-Boss->GetHealth(),20*AmmoConfig->PiercingDamageMultiplier*AmmoConfig->SecondaryDamageRatio*.65f,.05f),TEXT("piercing core then arm uses independent regional multipliers"))) return;
         AActor* Blocker=GetWorld()->SpawnActor<AActor>(); // 测试专有墙体，不修改关卡持久资产。
         UBoxComponent* Box=NewObject<UBoxComponent>(Blocker); // Actor持有碰撞组件，默认BlockAll验证墙体通道继承。
         Blocker->SetRootComponent(Box); Box->SetBoxExtent(FVector(10,150,150)); Box->SetCollisionProfileName(TEXT("BlockAll")); Box->RegisterComponent();
@@ -207,13 +221,15 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
         Advance(.5f); break;
     }
     case 9:
-        HitZoneHealth=Boss->GetHealth(); DemoHitZoneTest::Fire(Player);
+        if (!bHitZoneShotPending) HitZoneHealth=Boss->GetHealth(); // 墙体一直存活到飞行完成。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(Boss->GetHealth()==HitZoneHealth,TEXT("wall blocks piercing after first enemy"))) return;
         Wall->SetActorLocation(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(350,0,0));
         Advance(.5f); break;
     case 10:
-        HitZoneHealth=Shooter->GetHealth(); DemoHitZoneTest::Fire(Player);
-        if (!Check(Shooter->GetHealth()==HitZoneHealth,TEXT("wall blocks camera and muzzle weapon traces"))) return;
+        if (!bHitZoneShotPending) HitZoneHealth=Shooter->GetHealth(); // 保存开火前快照，等待期间不能重复覆盖。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
+        if (!Check(Shooter->GetHealth()==HitZoneHealth,TEXT("wall blocks actual projectile before skeletal target"))) return;
         Wall->Destroy(); Shooter->Destroy(); Boss->Destroy();
         UE_LOG(LogFPSDemo,Display,TEXT("DEMO_ENEMY_HIT_ZONE_SUCCESS")); SetActorTickEnabled(false); FPlatformMisc::RequestExitWithStatus(false,0); break;
     }

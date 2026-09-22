@@ -17,7 +17,7 @@ enum class EDemoMenuPage : uint8 { None, Saves, CreateSave, Pause, ReturnHub, Se
 /** 保存退出的本地UI阶段；失败保留窗口，成功展示片刻后才结束游戏。 */
 enum class EDemoQuitState : uint8 { Idle, SavingLocal, WaitingCloud, Saved, Failed };
 
-/** 本地菜单输入与光标状态；购买/清关奖励的权威验证留给 GameMode。 */
+/** 本地输入与光标应用入口；菜单状态唯一归MenuFlow，公开菜单方法仅为兼容转发。 */
 UCLASS()
 class FPSDEMO_API ADemoPlayerController : public APlayerController
 {
@@ -143,68 +143,21 @@ public:
 	bool IsQuitLocalSaved() const;
 	/** 本地只读设置页显示状态，生命周期为此控制器。 */
 	bool IsSettingsOpen() const;
+    /** 只读当前终端会话，权威服务在每次提交时校验对象和版本。 */
+    ADemoInteractable* GetMenuTerminal() const;
+    uint64 GetMenuTerminalGeneration() const;
+    /** 当前本地菜单组件借用引用，用于专属回归或UI集成。 */
+    class UDemoMenuFlowComponent* GetMenuFlow() const;
 private:
-	/** 暂停时每帧调用；延迟本地保存使弹窗先绘制，轮询弱UObject网络结果。 */
-	void UpdateQuitSave();
-	/** 写永久档和安全阶段检查点；Combat保持现有出发检查点，不保存半场战斗。 */
-	bool SaveBeforeQuit();
-	/** 保存成功提示结束后唯一退出入口；不在HTTP回调或GI析构内等待网络。 */
-	void FinishQuit();
-	EDemoQuitState QuitState = EDemoQuitState::Idle; // 仅本地控制器状态，不复制、不保存。
-	EDemoMenuPage QuitBackPage = EDemoMenuPage::None; // 取消退出恢复大厅None或已有Pause。
-	bool bQuitLocalSaved = false; // 两种本地存档均写入成功后才允许离线退出。
-	double QuitNextActionTime = 0; // 单调秒数；首帧绘制延迟和成功提示1秒，不受暂停影响。
-	/** 当前阶段+上下层模态状态共同决定映射、光标与移动锁定。 */
-	void RefreshMenuInput();
-	/** 读取Engine本地设置到编辑草稿；不在打开界面时写磁盘。 */
-	void BeginSettings();
-	// 顶层模态状态只属于本地控制器，旅行/重生不持久化。
-	EDemoMenuPage MenuPage = EDemoMenuPage::None;
-	EDemoMenuPage SettingsBackPage = EDemoMenuPage::None; // 设置返回目的页：大厅None或局内Pause。
-	bool bPauseMenuActive = false; // 本控制器是否拥有暂停，关闭顶层Pause时解除。
-	// 新存档确认的栏位，关闭后清除，避免旧按钮覆盖其他槽。
-	int32 PendingSaveSlot = INDEX_NONE;
-	// 设置草稿在应用前不影响引擎；分辨率列表包含常见尺寸和当前自定义尺寸。
-	TArray<FIntPoint> Resolutions;
-	int32 ResolutionChoice = 0; // Resolutions中的草稿索引，打开时同步当前Engine值。
-	int32 QualityChoice = 3; // 0..3总体画质，-1保留引擎现有自定义组合。
-	float SensitivityChoice = 1.f; // 0.1..3.0鼠标输入倍率，默认1保持模板手感。
-	int32 WindowChoice = 2; // EWindowMode 0全屏/1无边框/2窗口，不跨World持有。
-	// 显示回退快照与真实时间deadline；<=0表示无需确认，暂停不会冻结倒计时。
-	FIntPoint PreviousResolution;
-	int32 PreviousWindowMode = 2; // 应用前EWindowMode值，取消/超时恢复。
-	double DisplayConfirmDeadline = 0; // FPlatformTime绝对秒数，0表示没有待确认显示变更。
-	// 终端本地页签，不复制；打开/关闭/终局重置，奖励页始终false。
-	EDemoTerminalPage TerminalPage = EDemoTerminalPage::Stats; // 互斥页签取代两个可能冲突的bool。
-	int32 InspectedAmmo = 0; // 查看项0..3，与实际装配分离。
-	int32 PendingAmmoPrice = INDEX_NONE; // 待确认报价，切页/关闭清除，不持久化。
-	// 当前详情Item的目录索引0..3；不持有武器Actor，关闭或页面变化重置。
-	int32 InspectedWeapon = INDEX_NONE;
-	/** Terminal 仅本次借用；验证拥有者、权威状态、当前入口及 250cm 距离，不修改世界。 */
-	bool CanRequestNextLevel(const ADemoInteractable* Terminal) const;
-	// 本地模态窗口标志；独立于弱引用有效性，终端销毁后仍允许取消恢复输入，不复制。
-	bool bNextLevelConfirmationOpen = false;
-	// 本次安全区出发是否明确点选难度；关间确认不使用此标志。
-	bool bDifficultyChosen = false;
-	// World 持有终端；弱引用不阻止关卡切换/Destroy，确认时重新验证。
-	TWeakObjectPtr<ADemoInteractable> PendingNextLevelTerminal;
-	// 打开时的已完成关卡编号 0..9；INDEX_NONE 表示没有请求，避免使用旧关卡确认。
-	int32 PendingCompletedLevel = INDEX_NONE;
-	/** 三个快捷键包装，记录真实输入调用。 */
-	void SelectFirst();
-	void SelectSecond();
-	void SelectThird();
-	/** bEnabled 指定菜单输入；统一设置光标和移动/视角锁定，避免锁计数叠加。 */
-	void SetMenuInput(bool bEnabled);
-	// 本地增强输入上下文，默认子资源硬引用确保打包收集。
-	UPROPERTY() TObjectPtr<UInputMappingContext> MappingContext;
-	// 战斗武器映射，Cooker沿软引用收集六个InputAction；菜单期间移除该上下文。
-	UPROPERTY(EditDefaultsOnly, Category="Demo|Input") TSoftObjectPtr<UInputMappingContext> CombatMappingAsset;
-	// BeginPlay加载后的强引用，SetMenuInput只启停它，不ClearAllMappings破坏其他系统。
-	UPROPERTY() TObjectPtr<UInputMappingContext> CombatMappingContext;
-	// 菜单状态仅属于拥有此控制器的本地玩家。
-	bool bMenuOpen = false;
-	bool bRewardMenu = false;
-	// 本地菜单反馈文本，失败提示保留直到下次操作/关闭。
-	FString MenuMessage;
+    friend class UDemoMenuFlowComponent; // 仅菜单服务可请求实际InputMode；不开放输入资源写访问。
+    /** 三个快捷键包装，仍绑定在控制器上并记录真实输入。 */
+    void SelectFirst();
+    void SelectSecond();
+    void SelectThird();
+    /** bEnabled指定菜单输入；统一应用映射、光标及锁定，避免叠加输入锁。 */
+    void SetMenuInput(bool bEnabled);
+    UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoMenuFlowComponent> MenuFlow; // 本PC唯一页面状态，不跨旅行保留。
+    UPROPERTY() TObjectPtr<UInputMappingContext> MappingContext; // 模板移动/视角映射，本地PC管理。
+    UPROPERTY(EditDefaultsOnly, Category="Demo|Input") TSoftObjectPtr<UInputMappingContext> CombatMappingAsset; // 武器映射资源路径，保留旧蓝图字段与Cook依赖。
+    UPROPERTY() TObjectPtr<UInputMappingContext> CombatMappingContext; // BeginPlay加载后强引用，菜单仅启停本上下文。
 };

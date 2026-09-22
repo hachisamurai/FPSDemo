@@ -17,7 +17,8 @@ public class FPSDemo : ModuleRules
 		// Canvas 使用 Slate 运行时复合字体提供中文回退，RenderCore 提供圆角面板的白色纹理。
 		// JSON是跨端协议；独立Online模块负责HTTP/凭据，不把数据库驱动链接进UE。
 		// 已有DemoEnemyNavigation.cpp调用导航投影/同步寻路；显式链接引擎模块以免整合构建出现未解析符号。
+		// Niagara提供可配置子弹拖尾/撞墙表现，物理伤害不依赖特效资源。
 		// PhysicsCore支持骨骼受击体/调试查询；运行时不依赖Chaos编辑器制作模块。
-		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore", "RenderCore", "Json", "JsonUtilities", "FPSDemoOnline", "NavigationSystem", "PhysicsCore" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore", "RenderCore", "Json", "JsonUtilities", "FPSDemoOnline", "NavigationSystem", "PhysicsCore", "Niagara" });
 	}
 }

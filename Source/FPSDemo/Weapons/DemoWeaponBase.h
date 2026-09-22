@@ -7,6 +7,8 @@ class ADemoCharacter;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class UDemoEnemyHitProfile;
+class ADemoProjectileBase;
+class UDemoShotContext;
 
 /** 可派生蓝图武器。配置由CDO提供，弹药/冷却仅由当前实例维护；技能仍在玩家ASC。 */
 UCLASS(Abstract, Blueprintable)
@@ -41,11 +43,17 @@ public:
     bool CanPayShotCost() const;
     /** 当前武器自己的剩余开火冷却秒数；切换不清零。 */
     float GetFireCooldownRemaining() const;
-    /** GAS ApplyCost入口，成功扣弹后生成一次执行许可，失败记录原因。 */
+    /** GAS提交前准备整枪弹丸及快照；只允许当前装备，任何准备失败不扣弹/冷却。 */
+    bool PrepareShot();
+    /** 验证准备时武器、轮次、关号和全部弹丸仍有效；不会重新绑定当前装备。 */
+    bool IsPreparedShotValid() const;
+    /** GA取消/生成失败/旅行共用幂等撤销；只回滚本次未发射凭据，飞行中的子弹不受换枪影响。 */
+    void CancelPreparedShot();
+    /** GAS ApplyCost入口，只针对已准备的本实例扣弹，失败记录原因。 */
     void PayShotCost();
     /** GAS ApplyCooldown入口，根据RPM记录下次开火World时间；不创建共享CDO修改。 */
     void CommitFireCooldown();
-    /** GAS提交后的射击入口；消费一次许可后命中/播放表现，重复调用不会免费开火。 */
+    /** GAS提交后登记挑战并激活已准备弹丸；此处不结算伤害，重复调用不能免费开火。 */
     void ExecuteCommittedShot();
     /** 装填需要缺弹且有备用；重复BeginReload不重启。 */
     bool CanReload() const;
@@ -72,9 +80,9 @@ public:
     /** 返回实际枪口世界位置，缺Socket时使用已记录的相机偏移回退。 */
     FVector GetMuzzleLocation() const;
 protected:
-    /** 提交后使用WeaponTrace逐弹解析真实骨骼区域并按敌聚合GE；穿透后敌独立解析部位，霰弹仍每敌每枪一层元素。 */
+    /** 提交后仅激活已经准备好的实体子弹；唯一伤害入口位于实际碰撞回调。 */
     virtual void PerformBallistics();
-    /** C++完成扣弹和伤害后调用的蓝图表现事件，禁止在此再次扣弹/施加同次伤害。 */
+    /** C++完成扣弹并发射后调用的蓝图表现事件；禁止在此再次扣弹或提前施加伤害。 */
     UFUNCTION(BlueprintImplementableEvent, Category="Weapon|Cosmetic") void OnWeaponShot();
     /** bNowEquipped为本次状态；C++先完成挂接/可见性再派发表现。 */
     UFUNCTION(BlueprintImplementableEvent, Category="Weapon|Cosmetic") void OnWeaponEquipped(bool bNowEquipped);
@@ -104,19 +112,28 @@ private:
     float ReloadDuration = 0.f;
     bool bEmptyReload = false;
     bool bShotPaid = false;
+    // 准备期间强持有整枪上下文/Actor；提交完成释放引用，飞行弹丸自己保活Context。
+    UPROPERTY() TObjectPtr<UDemoShotContext> PreparedContext;
+    UPROPERTY() TArray<TObjectPtr<ADemoProjectileBase>> PreparedProjectiles;
+    // 本次凭据冻结成本与冷却前值；取消只能撤销尚未实际发射的这一笔。
+    int32 PreparedAmmoCost = 0;
+    float PreparedPreviousFireTime = 0.f;
+    bool bPreparedCooldownApplied = false;
+    // 构造蓝图同步回调期间阻止递归Prepare；不跨异步线程访问。
+    bool bPreparingShot = false;
     // 每枪递增种子，确保同枪霰弹每次不同，且同次命中统计只生成一次。
     int32 ShotSequence = 0;
     // 可取消UObject动画回调，无裸指针Lambda，不跨World。
     FTimerHandle PoseTimer;
 };
 
-/** 步枪和手枪共用射线实现，以蓝图配置区分自动/半自动和参数。 */
+/** 保留已保存BP原生父类名称；步枪和手枪现均使用实体子弹，蓝图区分自动/半自动。 */
 UCLASS(Blueprintable)
 class FPSDEMO_API ADemoHitscanWeapon : public ADemoWeaponBase
 {
     GENERATED_BODY()
 };
-/** 霰弹：一次成本、多颗射线，按目标聚合GE。 */
+/** 霰弹：一次成本、多颗实体弹丸；跨帧独立伤害、共享每枪元素/反馈去重。 */
 UCLASS(Blueprintable)
 class FPSDEMO_API ADemoShotgunWeapon : public ADemoHitscanWeapon
 {
@@ -127,7 +144,7 @@ public:
     /** 当前配置的弹丸数量，所有伤害与HUD都用同一读取接口。 */
     virtual int32 GetPelletCount() const override;
 };
-/** 狙击：单发射线与两档Scope，窗口/镜头由装备组件和Aim GA维护。 */
+/** 狙击：单颗高速实体子弹与两档Scope，窗口/镜头由装备组件和Aim GA维护。 */
 UCLASS(Blueprintable)
 class FPSDEMO_API ADemoSniperWeapon : public ADemoHitscanWeapon
 {

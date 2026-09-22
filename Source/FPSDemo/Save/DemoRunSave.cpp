@@ -95,7 +95,7 @@ void UDemoRunSaves::Initialize(FSubsystemCollectionBase& Collection)
     // 自动化入口统一隔离；测试随GI而非静态变量，跨OpenLevel仍使用同一前缀。
     bTest = FString(FCommandLine::Get()).Contains(TEXT("DemoSessionTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoSmokeTest"))
         || FString(FCommandLine::Get()).Contains(TEXT("DemoCampaignTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoWeaponTest"))
-        || FString(FCommandLine::Get()).Contains(TEXT("DemoArmoryTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoUIValidation")) || FString(FCommandLine::Get()).Contains(TEXT("DemoEnemyAttackTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoAmmoTest"))
+        || FString(FCommandLine::Get()).Contains(TEXT("DemoArmoryTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoUIValidation")) || FString(FCommandLine::Get()).Contains(TEXT("DemoEnemyAttackTest")) || FString(FCommandLine::Get()).Contains(TEXT("DemoProjectileTest")) /* 实体子弹测试禁用正式存档与云同步。 */ || FString(FCommandLine::Get()).Contains(TEXT("DemoAmmoTest"))
         || FString(FCommandLine::Get()).Contains(TEXT("DemoWeaponAnimationTest")); // 动画专项通过真实终端存档，必须沿用本GI临时前缀。
     Prefix = bTest ? TEXT("DemoRunTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits) : TEXT("DemoRun");
 #if WITH_EDITOR

@@ -1,4 +1,5 @@
 #include "Weapons/DemoWeaponConfig.h"
+#include "Weapons/Projectiles/DemoProjectileBase.h"
 #include "Debug/DemoLog.h"
 
 bool FDemoWeaponConfig::Validate(FString& Error) const
@@ -7,6 +8,7 @@ bool FDemoWeaponConfig::Validate(FString& Error) const
     Error.Empty();
     // 两类网格至少提供一种；静态优先。零/负缩放仍拒绝，避免不可见或反转的武器。
     if ((!Mesh && !StaticMesh) || AttachSocket.IsNone() || AttachOffset.ContainsNaN() || AttachOffset.GetScale3D().GetMin() <= 0.f) Error = TEXT("Mesh/attach socket/transform invalid");
+    else if (!ProjectileClass || ProjectileClass->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists)) Error = TEXT("Projectile class missing/abstract/stale");
     else if (FireMode != EDemoFireMode::Automatic && FireMode != EDemoFireMode::SemiAutomatic) Error = TEXT("Fire mode invalid");
     else if (!FMath::IsFinite(RoundsPerMinute) || RoundsPerMinute < 1.f || RoundsPerMinute > 1200.f
         || !FMath::IsFinite(BaseDamage) || BaseDamage < 0.f || BaseDamage > 10000.f

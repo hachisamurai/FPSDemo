@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameplayEffectTypes.h"
+#include "GAS/Ammo/DemoAmmoEffectSnapshot.h"
 #include "DemoAmmoStatus.generated.h"
 class UAbilitySystemComponent;
 
@@ -15,8 +16,10 @@ public:
     virtual void BeginPlay() override;
     /** EndPlayReason为卸载原因；清理效果、委托及GC派生对象。 */
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-    /** Source/Config为开火快照依赖，Type=1/2；只在直接伤害实际命中后调用。 */
+    /** Source为玩家ASC，Type=1/2，Config为兼容旧调用的目录；立即复制数值再转ApplySnapshot，不保留目录引用。 */
     void Apply(UAbilitySystemComponent* Source,int32 Type,const class UDemoAmmoCatalog* Config);
+    /** Source为借用的权威源ASC，Type=1火/2冰，Snapshot为开火时值快照；已有同类栈沿用首层参数直到清除。 */
+    void ApplySnapshot(UAbilitySystemComponent* Source,int32 Type,const FDemoAmmoEffectSnapshot& Snapshot);
     /** 死亡立即移除所有弹药状态；重复调用安全，不改变其他GAS效果。 */
     void Clear();
     /** Cue/Event/Parameters由GAS分发，只更新本地表现，绝不结算伤害。 */
@@ -33,7 +36,13 @@ private:
     /** 根据剩余GE标签刷新提示，GC只读表现与生命逻辑分离。 */
     void RefreshVisual();
     UPROPERTY() TObjectPtr<UAbilitySystemComponent> ASC; // 敌人自身拥有，不跨World。
-    UPROPERTY() TObjectPtr<const class UDemoAmmoCatalog> Catalog; // 首次命中配置，GE时长/伤害仍冻结在Spec。
+    TMap<FActiveGameplayEffectHandle,FDemoAmmoEffectSnapshot> EffectSnapshots; // 每个活跃火/冰GE持有首层纯值副本，随Removed清理。
+    struct FPendingSnapshot
+    {
+        int32 Type = 0; // 当前同步Apply的1火/2冰类型，Added只消费同类的准备上下文。
+        FDemoAmmoEffectSnapshot Values; // Apply返回前保活的首层参数，覆盖Added先于Apply返回的同步回调。
+    };
+    TArray<FPendingSnapshot> PendingSnapshots; // 游戏线程同步嵌套Apply栈；无Lambda/异步裸对象捕获。
     UPROPERTY() TObjectPtr<class UPointLightComponent> Glow; // 状态辉光，无碰撞和伤害。
     TMap<FActiveGameplayEffectHandle,FDelegateHandle> StackBindings; // 每组GE最多一个栈委托。
     FDelegateHandle AddedBinding,RemovedBinding; // BeginPlay注册，EndPlay精确解绑。

@@ -48,6 +48,7 @@ void ADemoEnemyAttackTest::TickSpawnSystemTest()
     case 0:
     {
         if (!Check(Mode->StartRun() && Mode->GetSpawnSystem() && Mode->GetRewardSystem() && Mode->GetShopSystem(), TEXT("three owned systems initialized"))) return;
+        if (!CheckComponentLifecycles()) return; // 实际服务已启动，验证重复通知和终端会话而不另造业务实现。
         if (!Check(!Mode->GetRewardSystem()->GrantVictory(TEXT("Invalid"), Difficulty) && !Mode->GetRewardSystem()->GrantAbilityChoice(TEXT("Invalid"), 0)
             && !Mode->GetShopSystem()->PurchaseUpgrade(0, nullptr), TEXT("reward and shop reject invalid phase/purchaser"))) return;
         ADemoEnemySpawnArea* Area = GetWorld()->SpawnActor<ADemoEnemySpawnArea>(AreaTransform.GetLocation(), FRotator(0, 30, 0)); // 实际场景区域，验证配置优先于fallback。
@@ -113,6 +114,7 @@ void ADemoEnemyAttackTest::TickSpawnSystemTest()
     case 9:
         if (!Check(SpawnFailures == 2 && SpawnClears == 2 && TestSpawner->GetRemaining() == 0, TEXT("unexpected live destruction fails without clear"))) return;
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) if (It->GetOwner() == this) It->Destroy(); // 已取消并解绑，最终清理不增加事件。
+        if (!CheckComponentShutdown()) return; // 放在所有场景末尾，验证停止不可逆且不会创建新交互。
         UE_LOG(LogFPSDemo, Display, TEXT("DEMO_SPAWN_SYSTEM_SUCCESS: region, budget, refill, duplicate, cancel, retry, failure, reward/shop guards"));
         SetActorTickEnabled(false); FPlatformMisc::RequestExitWithStatus(false, 0); break;
     }

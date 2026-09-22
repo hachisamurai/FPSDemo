@@ -1,4 +1,5 @@
 #include "Tests/DemoAmmoTest.h"
+#include "Tests/DemoProjectileFixtures.h"
 #include "Game/FPSDemoGameMode.h"
 #include "Characters/DemoCharacter.h"
 #include "Player/DemoPlayerController.h"
@@ -32,7 +33,7 @@ void ADemoAmmoTest::Advance(float Delay){DEMO_LOG_CALL();++Step;Next=GetWorld()-
 ADemoEnemy* ADemoAmmoTest::SpawnTarget(FVector Location)
 {
     DEMO_LOG_CALL();
-    FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn; // 空中夹具避免地形干扰射线。
+    FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn; // 空中夹具避免地形干扰真实子弹飞行。
     ADemoEnemy* Enemy=GetWorld()->SpawnActor<ADemoEnemy>(ADemoEnemy::StaticClass(),Location,FRotator::ZeroRotator,Params); // World拥有测试对象。
     FDemoEnemySpawnStats Stats;Stats.Health=1000;Stats.AttackPower=0; // 不依赖难度，比较精确理论伤害。
     Enemy->Configure(Stats);Enemy->SetActorTickEnabled(false);return Enemy;
@@ -48,7 +49,7 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
     auto* Saves=GetGameInstance()->GetSubsystem<UDemoRunSaves>(); // Editor自动隔离的GI临时槽。
     if(!Check(PC&&Player&&Mode&&State,TEXT("world ready")))return;
     auto* Ammo=Player->FindComponentByClass<UDemoAmmoComponent>(); // 当前玩家装配组件。
-    auto* Weapon=Player->GetWeaponComponent()->GetActiveWeapon(); // 使用真实手枪BP和Fire GA。
+    auto* Weapon=Player->GetWeaponComponent()->GetActiveWeapon(); // 当前真实装备；前段为手枪，后段为终端装配的散弹枪。
     const UDemoAmmoCatalog* Config=Ammo->GetCatalog(); // 测试生产资产，不改共享默认值。
     switch(Step)
     {
@@ -69,13 +70,17 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
         FScreenshotRequest::RequestScreenshot(TEXT("AmmoTerminalGame.png"),false,false); // 捕获真实现成Icon/交易状态，下一帧由引擎保存。
         Advance(.3f);break;
     case 1:
-        PC->CloseUpgradeMenu();State->Phase=EDemoPhase::Combat;State->LevelNumber=1;
-        Player->SetActorLocation(FVector(0,0,1600));Player->GetCharacterMovement()->SetMovementMode(MOVE_Flying);Player->GetCharacterMovement()->StopMovementImmediately();PC->SetControlRotation(FRotator::ZeroRotator);
-        Weapon->Config.SpreadHalfAngle=0; // 仅本次手枪实例确定性射线，不修改BP/CDO。
-        Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
-        Before=Target->GetHealth();Player->GetWeaponComponent()->StartFire();Player->GetWeaponComponent()->StopFire();
-        if(!Check(Target->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==1&&Target->GetHealth()<Before,TEXT("real Fire GA applies one burn stack")))return;
-        // 显式截图参数只记录既有真实命中帧，不更改命中时间或生产UI；用于核对红色斜线与未变色的准星。
+        if (!bShotPending)
+        {
+            PC->CloseUpgradeMenu();State->Phase=EDemoPhase::Combat;State->LevelNumber=1;
+            Player->SetActorLocation(FVector(0,0,1600));Player->GetCharacterMovement()->SetMovementMode(MOVE_Flying);Player->GetCharacterMovement()->StopMovementImmediately();PC->SetControlRotation(FRotator::ZeroRotator);
+            Weapon->Config.SpreadHalfAngle=0; Weapon->Config.RecoilPitch=0; Weapon->Config.MuzzleSocket=NAME_None; // 本次手枪实例使用确定性枪口，资产数值不改。
+            Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
+            Before=Target->GetHealth();
+        }
+        if (!DemoProjectileFixtures::FireAndWait(Player,bShotPending,ShotDeadline)) return;
+        if(!Check(Target->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==1&&Target->GetHealth()<Before,TEXT("real projectile arrival applies one burn stack")))return;
+        // 仅在真实命中后截图；等待阶段不伪造命中反馈时间。
         if(FParse::Param(FCommandLine::Get(),TEXT("DemoHitMarkerCapture"))) FScreenshotRequest::RequestScreenshot(TEXT("HitMarker-On.png"),false,false);
         Before=Target->GetHealth();Advance(Config->BurnPeriod+.15f);break;
     case 2:
@@ -96,35 +101,49 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
         if(!Check(!Target->GetAbilitySystemComponent()->HasMatchingGameplayTag(DemoAmmoTags::Frozen)&&Target->GetAbilitySystemComponent()->HasMatchingGameplayTag(DemoAmmoTags::Immune)&&Target->GetAbilitySystemComponent()->GetNumericAttribute(UDemoAttributeSet::GetMoveSpeedMultiplierAttribute())==1,TEXT("thaw restores movement while immunity remains")))return;
         Advance(Config->PostThawImmunityDuration+.1f);break;
     case 4:
-        if(!Check(!Target->GetAbilitySystemComponent()->HasMatchingGameplayTag(DemoAmmoTags::Immune),TEXT("immunity naturally expires")))return;
-        Target->Destroy();Snapshot->SelectedAmmoId=TEXT("piercing");Ammo->Restore(*Snapshot); // 独立测试夹具切类型，UI权限此前已测试。
-        Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
-        Behind=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(900,-8,0));
-        Before=Weapon->GetDamagePerPellet()*Config->PiercingDamageMultiplier;
-        Player->GetWeaponComponent()->StartFire();Player->GetWeaponComponent()->StopFire();
-        if(!Check(FMath::IsNearlyEqual(Target->GetHealth(),1000-Before,.02f)&&FMath::IsNearlyEqual(Behind->GetHealth(),1000-Before*Config->SecondaryDamageRatio,.02f),TEXT("actual hitscan pierces one target at half theoretical damage")))return;
+        if (!bShotPending)
+        {
+            if(!Check(!Target->GetAbilitySystemComponent()->HasMatchingGameplayTag(DemoAmmoTags::Immune),TEXT("immunity naturally expires")))return;
+            Target->Destroy();Snapshot->SelectedAmmoId=TEXT("piercing");Ammo->Restore(*Snapshot); // 独立测试实例切类型，UI权限此前已覆盖。
+            Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
+            Behind=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(900,-8,0));
+            Before=Weapon->GetDamagePerPellet()*Config->PiercingDamageMultiplier;
+        }
+        if (!DemoProjectileFixtures::FireAndWait(Player,bShotPending,ShotDeadline)) return;
+        if(!Check(FMath::IsNearlyEqual(Target->GetHealth(),1000-Before,.02f)&&FMath::IsNearlyEqual(Behind->GetHealth(),1000-Before*Config->SecondaryDamageRatio,.02f),TEXT("projectile physically reaches rear target at half theoretical damage")))return;
         Advance(.5f);break;
     case 5:
     {
-        AStaticMeshActor* Wall=GetWorld()->SpawnActor<AStaticMeshActor>(); // 本步骤自有墙体夹具，BlockAll继承WeaponTrace阻挡以验证穿透不能穿墙。
-        Wall->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
-        Wall->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));
-        Wall->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
-        Wall->SetActorLocation(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(750,0,0));Wall->SetActorScale3D(FVector(.2f,4,4));
-        Before=Behind->GetHealth();Player->GetWeaponComponent()->StartFire();Player->GetWeaponComponent()->StopFire();
-        if(!Check(Behind->GetHealth()==Before,TEXT("wall blocks penetration continuation")))return;
-        Wall->Destroy();Behind->Destroy();Target->Destroy();
+        if (!bShotPending)
+        {
+            AStaticMeshActor* Wall=GetWorld()->SpawnActor<AStaticMeshActor>(); // World持有真实阻挡体，必须等待子弹运动结束再销毁。
+            Wall->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+            Wall->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));
+            Wall->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
+            Wall->SetActorLocation(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(750,0,0));Wall->SetActorScale3D(FVector(.2f,4,4));
+            ShotWall=Wall; Before=Behind->GetHealth();
+        }
+        if (!DemoProjectileFixtures::FireAndWait(Player,bShotPending,ShotDeadline)) return;
+        if(!Check(Behind->GetHealth()==Before,TEXT("wall blocks in-flight penetration continuation")))return;
+        ShotWall->Destroy();Behind->Destroy();Target->Destroy();
+        if (!Check(DemoProjectileFixtures::EquipPrimary(Player,1),TEXT("ammo shotgun fixture is genuinely equipped"))) return;
         Snapshot->SelectedAmmoId=TEXT("fire");Ammo->Restore(*Snapshot);
         Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
-        ADemoShotgunWeapon* Shotgun=GetWorld()->SpawnActor<ADemoShotgunWeapon>(); // 隔离武器实例验证生产散弹弹道，不修改永久武器解锁。
-        Shotgun->Config.SpreadHalfAngle=0;Shotgun->InitializeForOwner(Player);Shotgun->SetEquipped(true);Shotgun->PayShotCost();Shotgun->ExecuteCommittedShot();
-        if(!Check(Target->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==1&&FMath::IsNearlyEqual(Target->GetHealth(),1000-Shotgun->GetDamagePerPellet()*Shotgun->GetPelletCount(),.02f),TEXT("shotgun pellets aggregate damage and apply exactly one stack")))return;
-        Shotgun->Destroy();Advance(.1f);break;
+        ADemoWeaponBase* Shotgun=Player->GetWeaponComponent()->GetActiveWeapon(); // 装备组件真实实例，Fire GA凭据不可被临时武器绕过。
+        Shotgun->Config.SpreadHalfAngle=0; Shotgun->Config.RecoilPitch=0; Shotgun->Config.MuzzleSocket=NAME_None;
+        Shotgun->Config.FalloffStart=2000; Shotgun->Config.Range=3000; // 与元素叠层隔离，避免枪口球半径带来临界距离衰减。
+        Advance(.1f);break;
     }
     case 6:
+        if (!bShotPending) Before=Weapon->GetDamagePerPellet()*Weapon->GetPelletCount(); // 本枪理论总伤害只记录一次。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bShotPending,ShotDeadline)) return;
+        if(!Check(Target->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==1&&FMath::IsNearlyEqual(Target->GetHealth(),1000-Before,.02f),TEXT("individual shotgun projectiles deal total damage and exactly one burn stack")))return;
+        Advance(.1f);break;
+    case 7:
         Target->FindComponentByClass<UDemoAmmoStatus>()->Apply(Player->GetAbilitySystemComponent(),1,Config);
         DemoEffects::Apply(Player->GetAbilitySystemComponent(),Target->GetAbilitySystemComponent(),UDemoHealthEffect::StaticClass(),-2000);
         if(!Check(Target->FindComponentByClass<UDemoAmmoStatus>()->Count(DemoAmmoTags::Burn)==0,TEXT("death clears periodic GE immediately")))return;
+        if(!Check(DemoAmmoSnapshotTests::Run(GetWorld(),Player),TEXT("immutable ammo first-stack snapshot scenarios")))return; // 独立靶覆盖共享Catalog改值和同步堆叠边界。
         if(!Check(Saves->ResetActive(EDemoDifficulty::Normal,300,FDemoUpgradeProgress())&&Saves->GetSlot(0)->UnlockedAmmoIds.Num()==4&&Saves->GetSlot(0)->SelectedAmmoId==TEXT("fire"),TEXT("run reset preserves purchased ammo and saved selection")))return;
         UE_LOG(LogFPSDemo,Display,TEXT("DEMO_AMMO_TEST_SUCCESS"));SetActorTickEnabled(false);FPlatformMisc::RequestExitWithStatus(false,0);break;
     }

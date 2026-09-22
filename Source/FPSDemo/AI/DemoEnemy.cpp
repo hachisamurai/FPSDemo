@@ -16,7 +16,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h" // 主骨骼外观和ASC动画上下文。
 #include "Animation/DemoEnemyPresentation.h" // 只提交动作，不把伤害移入动画回调。
-#include "Combat/DemoEnemyHitZones.h" // 统一射线通道；移动根与受击网格必须使用相同常量。
+#include "Combat/DemoEnemyHitZones.h" // 统一瞄准/实体子弹通道；移动根与受击网格必须使用相同常量。
+#include "Weapons/Projectiles/DemoShotContext.h" // 同一枪散弹共享反馈资格，GE Context只借用其弱SourceObject。
 #include "Components/PointLightComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Kismet/GameplayStatics.h"
@@ -35,6 +36,7 @@ ADemoEnemy::ADemoEnemy()
 	Collision->InitSphereRadius(48.f);
 	Collision->SetCollisionProfileName(TEXT("BlockAllDynamic"));
 	Collision->SetCollisionResponseToChannel(DemoEnemyHitZones::TraceChannel,ECR_Ignore); // 保留原墙体/导航阻挡，子弹穿过外球查找真实肢体。
+	Collision->SetCollisionResponseToChannel(DemoEnemyHitZones::ProjectileChannel,ECR_Ignore); // 实体子弹同样穿过导航根，不能把球根当作机身命中。
 	SetRootComponent(Collision);
 	Collision->SetCanEverAffectNavigation(false); // 动态敌人不挖空自己的导航路线；同伴由Sweep与让行处理。
 	Navigation = CreateDefaultSubobject<UDemoEnemyNavigation>(TEXT("Navigation")); // 保留原Actor与GAS所有权，仅替换追击算法。
@@ -45,9 +47,10 @@ ADemoEnemy::ADemoEnemy()
 	Visual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	AnimatedBody=CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("AnimatedBody")); // 所有敌人仅此一个主骨骼组件。
 	AnimatedBody->SetupAttachment(Collision);
-	AnimatedBody->SetCollisionEnabled(ECollisionEnabled::QueryOnly); // PhysicsAsset随动画更新，仅射线查询，不启用布娃娃或移动阻挡。
+	AnimatedBody->SetCollisionEnabled(ECollisionEnabled::QueryOnly); // PhysicsAsset随动画更新，提供瞄准查询和子弹扫掠，不启用布娃娃或移动阻挡。
 	AnimatedBody->SetCollisionResponseToAllChannels(ECR_Ignore);
 	AnimatedBody->SetCollisionResponseToChannel(DemoEnemyHitZones::TraceChannel,ECR_Block);
+	AnimatedBody->SetCollisionResponseToChannel(DemoEnemyHitZones::ProjectileChannel,ECR_Block); // 由真实刚体返回BoneName，Mesh外观不产生额外伤害碰撞。
 	AnimatedBody->SetGenerateOverlapEvents(false); // 部位判定依赖HitResult.BoneName，不产生重复Overlap伤害。
 	AnimatedBody->SetCanEverAffectNavigation(false);
 	Presentation=CreateDefaultSubobject<UDemoEnemyPresentation>(TEXT("Presentation")); // Actor持有，与ASC一同卸载。
@@ -87,6 +90,7 @@ void ADemoEnemy::BeginPlay()
 {
 	DEMO_LOG_CALL();
 	Super::BeginPlay();
+	ConfigureWeaponCollisionResponses(); // 旧已保存蓝图可能覆盖原生构造默认值，运行期恢复新增通道规则。
 	AbilitySystem->InitAbilityActorInfo(this, this);
 	HealthChangedHandle = AbilitySystem->GetGameplayAttributeValueChangeDelegate(UDemoAttributeSet::GetHealthAttribute()).AddUObject(this, &ADemoEnemy::OnHealthChanged);
 	NextAttackTime = GetWorld()->GetTimeSeconds() + 2.f;
@@ -125,6 +129,7 @@ void ADemoEnemy::Configure(const FDemoEnemySpawnStats& Stats)
 	Collision->SetSphereRadius(bBoss ? 115.f : 48.f);
 	// 模型已按厘米制作，禁止继承旧球体的2.4倍Boss比例；失败时保留可见回退并打印错误。
 	Visual->SetHiddenInGame(Presentation->Configure(bBoss,AnimatedBody));
+	ConfigureWeaponCollisionResponses(); // Configure更换骨骼后再次校正响应；保留Presentation对非法受击资产的NoCollision拒绝。
 	// HUD读取Boss标识选择头顶偏移和血条颜色，不在初始化时写展示文字或摄像机旋转。
 	// 回退球体和骨骼灯带都使用独立MID；装甲保持灰白，仅灯带延续角色颜色辨识。
 	if (UMaterialInstanceDynamic* Material = Visual->CreateAndSetMaterialInstanceDynamic(0)) // 网格拥有独立MID，用颜色辨认角色。
@@ -141,6 +146,15 @@ void ADemoEnemy::Configure(const FDemoEnemySpawnStats& Stats)
 	}
 	// 完成整批初始属性写入后才接受后续 Health GE 的声音反馈。
 	bHealthConfigured = true;
+}
+void ADemoEnemy::ConfigureWeaponCollisionResponses()
+{
+	DEMO_LOG_CALL();
+	Collision->SetCollisionResponseToChannel(DemoEnemyHitZones::TraceChannel,ECR_Ignore);
+	Collision->SetCollisionResponseToChannel(DemoEnemyHitZones::ProjectileChannel,ECR_Ignore);
+	AnimatedBody->SetCollisionResponseToAllChannels(ECR_Ignore); // 骨骼只接受两类武器查询，玩家/导航/敌人飞行物仍沿用原移动根碰撞。
+	AnimatedBody->SetCollisionResponseToChannel(DemoEnemyHitZones::TraceChannel,ECR_Block);
+	AnimatedBody->SetCollisionResponseToChannel(DemoEnemyHitZones::ProjectileChannel,ECR_Block);
 }
 UAbilitySystemComponent* ADemoEnemy::GetAbilitySystemComponent() const { DEMO_LOG_TICK(); return AbilitySystem; }
 bool ADemoEnemy::IsAlive() const { DEMO_LOG_TICK(); return !bDead; }
@@ -255,8 +269,14 @@ void ADemoEnemy::OnHealthChanged(const FOnAttributeChangeData& Data)
 	if (HasAuthority() && bHealthConfigured && !bDead && Data.NewValue < Data.OldValue
         && (!Data.GEModData || Data.GEModData->EffectSpec.Def->GetClass()!=UDemoBurnEffect::StaticClass())) // 灼烧周期不重复播放子弹肉体击中声。
 	{
-		DemoWeaponAudio::PlayAtLocation(this, HitSound, GetActorLocation(), TEXT("Weapon.Hit"));
-		if (Data.NewValue>0.f) Presentation->Play(TEXT("Hit")); // 非致命且不抢占攻击；DOT不逐跳抖动。
+		UDemoShotContext* Shot=Data.GEModData?Cast<UDemoShotContext>(Data.GEModData->EffectSpec.GetContext().GetSourceObject()):nullptr; // 同步回调借用；所有在飞弹丸以UPROPERTY持有Context直到本次结算返回。
+		const bool bFirstFeedback=!Shot||Shot->TryMarkFeedback(this); // 先登记再播放，散弹跨帧也最多一组反馈；爆炸等非子弹伤害保留原路径。
+		if(bFirstFeedback)
+		{
+			DemoWeaponAudio::PlayAtLocation(this, HitSound, GetActorLocation(), TEXT("Weapon.Hit"));
+			if (Data.NewValue>0.f) Presentation->Play(TEXT("Hit")); // 非致命且不抢占攻击；DOT不逐跳抖动。
+		}
+		else UE_LOG(LogFPSDemo,VeryVerbose,TEXT("PROJECTILE_FEEDBACK_DUPLICATE enemy=%s"),*GetName()); // 包体裁掉重复弹丸反馈日志。
 	}
 	if (!HasAuthority() || bDead || Data.NewValue > 0.f) return;
 	bDead = true;

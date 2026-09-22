@@ -78,6 +78,8 @@ void ADemoCharacter::InitializeAbilitySystem()
 		BoundASC->GrantStartupAbilities();
 		if (!WeaponComponent->InitializeLoadout()) UE_LOG(LogFPSDemo, Error, TEXT("Loadout initialization failed; create weapon Blueprint assets"));
 	}
+    // 最后一步才通知流程；监听者可能同步读档，之后不能再重置属性或库存。
+    if (BoundASC->GetAvatarActor() == this && WeaponComponent->GetActiveWeapon()) OnDemoAvatarReady.Broadcast();
 }
 
 void ADemoCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -205,7 +207,7 @@ void ADemoCharacter::RequestAbility(TSubclassOf<UGameplayAbility> AbilityClass)
 void ADemoCharacter::PerformShot()
 {
 	DEMO_LOG_CALL();
-	// 保留角色侧GA调用接口，实际射线、成本许可和表现全部转交当前武器。
+	// 保留旧角色调用接口；这里只转发实体发射，武器拒绝没有准备/成本凭据的调用，不能退回射线扣血。
 	if (ADemoWeaponBase* Weapon = WeaponComponent->GetActiveWeapon()) Weapon->ExecuteCommittedShot();
 }
 

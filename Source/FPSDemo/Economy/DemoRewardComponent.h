@@ -12,8 +12,8 @@ class FPSDEMO_API UDemoRewardComponent : public UActorComponent
 public:
     /** 无Tick；订阅刷怪器已确认的击杀，不扫描世界Actor。 */
     UDemoRewardComponent();
-    /** 所有默认子组件已创建后绑定刷怪事件，UObject弱委托随World有效。 */
-    virtual void BeginPlay() override;
+    /** SpawnerService由RunFlow显式注入，重复绑定安全；不依赖组件BeginPlay遍历顺序。 */
+    void InitializeSpawner(class UDemoEnemySpawnComponent* SpawnerService);
     /** EndPlayReason为World卸载原因，精确解绑事件。 */
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     /** RunId为当前整轮身份、Difficulty为已验证金币配置；仅真实战役清场发放一次金币，不改变玩法阶段。 */

@@ -677,6 +677,18 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
     case 13:
         if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==80 && Attributes->GetWeaponDamageBonus()==5 && Player->GetHealAmount()==55,TEXT("existing slot restores coins, GAS upgrades and Pawn ability progression"))) return;
         if (!Check(Player->GetWeaponComponent()->GetActiveWeapon()->GetAmmo()==9 && Player->GetWeaponComponent()->GetActiveWeapon()->GetReserveAmmo()==83,TEXT("checkpoint restores magazine and reserve independently"))) return;
+        // 已在Hub时返回只关闭暂停；放弃确认必须在真实出发/清关后验证，不能用已废弃的Hub重置预期。
+        PC->EscapePressed(); PC->ReturnHubPressed();
+        if (!Check(!GetWorld()->IsPaused() && State->Phase == EDemoPhase::Hub && Attributes->GetWeaponDamageBonus() == 5, TEXT("return inside hub preserves growth and resumes input"))) return;
+        Player->SetActorLocation(Mode->GetNextLevelTerminal()->GetActorLocation()+FVector(-180,0,20));
+        Mode->GetNextLevelTerminal()->Interact(Player); PC->DifficultyPressed(EDemoDifficulty::Normal);
+        for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 真实清场进入Reward，不能直接伪写阶段绕过RunFlow。
+        { It->SetActorTickEnabled(false); DemoEffects::Apply(Player->GetDemoASC(),It->GetAbilitySystemComponent(),UDemoHealthEffect::StaticClass(),-100000.f); }
+        Advance(49); break;
+    case 49:
+        if (!Check(State->Phase == EDemoPhase::Reward, TEXT("abandon confirmation fixture reaches real reward phase"))) return;
+        PC->SelectUpgrade(2); // 冲刺奖励不改变下面既有伤害值断言，放弃时应与其他临时成长一起清空。
+        if (!Check(State->Phase == EDemoPhase::Intermission, TEXT("abandon confirmation begins in intermission"))) return;
         Escape(true); Advance(14); break;
     case 14:
         Escape(false);

@@ -1,5 +1,7 @@
 # 弹药类型与 GAS Debuff：实现说明
 
+2026-09-22已接入[实体子弹系统](实体子弹系统设计.md)：实际弹丸碰撞结算，整枪共享Context限制跨帧元素/反馈次数，持续效果参数使用值快照。Editor编译和四个子弹BP创建已完成，实体弹、完整玩法及Development包体回归已通过；下方2026-09-21的验证结果保留为历史，不代表新子弹流程已通过。
+
 Boss[升空俯冲](Boss升空俯冲.md)悬停时有通用无敌：枪伤/爆炸/旧DOT在属性执行前阻止，新灼烧/冰霜在组件和GE两层拒绝；已有状态继续计时，解除无敌后恢复伤害。原冰霜免疫只管冰霜，与通用无敌分开。
 
 2026-09-21：按确认的预览接入真实终端、金币交易、武器弹道、GAS和检查点V4。图标直接复用已制作的 ElementIcons；本文件替代原待确认设计，以当前代码为准。当前范围为单人 Standalone / PIE，不声称完整多人预测与复制支持。
@@ -52,9 +54,9 @@ Boss[升空俯冲](Boss升空俯冲.md)悬停时有通用无敌：枪伤/爆炸/
 
 玩家ASC继续归PlayerState所有；玩家Pawn上的 `UDemoAmmoComponent` 管理装配与交易。每次初始化/恢复为ASC授予一个Infinite装配GE，其DynamicGrantedTags为 `Ammo.Type.Normal / Fire / Frost / Piercing` 四选一。Avatar结束时只移除自己持有的装配句柄。
 
-`Enhanced Input → Fire GA → 武器实例 PerformBallistics → 直接伤害GE → 敌人UDemoAmmoStatus → 叠层/阈值GE与GC`。
+`Enhanced Input → Fire GA → PrepareShot冻结配置并准备全组 → 扣弹/冷却/挑战 → PerformBallistics激活 → 实体运动碰撞 → 直接伤害GE → 敌人UDemoAmmoStatus.ApplySnapshot → 叠层/阈值GE与GC`。
 
-一次开火快照类型和配置，同步收集全部弹丸命中并按敌人聚合伤害，再通过原 `UDemoHealthEffect` 结算。仅实际受正伤害且存活的敌人接收火焰/冰霜状态；致死直伤不叠层。每次应用前检查Combat阶段，最后敌人死亡引起阶段切换后拒绝后续过期结算。一次函数调用内的ShotSequence作为射击序号，不额外维护跨帧ShotId集合。
+一次开火创建GUID标识的`UDemoShotContext`，冻结类型、`FDemoAmmoEffectSnapshot`、伤害、部位规则、RunId和关号。每颗弹丸实际碰撞时独立施加`UDemoHealthEffect`，不再等待或聚合整枪伤害。Context通过弱目标集合保证同枪同敌最多一次元素请求、一次肉体音/受击动画；去重先登记再进入同步GAS回调。仅实际受正伤害且仍存活的敌人接收火/冰，致死、零伤害和无敌不叠层。每次命中及GE之后重查Combat、Avatar和轮次，最后敌人死亡引起清关时撤销剩余飞行弹。每颗弹强持有Context，GE SourceObject只借用；切枪及后续改属性不会改变已发射弹。
 
 ### GE与Tag
 
@@ -71,6 +73,8 @@ Burn/Chill/Frozen复用 `DemoTags` 中的Native Tags。GE采用UE5.4的TargetTag
 
 状态组件绑定ASC的添加/移除委托、每个栈的变化委托，以Active GE作为层数和寿命唯一真值。第N层立即消费，不依赖Overflow触发第N+1次。先记录来源ASC，再在重入保护下移除栈；移除后的Active GE指针不再访问。初次添加也检查阈值，支持配置为1。移除和EndPlay精确解绑；没有独立Debuff倒计时数组。
 
+`ApplySnapshot`使用值参数，不在后续回调读取可变Catalog。每个ActiveEffectHandle保存首层数值，火/冰分别管理；同类已有栈的后续命中沿用该组首层的时长、周期、阈值和派生效果参数，直到该组移除才接受新配置。首次Apply前建立待提交快照，保证同步Added/StackChanged回调能取得数值；移除/Clear/EndPlay清理对应副本。旧`Apply(Source,Type,Catalog)`仅为兼容入口，立即复制为快照再转发。
+
 火焰爆炸是满层目标的单体额外伤害，GC显示局部脉冲，不造成范围伤害。DOT、爆炸及穿透后段不会递归施加新弹药效果。周期灼烧不触发原枪弹肉体命中音效，其他正常直接受伤继续原反馈。
 
 冰冻为定身，保留小怪射击和Boss已经开始的2秒全图攻击。敌人导航组件在前摇或Frozen时Stop，否则以配置速度×MoveSpeedMultiplier追击和绕障。冻结先施加，再施加免疫；免疫施加失败撤销此次冻结。免疫内直接伤害正常，命中不会刷新免疫。火与冰可共存，不增加元素反应。当前辅助倍率复用现有属性；将来增加其他敌人减速来源时应明确组合方式，避免多个Override相互覆盖。
@@ -81,15 +85,15 @@ Burn/Chill/Frozen复用 `DemoTags` 中的Native Tags。GE采用UE5.4的TargetTag
 
 GE声明 `GameplayCue.Ammo.Burn / Chill / Frozen / FrostImmune`，爆炸和穿透执行 `GameplayCue.Ammo.Explosion / Piercing`。敌人通过原生 `IGameplayCueInterface::HandleGameplayCue` 转交状态组件：常驻效果驱动独立点光源，爆炸/穿透生成短寿命局部脉冲Actor。免疫Cue不额外显示独立特效。现有敌人HUD从Tag/Active GE读状态与层数，GC绝不扣血。
 
-本版使用原生GC接口而非新增GC蓝图或Niagara包。脉冲复用ADemoAttackPulse，但局部半径分别180/60cm；原Boss全图脉冲仍默认9000cm。后续可替换表现而不修改GE伤害逻辑。
+元素GC继续使用原生接口和ADemoAttackPulse，局部半径分别180/60cm；原Boss全图脉冲默认9000cm。实体子弹另有可空Niagara拖尾/撞墙配置，两者职责分开；后续替换表现不修改GE伤害逻辑。
 
 ## 弹道与穿透边界
 
-武器保持Hitscan。玩家所有弹道查询使用 `WeaponTrace`，由骨骼 PhysicsAsset 返回真实命中骨名。散弹每颗pellet独立检测并先乘自己的手臂/机身/核心倍率，所有贡献对同一敌人合并成一次伤害GE和一次叠层，因此一枪不会瞬间叠满。多个敌人各自最多加一层。区域资产与本轮验证见[敌人分区受击](敌人分区受击.md)；旧弹药通过记录不覆盖新增部位规则。
+四种武器均发射实体子弹，`ADemoHitscanWeapon`仅保留原生类名兼容旧BP。`WeaponTrace`用于相机瞄准；实际子弹用`PlayerProjectile`小球连续扫掠，由PhysicsAsset返回真实命中骨名。散弹每颗独立计算手臂/机身/核心倍率并提交GE，可在不同帧到达；共享ShotContext限制同枪同敌最多一层，多个敌人分别去重。区域资产和合法Hit校验见[敌人分区受击](敌人分区受击.md)。
 
-穿透先计算武器伤害、距离衰减及弹药增伤形成首命中基数，然后首敌独立乘自己的部位倍率。沿实际枪口轨迹忽略第一敌人所有组件，继续到原射程终点；最近阻挡为墙则结束，最多再伤害一个敌人，不穿墙、不递归。保留相机到枪口之间的墙体保护。后段使用尚未乘首敌部位的理论基数 × `SecondaryDamageRatio` × 后敌部位倍率，不按首敌实际扣血，也不继承首敌核心倍率。无衰减、两敌均机身时仍是基础100→首敌125→后敌62.5；若首敌核心/后敌手臂则为250/40.625。首敌只剩10HP也不改变后段基数。
+穿透先计算武器伤害、距离衰减及弹药增伤形成首命中基数，然后首敌独立乘自己的部位倍率。实际碰到首敌后忽略其全部组件，从当前接触位置继续运动扫掠；不会跳到敌后或立刻射线扣后敌血量。墙体终止飞行，最多再伤害一个敌人。保留相机到枪口的球体防墙检查，最大实际路径限制为武器Range。后段使用尚未乘首敌部位的理论基数 × `SecondaryDamageRatio` × 后敌部位倍率，不按首敌实际扣血，也不继承首敌核心倍率。无衰减、两敌均机身时仍是基础100→首敌125→后敌62.5；若首敌核心/后敌手臂则为250/40.625。首敌只剩10HP也不改变后段基数。
 
-散弹每颗pellet独立处理穿透，同一敌人可以接收不同pellet的首段或后段贡献，最终统一聚合。核心命中触发的灼烧周期和满层爆炸仍使用目录独立伤害，不再次乘部位倍率。敌方飞行物不会自动获得玩家弹药效果。
+散弹每颗独立处理穿透，同一敌人可以在不同帧接收不同弹丸的首段或后段伤害，不再合成整枪GE。核心命中触发的灼烧周期和满层爆炸仍使用发射快照/当前组首层的独立数值，不再次乘部位倍率。敌方飞行物不会自动获得玩家弹药效果。
 
 ## 检查点V4、失败处理与云端
 
@@ -106,18 +110,19 @@ Editor不创建云/API子系统，不能加开关绕过；停止试玩删除本�
 - `Weapons/Ammo/DemoAmmoCatalog.*`：可编辑数据资产、固定ID、配置检查。
 - `Weapons/Ammo/DemoAmmoComponent.*`：购买、装配、存档捕获/恢复、装配GE生命周期。
 - `GAS/Ammo/DemoAmmoEffects.*`、`DemoAmmoStatus.*`：GE模板、免疫条件、敌人栈回调与GC桥接。
-- `Player/DemoAmmoMenu.cpp`、`UI/DemoAmmoHUD.cpp`：查看/报价/确认状态与真实终端绘制；PlayerController页签使用枚举。
+- `GAS/Ammo/DemoAmmoEffectSnapshot.h`、`Weapons/Projectiles/DemoShotContext.*`：发射值快照、跨帧同枪去重；`Combat/DemoProjectileDamage.*`只由实际碰撞进入。
+- `UI/Flow/DemoAmmoMenu.cpp`、`UI/DemoAmmoHUD.cpp`：查看/报价/确认状态与真实终端绘制；PlayerController页签使用枚举。
 - `Weapons/DemoWeaponBase.cpp`、`DemoWeaponComponent.cpp`、`Characters/DemoCharacter.cpp`：弹道、装配组件和恢复接入。
 - `AI/DemoEnemy.*`、`DemoAttackPulse.*`、`UI/DemoEnemyHUD.cpp`、`Game/FPSDemoGameMode.cpp`：移动控制、表现、层数与阶段清理。
 - `Save/DemoRunSave.*`、`Backend/FPSDemo.Api/{Contracts,ProfileService,Program}.cs`：V4格式、校验和兼容；Profile/CloudSync测试隔离名单同步新增DemoAmmoTest。
 - `Tests/DemoAmmoTest.*`、`FPSDemoEditor/Tests/DemoEditorSaveTest.cpp`、`Backend/Tools/Test-Backend.ps1`：玩法/存档/HTTP回归。
 - `Content/Data/Ammo/DA_AmmoCatalog.uasset`、`Tools/Unreal/create_ammo_assets.py`：Editor创建的目录与可重跑脚本。
 
-新增函数/回调按DemoLog记录入口，拒绝分支记录原因；高频绘制/查询使用VeryVerbose。主要过滤词为AMMO_CONFIG、AMMO_PURCHASE、AMMO_EQUIP、AMMO_STACK、AMMO_FROST_REJECT、AMMO_PIERCE。数值单位和变量生命周期就地注释，日志不记录云正文或认证秘密。不要删除稳定ID、改目录顺序或修改运行中的共享GE CDO。
+新增函数/回调按DemoLog记录入口，拒绝分支记录原因；高频绘制/查询使用VeryVerbose。主要过滤词为AMMO_CONFIG、AMMO_PURCHASE、AMMO_EQUIP、AMMO_STACK、AMMO_FROST_REJECT及实体碰撞PROJECTILE_DAMAGE；AMMO_PIERCE仅用于旧射线版历史日志。数值单位和变量生命周期就地注释，日志不记录云正文或认证秘密。不要删除稳定ID、改目录顺序或修改运行中的共享GE CDO。
 
 ## 验证记录与复验方法
 
-2026-09-21已完成：
+2026-09-21历史版本已完成（以下使用当时射线流程，不作为2026-09-22实体子弹通过记录）：
 
 - Editor Development编译通过，日志 `Saved/Logs/AmmoBuildFinal.log`。
 - 真实地图 `-DemoAmmoTest` 输出 `DEMO_AMMO_TEST_SUCCESS`：取消/重复购买、独立价格、购买不自动装配、V4钱包与解锁、真实Fire GA、周期灼烧、第5层单次爆炸、冰冻减速/定身/免疫到期、穿透半伤、墙体阻挡、散弹一枪一层、死亡清理、重开保留。
@@ -125,11 +130,11 @@ Editor不创建云/API子系统，不能加开关绕过；停止试玩删除本�
 - .NET后端构建0警告/0错误，隔离账号实际HTTP/MongoDB共23项通过，包括V4上传、幂等重放、拒绝未解锁选择、金币/弹药原样读取。日志 `AmmoBackendIntegration.log`。
 - 真实1280×720截图 `Saved/Screenshots/WindowsEditor/AmmoTerminalGame.png` 已检查，四张既有图标、选中项、详情和按钮完整。
 
-复验启动真实Editor游戏时指定 `-DemoAmmoTest -unattended -nosound -LogCmds="LogFPSDemo Log"` 并打开 `/Game/Whitebox/Maps/L_ThreeSector_Whitebox`；测试自动隔离存档，正常约15秒退出。该夹具针对默认平衡数据；大幅调整时长/价格后需同步测试期望，不能为通过测试改回策划资产。
+复验启动真实Editor游戏时指定 `-DemoAmmoTest -unattended -nosound -LogCmds="LogFPSDemo Log"` 并打开 `/Game/Whitebox/Maps/L_ThreeSector_Whitebox`；测试自动隔离存档。实体弹丸必须等待有界飞行/命中后再检查数值，不能沿用“Fire GA返回即扣血”的旧断言。该夹具针对默认平衡数据；大幅调整时长/价格后需同步测试期望，不能为通过测试改回策划资产。Editor可用`Demo.Debug.ProjectileTrajectories 1`查看实际轨迹，`0`关闭，包体无此命令。
 
 待扩展人工验收：所有异常配置组合、磁盘故障注入、配置实时改价、第三目标/最大射程/多目标散弹、Boss前摇与冻结叠加、全部分辨率交互和完整多人行为。不得把已通过的基础回归当作上述项目全部验证。
 
-### 打包与协议补充验证
+### 2026-09-21历史打包与协议补充验证
 
 Development BuildCookRun（编译/Cook/Stage/Archive）通过，验证包位于`Saved/AmmoPackagedValidation/Windows/FPSDemo.exe`。打包版`-DemoAmmoTest`同样输出成功，真实1024×768截图已检查；原武器`-DemoWeaponTest`也通过，包括真实按键、四种武器、空弹匣再按射击自动装填、备用弹药、装填取消、散弹和狙击镜。日志为`AmmoPackage.log`、`AmmoPackagedRuntime.log`、`AmmoWeaponRegression.log`。
 

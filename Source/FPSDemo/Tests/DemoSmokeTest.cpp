@@ -1,4 +1,5 @@
 #include "Tests/DemoSmokeTest.h"
+#include "Tests/DemoProjectileFixtures.h"
 #include "Characters/DemoCharacter.h"
 #include "Weapons/DemoWeaponBase.h"
 #include "Weapons/DemoWeaponComponent.h"
@@ -100,9 +101,10 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 	ADemoPlayerController* PC = Cast<ADemoPlayerController>(UGameplayStatics::GetPlayerController(this,0));
 	if (!Check(Mode && State && Player && PC && Player->GetDemoASC() && Player->GetDemoAttributes(),TEXT("runtime objects initialized"))) return;
 	UDemoAbilitySystemComponent* ASC = Player->GetDemoASC();
-	// 本步读取当前装备；回归使用默认手枪，初始伤害20，终端伤害升级+5；弹药由武器实例持有。
+	// 本步读取当前装备；默认手枪基础伤害由BP维护，终端伤害升级独立加5，弹药由武器实例持有。
 	ADemoWeaponBase* Weapon = Player->GetWeaponComponent()->GetActiveWeapon();
 	if (!Check(Weapon != nullptr, TEXT("weapon loadout initialized"))) return;
+	const float AuthoredDamage=Weapon->GetClass()->GetDefaultObject<ADemoWeaponBase>()->Config.BaseDamage; // 当前真实手枪资产的基线，不能将旧20伤害固定进成长/重开断言。
 	const UDemoAttributeSet* Attributes = Player->GetDemoAttributes();
 	if (SmokeRun > 0)
 	{
@@ -111,7 +113,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 			// 实际死亡的两个重载直达安全区；系统错误回大厅，胜利先验证Hub再由测试显式旅行准备独立夹具。
 			const bool bDeathReturn = SmokeRun == 2 || SmokeRun == 4;
 			if (!Check(State->Phase == (bDeathReturn ? EDemoPhase::Hub : EDemoPhase::Lobby) && State->LevelNumber == 0 && State->Coins == 0 && State->SilverCoins == 0 && State->TotalKills == 0
-				&& State->Purchases == 0 && Attributes->GetHealth() == 100.f && Weapon->GetDamagePerPellet() == 20.f
+				&& State->Purchases == 0 && Attributes->GetHealth() == 100.f && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage,.01f)
 				&& Weapon->GetAmmo() == 12.f && Weapon->GetCapacity() == 12.f && Attributes->GetMaxHealth() == 100.f
 				&& Player->GetHealAmount() == 35.f && !ASC->HasMatchingGameplayTag(DemoTags::Dead),TEXT("OpenLevel clears growth/silver/death tag but preserves earned gold"))) return;
 			if (bDeathReturn && !Check(State->Difficulty == EDemoDifficulty::Hard && !PC->IsMoveInputIgnored() && !PC->bShowMouseCursor
@@ -153,9 +155,9 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 			PC->SelectUpgrade(1); // 免费奖励改变 Pawn 的治疗升级，验证它不会跨死亡保留。
 			Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
 			Mode->GetShopTerminal()->Interact(Player);
-			PC->SelectUpgrade(0); // 真实购买改变 GAS 伤害，留下 30 金币供死亡重置验证。
+			PC->SelectUpgrade(0); // 真实购买改变GAS伤害，留下30银币供死亡清空验证。
 			PC->CloseUpgradeMenu();
-			if (!Check(State->Coins == 0 && State->SilverCoins == 30 && Weapon->GetDamagePerPellet() == 25.f && Player->GetHealAmount() == 55.f, TEXT("death-reset setup has coins and both GAS/Pawn upgrades"))) return;
+			if (!Check(State->Coins == 0 && State->SilverCoins == 30 && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage+5.f,.01f) && Player->GetHealAmount() == 55.f, TEXT("death-reset setup has coins and both GAS/Pawn upgrades"))) return;
 			Mode->StartNextLevel();
 			// 真实 Tick/GE 杀死第二关玩家；各怪分散，避免相互遮挡近战视线。
 			int32 EnemyIndex = 0; // 活怪环形槽位。
@@ -182,6 +184,13 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		if (!Check(State->Phase == EDemoPhase::Lobby && PC->bShowMouseCursor && PC->IsMoveInputIgnored(), TEXT("startup waits in lobby"))) return;
 		Mode->StartRun(); // GAS用例直接建立隔离新局，存档菜单由Session专项覆盖；普通首关基础60HP。
 		PC->OnRunReady();
+		ExpectedCampaignKills=0;
+		for (int32 Number=1;Number<=DemoCombatConfig::LevelCount;++Number) // 基于正式配置验证整轮总计，配置调整不能遗留旧Boss数量预期。
+		{
+			FDemoLevelRow Level; FDemoDifficultyRow Difficulty; FString Error; // 同步只读行副本及失败原因，不更改资产或规则。
+			if (!Check(Mode->GetLevelConfig(Number,Level,Difficulty,Error),TEXT("campaign expectation reads validated level configuration"))) return;
+			ExpectedCampaignKills+=Level.EnemyCount+(Level.BossRow.IsNone()?0:1); ExpectedVictoryGold=Difficulty.VictoryGoldReward;
+		}
 		if (!Check(State->Phase == EDemoPhase::Hub && State->LevelNumber == 0 && State->EnemiesRemaining == 0 && Attributes->GetHealth() == 100.f,TEXT("safe hub starts without enemies or damage"))) return;
 		if (!Check(ASC->GetOwnerActor() == Player->GetPlayerState() && ASC->GetAvatarActor() == Player && ASC->GetActivatableAbilities().Num() == 5,TEXT("PlayerState owns ASC, Pawn is Avatar, five abilities granted including aim"))) return;
 		if (!Check(!ASC->ActivateDemoAbility(UDemoFireAbility::StaticClass()) && Weapon->GetAmmo() == 12.f,TEXT("safe hub rejects combat without spending ammo"))) return;
@@ -196,16 +205,26 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		PC->CloseUpgradeMenu();
 		Mode->StartNextLevel();
 		if (!Check(State->EnemiesRemaining == 5,TEXT("sector one contains five minions"))) return;
-		// 首个用例固定敌人避免移动导致射线断言抖动；自然 AI 在第二局单独验证。
+		// 首个用例固定敌人，让实体弹有真实飞行时间；自然AI在第二局单独验证。
 		for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) { It->SetActorTickEnabled(false); if (!ShotTarget.IsValid()) ShotTarget = *It; }
 		ShotTarget->SetActorLocation(Player->GetActorLocation()+FVector(500,0,60));
 		PC->SetControlRotation(FRotator::ZeroRotator);
 		Advance(1,0.3f);
 		break;
 	case 1:
+		ShotHealthBefore=ShotTarget->GetHealth(); // 保存伤前值，提交调用栈内必须仍未造成命中。
 		if (!Check(ASC->ActivateDemoAbility(UDemoFireAbility::StaticClass()),TEXT("fire ability commits"))) return;
-		// 新局默认手枪单发20伤害，60HP首关目标剩40；弹药仍准确消耗一发。
-		if (!Check(Weapon->GetAmmo() == 11.f && ShotTarget->GetHealth() == 40.f,TEXT("hitscan deals GE damage and spends exactly one round"))) return;
+		if (!Check(Weapon->GetAmmo()==11.f && ShotTarget->GetHealth()==ShotHealthBefore,TEXT("fire consumes one round before projectile arrival without instant damage"))) return;
+		if (!Check(!ASC->ActivateDemoAbility(UDemoFireAbility::StaticClass()) && Weapon->GetAmmo()==11.f,TEXT("fire cooldown blocks immediate repeat without extra cost"))) return;
+		ShotDeadline=GetWorld()->GetTimeSeconds()+1.5f; Advance(13,.02f); break;
+	case 13:
+		if (DemoProjectileFixtures::CountLive(GetWorld())>0)
+		{
+			if (!Check(GetWorld()->GetTimeSeconds()<ShotDeadline,TEXT("smoke projectile bounded flight"))) return;
+			return;
+		}
+		// 等到真实碰撞后验证当前武器值；资产数值调优不会被旧默认20硬编码误判。
+		if (!Check(Weapon->GetAmmo()==11.f && FMath::IsNearlyEqual(ShotTarget->GetHealth(),ShotHealthBefore-Weapon->GetDamagePerPellet(),.02f),TEXT("arrived projectile deals one GAS hit and spends exactly one round"))) return;
 		// 显式音频验证需要真实 AudioDevice（不要传 -nosound）；不仅检查“调用过播放函数”。
 		if (FParse::Param(FCommandLine::Get(), TEXT("DemoAudioValidation")))
 		{
@@ -223,7 +242,6 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 			AudioProbe->Destroy();
 			if (!Check(CountWeaponVoices(TEXT("Weapon.Hit")) == 1,TEXT("audio: lower initial health configuration does not play hit cue"))) return;
 		}
-		if (!Check(!ASC->ActivateDemoAbility(UDemoFireAbility::StaticClass()) && Weapon->GetAmmo() == 11.f,TEXT("fire cooldown blocks repeat with no extra cost"))) return;
 		if (FParse::Param(FCommandLine::Get(), TEXT("DemoAudioValidation"))
 			&& !Check(CountWeaponVoices(TEXT("Weapon.Fire")) == 1,TEXT("audio: rejected shot creates no extra fire voice"))) return;
 		DemoEffects::Apply(ASC,ASC,UDemoHealthEffect::StaticClass(),-40.f);
@@ -272,7 +290,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		if (!Check(!Mode->PurchaseUpgrade(0,Player) && State->Coins == 0,TEXT("shop enforces distance at transaction time"))) return;
 		Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
 		PC->GetHUD<ADemoHUD>()->NotifyHitBoxClick(TEXT("Upgrade0"));
-		if (!Check(State->Coins == 0 && State->SilverCoins == 30 && Weapon->GetDamagePerPellet() == 25.f,TEXT("first shop purchase costs 20 and adds 5 damage"))) return;
+		if (!Check(State->Coins == 0 && State->SilverCoins == 30 && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage+5.f,.01f),TEXT("first shop purchase costs 20 and adds 5 damage"))) return;
 		PC->SelectUpgrade(2);
 		if (!Check(State->Coins == 0 && State->SilverCoins == 10 && Weapon->GetCapacity() == 16.f && !Mode->PurchaseUpgrade(1,Player),TEXT("different attribute still costs 20, capacity increases, overspend rejected"))) return;
 		PC->CloseUpgradeMenu();
@@ -290,7 +308,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 	case 14:
 		// 按真实配置推进第3..10关；第10关留下Boss验证不能提前结束，第5关只有混编小怪。
 		if (!Check(State->Phase == EDemoPhase::Combat, TEXT("remaining campaign level starts combat"))) return;
-		if (State->LevelNumber != 5 && State->LevelNumber != 10) { ClearCurrentLevel(); Advance(15,0.3f); break; }
+		if (State->LevelNumber != 10) { ClearCurrentLevel(); Advance(15,0.3f); break; } // 第5关也是普通清关，只第10关等待独立Boss存活断言。
 		// 仅击杀小怪，验证 Boss 活着时不会提前胜利。
 		for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It)
 		{
@@ -316,15 +334,15 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		Advance(14,0.3f);
 		break;
 	case 10:
-		// 默认十关金币50×10，击杀银币在最终胜利清空；购买与免费成长也清空。
-		if (!Check(State->Phase == EDemoPhase::Victory && State->TotalKills == 96 && State->Coins == 750 && State->SilverCoins == 0 && !Mode->HasRunUpgrades(),TEXT("ten levels: exact level coins, two Boss rewards and kill count"))) return;
+		// 金币仅整轮通关按难度配置发放；第10关唯一Boss计入总数，银币与临时成长在最终胜利清空。
+		if (!Check(State->Phase == EDemoPhase::Victory && State->TotalKills == ExpectedCampaignKills && State->Coins == ExpectedVictoryGold && State->SilverCoins == 0 && !Mode->HasRunUpgrades(),TEXT("ten levels: configured victory gold, single final Boss and exact kill count"))) return;
 		if (!Check(!ASC->ActivateDemoAbility(UDemoFireAbility::StaticClass()),TEXT("victory blocks combat"))) return;
 		Capture(TEXT("06-Victory"));
 		Advance(11,0.3f);
 		break;
 	case 11:
 		Mode->RestartDemo();
-		if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==750 && State->SilverCoins==0 && State->TotalKills==96 && !PC->IsMoveInputIgnored(),TEXT("victory continues in safe hub without losing economy"))) return;
+		if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==ExpectedVictoryGold && State->SilverCoins==0 && State->TotalKills==ExpectedCampaignKills && !PC->IsMoveInputIgnored(),TEXT("victory continues in safe hub without losing economy"))) return;
 		++SmokeRun;
 		Mode->TravelToRun(false); // 后续死亡用例需要独立默认角色，显式回大厅建立测试夹具，不再依赖旧胜利重载行为。
 		SetActorTickEnabled(false);

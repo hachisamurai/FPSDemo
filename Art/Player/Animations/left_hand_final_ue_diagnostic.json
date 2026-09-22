@@ -76,9 +76,155 @@
       "weights_max_error": 0.0
     }
   ],
+  "motion_checks": [
+    {
+      "model": "Pistol",
+      "variant": "Idle",
+      "wrist_rotation_degrees": 0.03956468205889273,
+      "finger_tip_relative_hand_degrees": {
+        "index": 0.03956468205889273,
+        "middle": 0.0,
+        "ring": 0.0,
+        "pinky": 0.03956468205889273,
+        "thumb": 0.05595291023658669
+      }
+    },
+    {
+      "model": "Pistol",
+      "variant": "Tactical",
+      "wrist_rotation_degrees": 129.61007826850349,
+      "finger_tip_relative_hand_degrees": {
+        "index": 64.99992956182606,
+        "middle": 43.00000947145697,
+        "ring": 43.00004674382835,
+        "pinky": 42.99997219905481,
+        "thumb": 60.000017222712415
+      }
+    },
+    {
+      "model": "Pistol",
+      "variant": "Empty",
+      "wrist_rotation_degrees": 129.53522536176027,
+      "finger_tip_relative_hand_degrees": {
+        "index": 64.99994227390525,
+        "middle": 43.00000947145697,
+        "ring": 43.00004674382835,
+        "pinky": 42.99999083525974,
+        "thumb": 59.99998990195721
+      }
+    },
+    {
+      "model": "Rifle",
+      "variant": "Idle",
+      "wrist_rotation_degrees": 0.0,
+      "finger_tip_relative_hand_degrees": {
+        "index": 0.0,
+        "middle": 0.0,
+        "ring": 0.0,
+        "pinky": 0.0,
+        "thumb": 0.05595291023658669
+      }
+    },
+    {
+      "model": "Rifle",
+      "variant": "Tactical",
+      "wrist_rotation_degrees": 112.24368365104661,
+      "finger_tip_relative_hand_degrees": {
+        "index": 42.99997219905481,
+        "middle": 43.00000947145697,
+        "ring": 43.00004674382835,
+        "pinky": 42.99997219905481,
+        "thumb": 60.000003562336225
+      }
+    },
+    {
+      "model": "Rifle",
+      "variant": "Empty",
+      "wrist_rotation_degrees": 112.19617483042306,
+      "finger_tip_relative_hand_degrees": {
+        "index": 64.99995498598221,
+        "middle": 43.00000947145697,
+        "ring": 43.00004674382835,
+        "pinky": 42.99997219905481,
+        "thumb": 60.000003562336225
+      }
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Idle",
+      "wrist_rotation_degrees": 0.0,
+      "finger_tip_relative_hand_degrees": {
+        "index": 0.0,
+        "middle": 0.0,
+        "ring": 0.0,
+        "pinky": 0.0,
+        "thumb": 0.05595291023658669
+      }
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Tactical",
+      "wrist_rotation_degrees": 112.25681330228778,
+      "finger_tip_relative_hand_degrees": {
+        "index": 42.99997219905481,
+        "middle": 43.00000947145697,
+        "ring": 43.00000947145697,
+        "pinky": 42.99997219905481,
+        "thumb": 60.000003562336225
+      }
+    },
+    {
+      "model": "Shotgun",
+      "variant": "Empty",
+      "wrist_rotation_degrees": 112.24951643407131,
+      "finger_tip_relative_hand_degrees": {
+        "index": 64.99995498598221,
+        "middle": 43.00000947145697,
+        "ring": 43.0000281076465,
+        "pinky": 42.99997219905481,
+        "thumb": 60.000003562336225
+      }
+    },
+    {
+      "model": "Sniper",
+      "variant": "Idle",
+      "wrist_rotation_degrees": 0.0,
+      "finger_tip_relative_hand_degrees": {
+        "index": 0.0,
+        "middle": 0.0,
+        "ring": 0.0,
+        "pinky": 0.0,
+        "thumb": 0.05595291023658669
+      }
+    },
+    {
+      "model": "Sniper",
+      "variant": "Tactical",
+      "wrist_rotation_degrees": 112.26064670672918,
+      "finger_tip_relative_hand_degrees": {
+        "index": 42.99997219905481,
+        "middle": 43.00000947145697,
+        "ring": 43.00004674382835,
+        "pinky": 42.99997219905481,
+        "thumb": 60.000003562336225
+      }
+    },
+    {
+      "model": "Sniper",
+      "variant": "Empty",
+      "wrist_rotation_degrees": 112.25001003138557,
+      "finger_tip_relative_hand_degrees": {
+        "index": 42.99997219905481,
+        "middle": 43.00000947145697,
+        "ring": 43.00000947145697,
+        "pinky": 42.99997219905481,
+        "thumb": 60.000017222712415
+      }
+    }
+  ],
   "sample_count": 1027,
-  "failed_samples": 2,
-  "max_depth_cm": 0.04472923278808594,
+  "failed_samples": 0,
+  "max_depth_cm": 0,
   "stock_sample_count": 836,
   "stock_failed_samples": 0,
   "samples": [
@@ -2384,22 +2530,7 @@
       "model": "Rifle",
       "variant": "Empty",
       "phase": 0.8,
-      "hits": [
-        {
-          "piece": "Charging handle grip",
-          "vertices": 4,
-          "max_depth_cm": 0.04472923278808594,
-          "worst": {
-            "bone": "thumb_02_l",
-            "point_gun_blender": [
-              2.378528594970703,
-              5.696125030517578,
-              12.355270385742188
-            ],
-            "depth_cm": 0.04472923278808594
-          }
-        }
-      ]
+      "hits": []
     },
     {
       "model": "Rifle",
@@ -4235,22 +4366,7 @@
       "model": "Shotgun",
       "variant": "Empty",
       "phase": 0.82,
-      "hits": [
-        {
-          "piece": "Charging handle grip.001",
-          "vertices": 1,
-          "max_depth_cm": 0.03645133972167969,
-          "worst": {
-            "bone": "thumb_02_l",
-            "point_gun_blender": [
-              2.3638267517089844,
-              6.0844573974609375,
-              12.363548278808594
-            ],
-            "depth_cm": 0.03645133972167969
-          }
-        }
-      ]
+      "hits": []
     },
     {
       "model": "Shotgun",

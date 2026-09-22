@@ -3,20 +3,20 @@
     "model": "Pistol",
     "variant": "Tactical",
     "file": "Pistol_Tactical.mp4",
-    "captured_frames": 26,
+    "captured_frames": 25,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 1.301695,
-    "bytes": 171198,
+    "last_game_seconds": 1.309844,
+    "bytes": 172512,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   },
   {
     "model": "Pistol",
     "variant": "Empty",
     "file": "Pistol_Empty.mp4",
-    "captured_frames": 25,
+    "captured_frames": 23,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 1.289358,
-    "bytes": 185350,
+    "last_game_seconds": 1.288756,
+    "bytes": 179740,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   },
   {
@@ -25,8 +25,8 @@
     "file": "Rifle_Tactical.mp4",
     "captured_frames": 29,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 1.466812,
-    "bytes": 253060,
+    "last_game_seconds": 1.477679,
+    "bytes": 250454,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   },
   {
@@ -35,18 +35,18 @@
     "file": "Rifle_Empty.mp4",
     "captured_frames": 28,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 1.480956,
-    "bytes": 245933,
+    "last_game_seconds": 1.475722,
+    "bytes": 239731,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   },
   {
     "model": "Shotgun",
     "variant": "Tactical",
     "file": "Shotgun_Tactical.mp4",
-    "captured_frames": 40,
+    "captured_frames": 41,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 2.318949,
-    "bytes": 298823,
+    "last_game_seconds": 2.316177,
+    "bytes": 297673,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   },
   {
@@ -55,8 +55,8 @@
     "file": "Shotgun_Empty.mp4",
     "captured_frames": 38,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 2.309032,
-    "bytes": 297439,
+    "last_game_seconds": 2.285938,
+    "bytes": 306041,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   },
   {
@@ -65,8 +65,8 @@
     "file": "Sniper_Tactical.mp4",
     "captured_frames": 43,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 2.58205,
-    "bytes": 353257,
+    "last_game_seconds": 2.575363,
+    "bytes": 358033,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   },
   {
@@ -75,8 +75,8 @@
     "file": "Sniper_Empty.mp4",
     "captured_frames": 42,
     "first_game_seconds": 0.0,
-    "last_game_seconds": 2.61829,
-    "bytes": 349179,
+    "last_game_seconds": 2.609383,
+    "bytes": 344998,
     "audio_source": "manifest-timed original mechanical mix, gain 0.75; not loopback recording"
   }
 ]

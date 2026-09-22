@@ -87,7 +87,7 @@ def main():
 <style>body{background:#101a21;color:#dbe8ec;font:16px system-ui;margin:32px auto;max-width:1280px;padding:0 24px}
 h1{letter-spacing:.2em;color:#82ddd5}p{line-height:1.8;color:#acbec7}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:24px}
 article{background:#182832;border:1px solid #29444f;padding:14px;border-radius:12px}h2{font-size:18px;font-weight:500}video{width:100%;border-radius:6px}</style>
-<h1>BREACH / RELOAD</h1><p>四种枪械 · 普通与空仓换弹。画面来自UE实际运行录帧，按每帧游戏时间还原动作速度；
+<h1>BREACH / RELOAD</h1><p>左手转腕与握匣修正版：张手接近 → 转腕握匣 → 抽匣 → 插匣 → 松手回握；空仓追加机械操作。</p><p>四种枪械 · 普通与空仓换弹。画面来自UE实际运行录帧，按每帧游戏时间还原动作速度；
 音轨由游戏使用的原创机械声按同一动作时间表合成，便于核对拔匣、插匣与拉栓时点，并非声卡实录。</p><main>'''
     (OUTPUT / "index.html").write_text(page + "\n".join(cards) + "</main></html>", encoding="utf-8")
     (OUTPUT / "video_preview_manifest.json").write_text(json.dumps(clips, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

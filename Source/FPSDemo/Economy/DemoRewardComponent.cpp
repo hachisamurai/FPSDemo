@@ -9,12 +9,13 @@
 #include "Debug/DemoLog.h"
 
 UDemoRewardComponent::UDemoRewardComponent() { DEMO_LOG_CALL(); PrimaryComponentTick.bCanEverTick = false; }
-void UDemoRewardComponent::BeginPlay()
+void UDemoRewardComponent::InitializeSpawner(UDemoEnemySpawnComponent* SpawnerService)
 {
-    DEMO_LOG_CALL(); Super::BeginPlay();
-    Spawner = GetOwner()->FindComponentByClass<UDemoEnemySpawnComponent>();
-    if (Spawner.IsValid()) Spawner->OnEnemyDefeated.AddUObject(this, &UDemoRewardComponent::HandleEnemyDefeated);
-    else UE_LOG(LogFPSDemo, Error, TEXT("REWARD_BIND missing spawn component"));
+    DEMO_LOG_CALL();
+    if (!SpawnerService || SpawnerService->GetOwner() != GetOwner()) { UE_LOG(LogFPSDemo, Error, TEXT("REWARD_BIND missing/foreign spawn service")); return; }
+    if (Spawner.IsValid()) Spawner->OnEnemyDefeated.RemoveAll(this);
+    Spawner = SpawnerService;
+    Spawner->OnEnemyDefeated.AddUObject(this, &UDemoRewardComponent::HandleEnemyDefeated); // 同World游戏线程UObject委托，EndPlay精确解绑。
 }
 void UDemoRewardComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {

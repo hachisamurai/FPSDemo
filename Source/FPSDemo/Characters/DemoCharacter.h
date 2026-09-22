@@ -13,6 +13,8 @@ class USoundBase;
 class UAnimMontage;
 class UAnimSequence;
 struct FOnAttributeChangeData;
+// 游戏线程就绪事件；无Pawn参数，订阅方必须验证当前Avatar身份，支持已就绪后的立即查询。
+DECLARE_MULTICAST_DELEGATE(FDemoAvatarReady);
 
 /** 保留模板手臂和摄像机，新增 GAS Avatar 生命周期、技能输入和安全区交互。 */
 UCLASS()
@@ -20,6 +22,7 @@ class FPSDEMO_API ADemoCharacter : public AFPSDemoCharacter, public IAbilitySyst
 {
 	GENERATED_BODY()
 public:
+	FDemoAvatarReady OnDemoAvatarReady; // GAS和初始装备准备后广播，组件结束时由订阅方解绑。
 	/** 加载模板手臂并创建装备组件；枪械配置由派生武器蓝图负责。 */
 	ADemoCharacter();
 	/** NewController 为权威端新控制器；Possess 完成后绑定 PlayerState ASC。 */
@@ -42,7 +45,7 @@ public:
 	bool CanUseCombatAbilities() const;
 	/** 冲刺/治疗允许Combat、清关Intermission和Hub；存活且关闭奖励/终端/出发/暂停菜单才可用，HUD共用。 */
 	bool CanUsePlayerSkills() const;
-	/** Fire GA Commit成功后的转发入口，当前武器执行弹道与表现。 */
+	/** 旧调用兼容转发：仅已有Prepare/Commit凭据的当前武器可发射；正式Fire GA直接使用其绑定实例。 */
 	void PerformShot();
 	/** 返回Pawn拥有的装备组件借用引用，用于GA/HUD和蓝图查询。 */
 	UFUNCTION(BlueprintPure, Category="Weapon") UDemoWeaponComponent* GetWeaponComponent() const;

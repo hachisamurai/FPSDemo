@@ -17,6 +17,10 @@ public:
 private:
     /** -DemoSpawnSystemTest：真实组件队列、区域、取消、阻挡重试、异常销毁与奖励权限边界。 */
     void TickSpawnSystemTest();
+    /** 在Spawn专项的Hub夹具验证服务归属、重复就绪、终端版本/回滚与旧UI失效；不旅行。 */
+    bool CheckComponentLifecycles();
+    /** 专项结束时验证幂等Shutdown和迟到请求；调用后此World不能再进行其他业务。 */
+    bool CheckComponentShutdown();
     /** 组件事件同步回调；Enemy/Reason只在调用栈借用，计数用于验证一次性通知。 */
     void OnTestSpawnDefeated(ADemoEnemy* Enemy);
     void OnTestSpawnCleared();
@@ -31,11 +35,14 @@ private:
     float CloseBeforeHealth=0.f; // 当前场景玩家实际健康快照，用于精确一次伤害断言。
     float CloseStartTime=0.f; // 起手观察World秒，验证前摇不会提前结算。
     FVector CloseLockedDirection=FVector::ZeroVector; // 起手方向值快照，验证玩家移动后不追踪。
-    /** -DemoEnemyHitZoneTest：真PhysicsAsset射线、三部位GAS伤害、护板开合及元素/穿透回归。 */
+    /** -DemoEnemyHitZoneTest：真PhysicsAsset瞄准与实体弹三部位伤害、护板开合及元素/穿透回归。 */
     void TickHitZoneTest();
     // 测试通过真实骨骼查询找到的稳定模型空间命中点；索引0机身、1手臂、2核心，不跨关卡保留。
     FVector HitZonePoints[3]={FVector::ZeroVector,FVector::ZeroVector,FVector::ZeroVector};
     float HitZoneHealth=0.f; // 当前步骤伤前生命值，供异步动画/周期效果后的结算断言。
+    float HitZoneRearHealth=0.f; // 后方穿透靶伤前快照，跨飞行帧独立保留。
+    bool bHitZoneShotPending=false; // 本步骤只提交一次真实Fire GA，后续帧只轮询弹丸结束。
+    float HitZoneShotDeadline=0.f; // 实体弹有界等待的World秒截止时间。
     /** -DemoEnemyAnimationTest：真实World/AnimBP/GAS任务、骨姿势、冻结、优先级与死亡生命周期。 */
     void TickAnimationTest();
     FVector AnimationBone=FVector::ZeroVector; // 首次播放前forearm_l模型空间位置，验证姿势真的变化。
