@@ -1,3 +1,4 @@
+// 职责：Editor离线构建/校验原生随机Sound Cue；Python通过AssetTools创建保存，默认兼容旧三变体，不参与运行时或网络。
 #pragma once
 
 #include "CoreMinimal.h"
@@ -26,6 +27,9 @@ struct FDemoWeaponCueSettings
     /** Cue 总线性音量，范围 (0,1]；与源 WAV 峰值分开，给游戏混音留余量。 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio")
     float Volume = 1.f;
+    /** 实际独立波形数，范围1..16；旧调用默认3，V3允许2个实录/1个Foley而不伪造变体。 */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio", meta=(ClampMin="1", ClampMax="16"))
+    int32 VariantCount = 3;
 };
 
 /** UE5.4 Python 无公开 SoundCue 图连线 API；通过此编辑器专用桥接使用引擎原生图构建。
@@ -35,7 +39,7 @@ class FPSDEMOEDITOR_API UDemoAudioAssetLibrary : public UBlueprintFunctionLibrar
 {
     GENERATED_BODY()
 public:
-    /** Cue 是 AssetTools 创建的目标，Waves 恰好三个独立 SoundWave，Attenuation 是共享衰减资产。
+    /** Cue 是 AssetTools 创建的目标，Waves为旧默认三个独立SoundWave，Attenuation为共享衰减资产。
      * 返回 false 时 Python 必须停止保存；已有正确拓扑会更新，不累计多余节点。 */
     UFUNCTION(BlueprintCallable, Category="Demo|Editor|Audio")
     static bool ConfigureWeaponCue(USoundCue* Cue, const TArray<USoundWave*>& Waves, USoundAttenuation* Attenuation);
@@ -45,7 +49,7 @@ public:
     static bool ValidateWeaponCue(USoundCue* Cue);
 
     /** Cue/Waves/Attenuation 为同步借用的 Editor 资产；Settings 定义音色随机范围、时长和混音余量。
-     * 只更新匹配的三分支图；非法参数拒绝修改，返回 false 时调用者停止保存。 */
+     * Waves须恰有Settings.VariantCount个独立波形，只更新同分支数的图；非法输入停止保存。 */
     UFUNCTION(BlueprintCallable, Category="Demo|Editor|Audio")
     static bool ConfigureWeaponCueWithSettings(USoundCue* Cue, const TArray<USoundWave*>& Waves,
         USoundAttenuation* Attenuation, const FDemoWeaponCueSettings& Settings);

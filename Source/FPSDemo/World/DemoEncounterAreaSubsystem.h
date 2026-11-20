@@ -1,3 +1,4 @@
+// 职责：本World旧区域注册与统一场景快照；流送房间激活后按相同ArenaIndex路由，调用方不持有关卡Actor。
 #pragma once
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
@@ -10,9 +11,14 @@ struct FPSDEMO_API FDemoAreaSnapshot
     FTransform Transform; // 地面原点和旋转，忽略Actor缩放，单位cm。
     FDemoSpawnGeometry Geometry; // 已验证的敌人出生几何。
     FVector CombatStart; // 玩家战斗入场世界位置cm。
+    /** MemberIndex为队伍顺序（0..3）。准备、传送及固定禁刷区共用同一世界坐标。 */
+    FVector GetCombatLandingPoint(int32 MemberIndex) const;
     FVector PreparedStart; // 安全区/检查点入场世界位置cm。
     FVector ShopAnchor; // 升级终端的地面世界坐标cm，生成时另行射线对地。
     FVector NextAnchor; // 出发终端的地面世界坐标cm。
+    bool bRoomAnchors = false; // true表示来自真实流送房间，目标使用下方作者锚点而非Campaign旧全局偏移。
+    TArray<FVector> DeviceAnchors; // 房间定义的两处设施世界坐标cm，仅值快照，不延长Actor生命周期。
+    TArray<FVector> ControlAnchors; // 房间定义的三个控制区世界坐标cm，作者配置经房间准备验证。
 };
 
 /** 每World区域注册/查询服务；不保存战局阶段、玩家或GameMode引用。 */
@@ -21,6 +27,9 @@ class FPSDEMO_API UDemoEncounterAreaSubsystem : public UWorldSubsystem
 {
     GENERATED_BODY()
 public:
+    /** R03安全区地板完整尺寸cm；回退生成与Editor作者共用，只扩大Hub，不改变战斗区/入场锚点。 */
+    UFUNCTION(BlueprintPure, Category="Demo|World")
+    static FVector2D GetDefaultHubFloorSizeCm();
     /** WorldType仅Game/PIE创建，不在资产预览或编辑器场景自动生成地形。 */
     virtual bool DoesSupportWorldType(EWorldType::Type WorldType) const override;
     /** Collection为当前World集合；只初始化索引，不要求GameMode/地图Actor已就绪。 */

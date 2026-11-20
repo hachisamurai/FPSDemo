@@ -1,4 +1,8 @@
+// 职责：隔离单人武器来源/完整战役与装备保持专项；武器UI使用现行目录直接装配，无二级详情。
+// 使用：显式-DemoArmoryTest；CommonUI与Legacy Canvas按各自真实按钮路径验证，其他历史战役/存档边界仍须实际运行。
+// 编译边界：CommonUI按钮自动点击仅Editor可用；非Editor保留原Canvas路径，Widget夹具明确失败，不暴露测试接口到包体。
 #include "Tests/DemoArmoryTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Debug/DemoLog.h"
 #include "Player/DemoPlayerProfile.h"
 #include "Player/DemoPlayerController.h"
@@ -9,6 +13,10 @@
 #include "Game/FPSDemoGameMode.h"
 #include "Interaction/DemoInteractable.h"
 #include "UI/DemoHUD.h"
+#include "UI/Common/DemoUIManager.h" // 当前菜单栈只读及真实按钮，不能用不存在的Canvas热区证明UMG可用。
+#include "UI/Common/DemoMenuScreen.h"
+#include "UI/Common/DemoMenuButton.h"
+#include "UI/Flow/DemoMenuFlowComponent.h" // 伪造请求拒绝仍走同一正式目录装备入口。
 #include "AI/DemoEnemy.h"
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoAbilitySystemComponent.h"
@@ -23,6 +31,17 @@
 
 namespace
 {
+    /** UI为本同步测试步借用，Action为稳定按钮名；仅Editor触发真实按钮，非Editor不会编译或调用Editor专用入口。 */
+    bool PressArmoryWidgetAction(UDemoUIManager* UI,FName Action)
+    {
+        UE_LOG(LogFPSDemo,Log,TEXT("[CALL] PressArmoryWidgetAction action=%s"),*Action.ToString());
+#if WITH_EDITOR
+        return UI && UI->PressActionForTest(Action);
+#else
+        UE_LOG(LogFPSDemo,Warning,TEXT("ARMORY_TEST CommonUI action requires Editor build"));
+        return false;
+#endif
+    }
     // 仅专用测试进程跨OpenLevel：0..2依次完整通关三难度，3装备检查，4死亡重载检查。
     int32 ArmoryRun = 0;
 }
@@ -54,6 +73,13 @@ void ADemoArmoryTest::Tick(float DeltaSeconds)
     ADemoHUD* HUD = PC ? PC->GetHUD<ADemoHUD>() : nullptr; // 真实Canvas热区。
     if (!Check(Player && Mode && State && Profile && HUD, TEXT("runtime dependencies ready"))) return;
     UDemoWeaponComponent* Equipment = Player->GetWeaponComponent(); // 本步借用当前装备，不跨地图缓存。
+    UDemoUIManager* UI=PC->FindComponentByClass<UDemoUIManager>(); // 真实本机菜单协调器，允许Legacy回退为空/不活动。
+    if(UI) UI->Sync();
+    const bool bWidget=UI&&UI->UsesWidgetMenu(); // UI与Canvas的点击合同不同，不能混用它们的热区证明。
+#if !WITH_EDITOR
+    // 缺少Editor按钮模拟时显式终止该夹具，不能把未点击的false误算为“锁定按钮正确拒绝”。
+    if (bWidget) { Check(false,TEXT("CommonUI armory fixture requires an Editor build; packaged UI must be exercised by real input")); return; }
+#endif
     switch (Step)
     {
     case 0:
@@ -63,10 +89,10 @@ void ADemoArmoryTest::Tick(float DeltaSeconds)
         if (ArmoryRun == 4)
         {
             if (!Check(State->Phase == EDemoPhase::Hub && Profile->GetData().UnlockedWeaponIds.Num() == 4
-                && Profile->GetData().LastSelectedPrimary == TEXT("sniper") && State->Coins == 0
+                && Profile->GetData().LastSelectedPrimary == TEXT("sniper") && DemoTestProgress::Read(State).Coins == 0
                 && Count == 4 && Equipment->GetPrimaryIndex() == 0 && Equipment->GetActiveSlot() == 1
                 && Equipment->GetActiveWeapon()->GetAmmo() == Equipment->GetActiveWeapon()->GetCapacity(), TEXT("death retains real rifle loadout, refills ammo and ignores different account preference"))) return; // 无活动槽开发World也必须跨旅行保留装备值。
-            UE_LOG(LogFPSDemo, Display, TEXT("DEMO_ARMORY_SUCCESS: three full difficulty clears, death equipment retention, terminal equip, locks, save roundtrip, upload contract, modal hitboxes"));
+            UE_LOG(LogFPSDemo, Display, TEXT("DEMO_ARMORY_SUCCESS: three full difficulty clears, death equipment retention, terminal equip, locks, save roundtrip, upload contract, inline direct-equip UI"));
             FPlatformMisc::RequestExitWithStatus(false, 0);
             SetActorTickEnabled(false);
             return;
@@ -103,13 +129,23 @@ void ADemoArmoryTest::Tick(float DeltaSeconds)
                 && HUD->GetWeaponIcon(0)->GetPathName() == TEXT("/Game/StarterContent/Textures/T_Brick_Clay_Old_D.T_Brick_Clay_Old_D")
                 && !HUD->GetWeaponIcon(2) && !HUD->GetWeaponIcon(3), TEXT("configured soft icons loaded/shared; null and invalid icons fallback"))) return;
         }
-        if (!Check(PC->IsWeaponMenuOpen() && HUD->GetHitBoxWithName(TEXT("Weapon0")) && HUD->GetHitBoxWithName(TEXT("Weapon3")), TEXT("terminal renders four clickable items"))) return;
-        int32 Width = 0; // 实际视口尺寸，用于验证卡片坐标与生产缩放一致。
-        int32 Height = 0; // 非16:9时锚点仍在视口中心。
-        PC->GetViewportSize(Width, Height);
-        const float Scale = FMath::Min(Width/1280.f, Height/720.f); // Canvas设计坐标比例。
-        const FHUDHitBox* Hit = HUD->GetHitBoxAtCoordinates(FVector2D(Width,Height)/2.f + FVector2D(-110,-20)*Scale, true); // 第二卡片中心。
-        if (!Check(Hit && Hit->GetName() == TEXT("Weapon1"), TEXT("scaled point resolves rifle card"))) return;
+        if (!Check(PC->IsWeaponMenuOpen()&&PC->GetMenuFlow()->GetInspectedWeapon()==INDEX_NONE, TEXT("actual weapon menu is open"))) return;
+        if(bWidget)
+        {
+            const UDemoMenuScreen* Screen=UI->GetActiveScreen(); // 真实四项目录皆可预览，但锁定/手枪不能提交主武器装配。
+            if(!Check(Screen&&Screen->FindAction(TEXT("Weapon0"))&&Screen->FindAction(TEXT("Weapon3"))&&UI->GetModalStackCount()==0
+                &&!Screen->FindAction(TEXT("WeaponTipClose")),TEXT("actual CommonUI catalogue has four previews and no removed weapon detail modal"))) return;
+        }
+        else
+        {
+            const bool RifleOwned=PC->GetMenuSnapshot().Progress.UnlockedWeaponIds.Contains(TEXT("rifle")); // 原拥有者权威投影，只决定可提交热区。
+            if(!Check(HUD->GetHitBoxWithName(TEXT("TerminalStats"))&&!HUD->GetHitBoxWithName(TEXT("Weapon0"))
+                &&!HUD->GetHitBoxWithName(TEXT("WeaponTipClose"))&&!HUD->GetHitBoxWithName(TEXT("WeaponEquip")),TEXT("Canvas shows original tabs and no pistol/removed detail equip hitboxes"))) return;
+            int32 Width=0,Height=0; PC->GetViewportSize(Width,Height); // 实际物理尺寸仅用于Canvas独有的缩放命中验证。
+            const float Scale=FMath::Min(Width/1280.f,Height/720.f); // 原Canvas设计坐标比例。
+            const FHUDHitBox* Hit=HUD->GetHitBoxAtCoordinates(FVector2D(Width,Height)/2.f+FVector2D(-110,-20)*Scale,true); // 原步枪卡中心。
+            if(!Check(RifleOwned?(Hit&&Hit->GetName()==TEXT("Weapon1")):(!Hit||Hit->GetName()!=TEXT("Weapon1")),TEXT("Canvas rifle card hotbox follows actual ownership at its scaled point"))) return;
+        }
         if (ArmoryRun == 0)
         {
             if (!Check(Profile->GetData().UnlockedWeaponIds.Num() == 1 && !Equipment->SelectPrimary(0), TEXT("new save only pistol and direct locked equip rejected"))) return;
@@ -120,15 +156,21 @@ void ADemoArmoryTest::Tick(float DeltaSeconds)
         break;
     }
     case 2:
-        HUD->NotifyHitBoxClick(TEXT("Weapon3"));
+        if(bWidget) { if(!Check(PressArmoryWidgetAction(UI,TEXT("Weapon3")),TEXT("actual locked sniper catalogue preview is readable"))) return; UI->Sync(); }
+        else HUD->NotifyHitBoxClick(TEXT("Weapon3")); // 无Legacy锁定热区；即使直接传旧名，服务仍拒绝未拥有装配。
         Advance(3);
         break;
     case 3:
-        if (!Check(PC->GetInspectedWeapon() == 3 && !HUD->GetHitBoxWithName(TEXT("WeaponEquip"))
-            && !HUD->GetHitBoxWithName(TEXT("Weapon0")), TEXT("locked tip disables equip and blocks background hitboxes"))) return;
-        PC->EquipInspectedWeapon();
-        if (!Check(Equipment->GetPrimaryIndex() == INDEX_NONE, TEXT("forged locked equip leaves loadout unchanged"))) return;
-        if (ArmoryRun == 0) Capture(TEXT("01-LockedTip"));
+        if(!Check(PC->GetInspectedWeapon()==INDEX_NONE,TEXT("locked weapon never opens the removed details state"))) return;
+        if(bWidget)
+        {
+            const UDemoMenuButton* Equip=UI->GetActiveScreen()?UI->GetActiveScreen()->FindAction(TEXT("UI.WeaponEquip")):nullptr; // 真实锁定按钮必须禁用，不用说明模态承载权限。
+            if(!Check(Equip&&!Equip->GetIsEnabled()&&UI->GetModalStackCount()==0&&!PressArmoryWidgetAction(UI,TEXT("UI.WeaponEquip")),TEXT("locked CommonUI direct-equip action is disabled in the original catalogue"))) return;
+        }
+        else if(!Check(!HUD->GetHitBoxWithName(TEXT("Weapon3"))&&HUD->GetHitBoxWithName(TEXT("TerminalStats")),TEXT("locked Canvas card cannot submit while normal tabs remain available"))) return;
+        PC->GetMenuFlow()->EquipCatalogWeapon(3); // 明确伪造请求夹具：不能因删除视觉确认层绕过原权限/终端重核。
+        if (!Check(Equipment->GetPrimaryIndex() == INDEX_NONE, TEXT("forged locked direct equip leaves loadout unchanged"))) return;
+        if (ArmoryRun == 0) Capture(TEXT("01-LockedInlineCatalogue"));
         Advance(4);
         break;
     case 4:
@@ -171,20 +213,29 @@ void ADemoArmoryTest::Tick(float DeltaSeconds)
         }
         break;
     case 10:
-        HUD->NotifyHitBoxClick(TEXT("Weapon1"));
+        if(bWidget)
+        {
+            if(!Check(PressArmoryWidgetAction(UI,TEXT("Weapon1")),TEXT("actual owned rifle preview accepted"))) return;
+            UI->Sync();
+            if(!Check(PressArmoryWidgetAction(UI,TEXT("UI.WeaponEquip")),TEXT("actual owned rifle direct-equip button accepted"))) return;
+        }
+        else HUD->NotifyHitBoxClick(TEXT("Weapon1")); // Legacy可用卡已明确标装配，不再进入Tips。
         Advance(11);
         break;
     case 11:
-        if (!Check(HUD->GetHitBoxWithName(TEXT("WeaponEquip")) && !HUD->GetHitBoxWithName(TEXT("TerminalStats")), TEXT("unlocked tip exposes explicit equip and blocks tabs"))) return;
-        // 同一帧打开/关闭暂停避免测试Tick被暂停；底层Tips与组件均必须拒绝旧装备意图。
+        if(!Check(Equipment->GetPrimaryIndex()==0&&Equipment->GetActiveSlot()==1&&PC->GetInspectedWeapon()==INDEX_NONE,
+            TEXT("owned rifle direct action equips primary in place without removed detail state"))) return;
+        if(bWidget)
+        { if(!Check(UI->GetModalStackCount()==0&&UI->GetActiveScreen()&&UI->GetActiveScreen()->FindAction(TEXT("TerminalStats")),TEXT("owned CommonUI equip keeps catalogue and tabs available"))) return; }
+        else if(!Check(HUD->GetHitBoxWithName(TEXT("Weapon1"))&&HUD->GetHitBoxWithName(TEXT("TerminalStats"))&&!HUD->GetHitBoxWithName(TEXT("WeaponTipClose")),TEXT("owned Canvas equip leaves direct card and original tabs available"))) return;
+        // 同帧开关暂停避免测试Tick被World冻结；新目录入口与原组件都必须拒绝覆盖层下装备另一把枪。
         PC->EscapePressed();
-        PC->EquipInspectedWeapon();
-        if (!Check(PC->HasBlockingOverlay() && Equipment->GetPrimaryIndex() == INDEX_NONE && !Equipment->SelectPrimary(0), TEXT("pause overlay blocks controller and direct component equip"))) return;
+        PC->GetMenuFlow()->EquipCatalogWeapon(2);
+        if(!Check(PC->HasBlockingOverlay()&&Equipment->GetPrimaryIndex()==0&&!Equipment->SelectPrimary(1),TEXT("pause overlay blocks direct catalogue and component model changes"))) return;
         PC->CloseOverlay();
-        HUD->NotifyHitBoxClick(TEXT("WeaponEquip"));
-        if (!Check(Equipment->GetPrimaryIndex() == 0 && Equipment->GetActiveSlot() == 1 && State->Coins == 0, TEXT("terminal equips rifle without requiring coins"))) return;
-        Equipment->GetActiveWeapon()->ModifyAmmo(-1); // 控制测试库存，随后切回不得刷新弹匣。
-        Capture(TEXT("03-EquippedTip"));
+        if(!Check(Equipment->GetPrimaryIndex()==0&&Equipment->GetActiveSlot()==1&&DemoTestProgress::Read(State).Coins==0,TEXT("terminal direct rifle equip requires no coins"))) return;
+        Equipment->GetActiveWeapon()->ModifyAmmo(-1); // 显式库存边界夹具；后续换回原实例不得免费填弹。
+        Capture(TEXT("03-EquippedInlineCatalogue"));
         Advance(12);
         break;
     case 12:
@@ -199,7 +250,7 @@ void ADemoArmoryTest::Tick(float DeltaSeconds)
         PC->CloseWeaponTip();
         PC->InspectWeapon(1);
         PC->EquipInspectedWeapon();
-        if (!Check(Equipment->GetActiveWeapon()->GetAmmo() == 11, TEXT("reselect reuses inventory without free reload"))) return;
+        if (!Check(Equipment->GetActiveWeapon()->GetAmmo() == Equipment->GetActiveWeapon()->GetCapacity() - 1, TEXT("reselect reuses inventory without free reload"))) return;
         Equipment->CyclePrimary();
         if (!Check(Equipment->GetPrimaryIndex() == 0, TEXT("old B shortcut cannot change model"))) return;
         Player->SetActorLocation(Player->GetActorLocation() + FVector(800,0,0));

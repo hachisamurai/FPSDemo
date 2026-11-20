@@ -1,3 +1,4 @@
+// 职责：弹药目录默认值与Gameplay合法性验证。使用：既有ElementIcons和独立纯视觉基线；视觉校验单独降级，不影响交易/伤害。
 #include "Weapons/Ammo/DemoAmmoCatalog.h"
 #include "Debug/DemoLog.h"
 #include "Engine/Texture2D.h"
@@ -8,13 +9,14 @@ UDemoAmmoCatalog::UDemoAmmoCatalog()
     DEMO_LOG_CALL();
     const TCHAR* Names[] = {TEXT("普通弹"),TEXT("火焰弹"),TEXT("冰冻弹"),TEXT("穿透弹")}; // 固定目录顺序的初始本地化文本。
     const TCHAR* Icons[] = {TEXT("Normal"),TEXT("Fire"),TEXT("Ice"),TEXT("Piercing")}; // 复用已导入图标，不生成替代素材。
+    const int32 Prices[]={0,1500,2000,2500}; // 一次性金币解锁基线；正式已存在资产需通过Editor迁移，不能只改CDO。
     for (int32 Index=0; Index<4; ++Index) // CDO构造阶段允许资产引用收集。
     {
         FDemoAmmoEntry Entry; // 只在构造时写入默认目录项。
-        Entry.Id=IdAt(Index); Entry.Name=FText::FromString(Names[Index]); Entry.UnlockGoldCost=Index==0?0:200+Index*100; Entry.bUnlockedByDefault=Index==0;
+        Entry.Id=IdAt(Index); Entry.Name=FText::FromString(Names[Index]); Entry.UnlockGoldCost=Prices[Index]; Entry.bUnlockedByDefault=Index==0;
         const FString Path=FString::Printf(TEXT("/Game/UI/Textures/ElementIcons/T_Ammo_%s.T_Ammo_%s"),Icons[Index],Icons[Index]); // 稳定现成资产路径。
         ConstructorHelpers::FObjectFinder<UTexture2D> Texture(*Path); // ConstructorHelpers仅在UObject构造中使用。
-        Entry.Icon=Texture.Object; Entries.Add(Entry);
+        Entry.Icon=Texture.Object; Entry.VisualStyle=DemoAmmoVisuals::Default(static_cast<uint8>(Index)); Entries.Add(Entry);
     }
 }
 FName UDemoAmmoCatalog::IdAt(int32 Index)

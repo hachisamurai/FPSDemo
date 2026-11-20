@@ -1,9 +1,10 @@
+// 职责：服务端规划路线并执行根球扫掠；显式房间按其静态地面落脚，客户端复用 Actor 位移复制。
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "DemoEnemyNavigation.generated.h"
 
-/** 平面悬浮敌人的NavMesh路径跟随；由敌人Tick显式驱动，施法/死亡时不会独立移动。 */
+/** Enemy 在可移动阶段驱动路径跟随，楼梯高度取实际碰撞。 */
 UCLASS(ClassGroup=(Demo), meta=(BlueprintSpawnableComponent))
 class FPSDEMO_API UDemoEnemyNavigation : public UActorComponent
 {
@@ -11,6 +12,10 @@ class FPSDEMO_API UDemoEnemyNavigation : public UActorComponent
 public:
     /** 无独立Tick；所属Enemy控制导航与攻击的执行顺序。 */
     UDemoEnemyNavigation();
+    /** 成功出生前绑定已验证房间包；空值为旧版平面区域。 */
+    void BindSpawnFloor(FName LevelPackage);
+    /** 在当前层扫掠水平位移（cm），OutHit 返回首个真实阻挡。无落脚点时停止并返回 false。 */
+    bool MoveGrounded(const FVector& Offset, FHitResult& OutHit);
     /** Target为本帧活玩家；Range为停步距离cm，Speed为cm/s，DeltaSeconds为World帧秒。 */
     void Follow(class ADemoCharacter* Target, float Range, float Speed, float DeltaSeconds);
     /** Goal为战术世界位置cm；Target用于候选射击视线验证；Speed为cm/s、DeltaSeconds为World秒，失败返回false供追击回退。 */
@@ -22,6 +27,7 @@ public:
     /** 测试/HUD只读状态，包含Following、InRange、Blocked、NoPath、NoNavigation等。 */
     FName GetStatus() const;
 private:
+    FName FloorPackage; // 本次出生的 Level，服务端使用，不持有流送资产。
     /** Speed/DeltaSeconds为本帧允许位移；追击与战术路线共用Sweep，不能通过横移绕过碰撞。 */
     void AdvancePath(float Speed, float DeltaSeconds);
     bool bPointMode = false; // 区分玩家追击和固定战术点，切换时丢弃不兼容的旧路线。

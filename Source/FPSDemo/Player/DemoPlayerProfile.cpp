@@ -1,4 +1,6 @@
+﻿// 职责：加载/保存通关档案并派生权限。使用：GI跨地图持有，Editor停止清理；依赖SaveGame、武器目录和云协议，调试覆盖不写通关事实。
 #include "Player/DemoPlayerProfile.h"
+#include "Player/Cloud/DemoCloudProtocol.h"
 #include "Weapons/DemoWeaponCatalog.h"
 #include "Game/DemoGameState.h"
 #include "Debug/DemoLog.h"
@@ -6,7 +8,17 @@
 #include "JsonObjectConverter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/CommandLine.h"
+#include "Save/DemoDurableSave.h" // Legacy冻结先本地耐久，再允许新槽导入。
 
+void UDemoProfileSave::Serialize(FArchive& Ar)
+{
+    DEMO_LOG_CALL();
+    if (HasAnyFlags(RF_ClassDefaultObject)) { Super::Serialize(Ar); return; } // CDO仍为4，不能把后续新档默认降成3。
+    if (Ar.IsLoading()) Data.SchemaVersion=3; // 旧V3默认tag可被省略，不能按当前CDO的4误认完成冻结。
+    const bool bPrevious=Ar.ArNoDelta; // 本次同步保存临时选项，完成后恢复调用者归档状态。
+    if (Ar.IsSaving()) Ar.ArNoDelta=true;
+    Super::Serialize(Ar); Ar.ArNoDelta=bPrevious;
+}
 void UDemoPlayerProfile::Initialize(FSubsystemCollectionBase& Collection)
 {
     DEMO_LOG_CALL();
@@ -34,7 +46,7 @@ void UDemoPlayerProfile::Initialize(FSubsystemCollectionBase& Collection)
     Profile.ProfileId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
     Profile.UnlockedWeaponIds = { TEXT("pistol") };
     if (UGameplayStatics::DoesSaveGameExist(SlotName, 0) || UGameplayStatics::DoesSaveGameExist(SlotName + TEXT("_Backup"), 0)) ReloadFromDisk();
-    else CommitChange();
+    else { Normalize(Profile); CommitChange(); } // 新档也冻结空旧权基线，后续胜利不会补主枪。
     UE_LOG(LogFPSDemo, Log, TEXT("PROFILE_LOAD slot=%s status=%s readonly=%d"), *SlotName, *Status, bReadOnly);
 }
 bool UDemoPlayerProfile::ReloadFromDisk()
@@ -42,18 +54,19 @@ bool UDemoPlayerProfile::ReloadFromDisk()
     DEMO_LOG_CALL();
     if (bNeedsSave) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE reload rejected: unsaved in-memory changes")); return false; }
     UDemoProfileSave* Loaded = Cast<UDemoProfileSave>(UGameplayStatics::LoadGameFromSlot(SlotName, 0)); // 临时加载快照，通过校验才替换内存。
-    if (Loaded && Loaded->Data.SchemaVersion > 3)
+    if (Loaded && Loaded->Data.SchemaVersion > 4)
     {
         bReadOnly = true;
         Status = TEXT("存档版本较新，已保护原文件；请使用对应版本");
         UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE future schema protected"));
         return false;
     }
+    const bool bLegacy = Loaded && Loaded->Data.SchemaVersion < 4; // 冻结必须先持久，不能在每次重开后重新取水位。
     if (Loaded && Normalize(Loaded->Data))
-    { Profile = Loaded->Data; bReadOnly = false; Status = TEXT("本地存档已载入"); return true; }
+    { Profile = Loaded->Data; bReadOnly = false; Status = TEXT("本地存档已载入"); if (bLegacy) { bNeedsSave=true; return SaveProfile(); } return true; }
     UDemoProfileSave* Backup = Cast<UDemoProfileSave>(UGameplayStatics::LoadGameFromSlot(SlotName + TEXT("_Backup"), 0)); // 主档丢失也先恢复备份，绝不直接创建新档覆盖它。
     if (Backup && Normalize(Backup->Data))
-    { Profile = Backup->Data; bReadOnly = false; Status = TEXT("主档异常，已从备份恢复"); bNeedsSave = true; UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE restored backup")); return true; }
+    { Profile = Backup->Data; bReadOnly = false; Status = TEXT("主档异常，已从备份恢复"); bNeedsSave = true; UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE restored backup")); return SaveProfile(); }
     bReadOnly = true;
     Status = TEXT("存档读取失败，已保护原文件；本次进度暂不能保存");
     UE_LOG(LogFPSDemo, Error, TEXT("PROFILE primary/backup invalid; write protected"));
@@ -62,13 +75,17 @@ bool UDemoPlayerProfile::ReloadFromDisk()
 void UDemoPlayerProfile::Deinitialize()
 {
     DEMO_LOG_CALL();
+#if WITH_EDITOR
+    DebugTestFlags=0; bDebugUnlockAllForSession=false; bDebugUnlockAllModesForSession=false; // Stop PIE清除包括模式在内的全部GI覆盖，外部暂存引用也不再授权。
+#endif
     // 即将丢弃的试玩数据无需在退出时补写；正式游戏仍保留原来的失败重试行为。
     if (!bEditorSession && !bTestSlot && bNeedsSave && !bReadOnly) SaveProfile();
     if (bEditorSession || bTestSlot)
     {
-        for (int32 Backup = 0; Backup < 2; ++Backup) // 主档和上次有效备份都属于当前GI，不扫描其他实例文件。
+        for (int32 Backup = 0; Backup < 4; ++Backup) // 主/备份及迁移原始字节都属于当前GI，不扫描其他实例。
         {
-            const FString OwnedSlot = SlotName + (Backup ? TEXT("_Backup") : TEXT("")); // 稳定前缀来自Initialize生成的随机GUID。
+            const FString OwnedSlot = SlotName + (Backup==0?TEXT(""):Backup==1?TEXT("_Backup"):Backup==2?TEXT("_LegacyRaw"):TEXT("_LegacyBackupRaw")); // 稳定前缀来自Initialize生成的随机GUID。
+            DemoDurableSave::RemoveStaging(OwnedSlot); // 未提交冻结也属于本GI，不留到下一次试玩。
             if (!UGameplayStatics::DoesSaveGameExist(OwnedSlot, 0)) continue;
             const bool bDeleted = UGameplayStatics::DeleteGameInSlot(OwnedSlot, 0); // 仅通过UE平台SaveGame接口清理。
             if (bDeleted) { UE_LOG(LogFPSDemo, Log, TEXT("SESSION_PROFILE_CLEANUP %s"), *OwnedSlot); }
@@ -83,17 +100,17 @@ bool UDemoPlayerProfile::Normalize(FDemoPlayerProfileData& Data) const
 {
     DEMO_LOG_CALL();
     FGuid ParsedId; // 解析后的临时GUID，拒绝空标识或损坏文件。
-    if ((Data.SchemaVersion != 1 && Data.SchemaVersion != 2 && Data.SchemaVersion != 3) || !FGuid::Parse(Data.ProfileId, ParsedId) || !ParsedId.IsValid()
+    if (Data.SchemaVersion < 1 || Data.SchemaVersion > 4 || !FGuid::Parse(Data.ProfileId, ParsedId) || !ParsedId.IsValid()
         || Data.LocalRevision < 0 || Data.SyncedRevision < 0 || Data.SyncedRevision > Data.LocalRevision)
     { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE invalid schema/identity/revision")); return false; }
-    Data.UnlockedWeaponIds = { TEXT("pistol") };
+    const bool bFreeze = Data.SchemaVersion < 4 || (Data.LegacyMigrationId.IsEmpty() && Data.LocalRevision == 0 && Data.Clears.IsEmpty()); // 只在升级或全新档取一次基线。
+    TArray<FName> LegacyIds = { FName(TEXT("pistol")) }; // 旧规则仅在bFreeze期间求值，不能受后续通关影响。
     if (Data.SchemaVersion == 1) { Data.SchemaVersion = 2; Data.PreferenceRevision = Data.LastSelectedPrimary.IsNone() ? 0 : Data.LocalRevision; } // 老档记录完整保留，首次联网再按RunId幂等迁移。
-    Data.SchemaVersion = 3; // 保留旧V1/V2通关记录，但不追认无法证明的手枪专精。
     if (Data.PreferenceRevision < 0 || Data.PreferenceRevision > Data.LocalRevision || Data.SyncedPreferenceRevision < 0 || Data.SyncedPreferenceRevision > Data.LocalRevision || Data.CloudClearedDifficulties.Num() > 5 || Data.RecentAcceptedRuns.Num() > 128) return false;
     for (const FString& Difficulty : Data.CloudClearedDifficulties) // 云端基线也要验证，磁盘字段不是可信授权。
     {
         if (Difficulty != TEXT("easy") && Difficulty != TEXT("normal") && Difficulty != TEXT("hard") && Difficulty != TEXT("hard_pistol") && Difficulty != TEXT("hell")) return false;
-        if (!DemoWeaponCatalog::AppendUnlocksForClear(Difficulty, Data.UnlockedWeaponIds)) return false; // 云基线与本地待确认事实共用规则，历史困难档自动补散弹权限。
+        if (bFreeze && !DemoWeaponCatalog::AppendUnlocksForClear(Difficulty, LegacyIds)) return false; // 冻结后难度仅用于模式准入。
     }
     FDateTime ParsedUtc; // 校验时间格式，协议中只允许UTC ISO8601字符串。
     if (!Data.UpdatedUtc.IsEmpty() && !FDateTime::ParseIso8601(*Data.UpdatedUtc, ParsedUtc)) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE invalid update timestamp")); return false; }
@@ -106,15 +123,36 @@ bool UDemoPlayerProfile::Normalize(FDemoPlayerProfileData& Data) const
             || (Clear.DifficultyId != TEXT("easy") && Clear.DifficultyId != TEXT("normal") && Clear.DifficultyId != TEXT("hard") && Clear.DifficultyId != TEXT("hard_pistol") && Clear.DifficultyId != TEXT("hell")))
         { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE invalid completion record")); return false; }
         Seen.Add(Clear.RunId);
-        if (!DemoWeaponCatalog::AppendUnlocksForClear(Clear.DifficultyId, Data.UnlockedWeaponIds)) return false; // 只派生解锁，不改记录集合、修订或金币。
+        if (bFreeze && !DemoWeaponCatalog::AppendUnlocksForClear(Clear.DifficultyId, LegacyIds)) return false;
     }
-    if (!Data.UnlockedWeaponIds.Contains(Data.LastSelectedPrimary) || Data.LastSelectedPrimary == TEXT("pistol")) Data.LastSelectedPrimary = NAME_None;
+    if (bFreeze)
+    {
+        Data.LegacyMigrationId=FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens); Data.LegacySourceRevision=Data.LocalRevision; Data.LegacyWeaponIds=LegacyIds;
+        Data.LegacyRunIds.Reset(); for (const FDemoClearRecord& Clear:Data.Clears) Data.LegacyRunIds.Add(Clear.RunId);
+        UE_LOG(LogFPSDemo, Log, TEXT("PROFILE_LEGACY frozen revision=%d rights=%d"), Data.LegacySourceRevision, Data.LegacyWeaponIds.Num());
+    }
+    Data.SchemaVersion=4;
+    FDemoWeaponOwnership Frozen; // 用同一来源验证器核账号旧权，不含本槽购买/调试。
+    if (!Frozen.FreezeLegacy(Data.LegacyWeaponIds,Data.LegacyMigrationId,Data.LegacySourceRevision) || Data.LegacyRunIds.Num()>4096) return false;
+    TSet<FString> FrozenRuns; // 只验证已冻结水位，绝不从新Clears追加。
+    for (const FString& Run:Data.LegacyRunIds) { FGuid Id; if (!FGuid::Parse(Run,Id)||!Id.IsValid()||FrozenRuns.Contains(Run)) return false; FrozenRuns.Add(Run); }
+    Data.UnlockedWeaponIds=Frozen.EffectiveIds();
+    if (DemoWeaponCatalog::IndexOf(Data.LastSelectedPrimary)<=0) Data.LastSelectedPrimary = NAME_None; // 偏好可指某槽已买主枪，但本身不授跨槽权。
     return true;
 }
 const FDemoPlayerProfileData& UDemoPlayerProfile::GetData() const { DEMO_LOG_TICK(); return Profile; }
+bool UDemoPlayerProfile::MakeLegacyOwnership(FDemoWeaponOwnership& Out) const
+{
+    DEMO_LOG_CALL();
+    if (bReadOnly || bNeedsSave || Profile.SchemaVersion != 4) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE_LEGACY rejected uncommitted/protected")); return false; }
+    return Out.FreezeLegacy(Profile.LegacyWeaponIds, Profile.LegacyMigrationId, Profile.LegacySourceRevision);
+}
 bool UDemoPlayerProfile::IsHellUnlocked() const
 {
     DEMO_LOG_TICK();
+#if WITH_EDITOR
+    if (IsDebugUnlockAllModesForSession()) return true; // 仅本次单人试玩覆盖，不向Clears追加hard_pistol事实。
+#endif
     if (Profile.CloudClearedDifficulties.Contains(TEXT("hard_pistol"))) return true;
     for (const FDemoClearRecord& Clear : Profile.Clears) if (Clear.DifficultyId==TEXT("hard_pistol")) return true; // 待上传的本地事实同样立即解锁。
     return false;
@@ -122,6 +160,9 @@ bool UDemoPlayerProfile::IsHellUnlocked() const
 bool UDemoPlayerProfile::IsEndlessUnlocked() const
 {
     DEMO_LOG_TICK();
+#if WITH_EDITOR
+    if (IsDebugUnlockAllModesForSession()) return true; // 与地狱同步开放，不模拟地狱胜利或发金币。
+#endif
     if (Profile.CloudClearedDifficulties.Contains(TEXT("hell"))) return true;
     for (const FDemoClearRecord& Clear : Profile.Clears) if (Clear.DifficultyId==TEXT("hell")) return true; // 幂等记录跨地图有效。
     return false;
@@ -143,6 +184,30 @@ void UDemoPlayerProfile::DebugUnlockAllForSession()
     UE_LOG(LogFPSDemo, Display, TEXT("DEBUG_UNLOCK_ALL all weapons/ammo unlocked for this editor session"));
 }
 bool UDemoPlayerProfile::IsDebugUnlockAllForSession() const { DEMO_LOG_TICK(); return bDebugUnlockAllForSession; }
+void UDemoPlayerProfile::DebugUnlockAllModesForSession()
+{
+    DEMO_LOG_CALL();
+    if (!GetWorld() || !GetWorld()->IsGameWorld() || GetWorld()->GetNetMode() != NM_Standalone)
+    { UE_LOG(LogFPSDemo, Warning, TEXT("DEBUG_UNLOCK_MODES rejected world/net mode")); return; }
+    bDebugUnlockAllModesForSession = true; // 幂等授权，不修改档案修订、已选模式、最高纪录、钱包或通关凭据。
+    UE_LOG(LogFPSDemo, Display, TEXT("DEBUG_UNLOCK_MODES Hell/Endless unlocked for this editor session"));
+}
+bool UDemoPlayerProfile::IsDebugUnlockAllModesForSession() const
+{
+    DEMO_LOG_TICK();
+    // 即使同一GI随后旅行到Listen/Client，也不将单人调试权限作为联机账号资格。
+    return bDebugUnlockAllModesForSession && GetWorld() && GetWorld()->IsGameWorld() && GetWorld()->GetNetMode() == NM_Standalone;
+}
+void UDemoPlayerProfile::SetDebugTestFlag(int32 Flag,bool bEnabled)
+{
+    DEMO_LOG_CALL();
+    if(Flag<0||Flag>2){UE_LOG(LogFPSDemo,Warning,TEXT("DEBUG_TEST_FLAG rejected index=%d"),Flag);return;}
+    const uint8 Bit=static_cast<uint8>(1<<Flag); // 仅当前GI内三位，不写Profile.Data或存档。
+    if(bEnabled) DebugTestFlags|=Bit; else DebugTestFlags&=static_cast<uint8>(~Bit);
+    UE_LOG(LogFPSDemo,Display,TEXT("DEBUG_TEST_FLAG flag=%d enabled=%d"),Flag,bEnabled);
+}
+bool UDemoPlayerProfile::IsDebugTestFlagEnabled(int32 Flag) const
+{ DEMO_LOG_TICK(); return Flag>=0&&Flag<3&&(DebugTestFlags&(1<<Flag))!=0; }
 #endif
 const FString& UDemoPlayerProfile::GetStatus() const { DEMO_LOG_TICK(); return Status; }
 const FString& UDemoPlayerProfile::GetSlotName() const { DEMO_LOG_TICK(); return SlotName; }
@@ -154,13 +219,31 @@ bool UDemoPlayerProfile::RecordVictory(const FString& RunId, EDemoDifficulty Dif
     if (!GetWorld() || !GetWorld()->GetAuthGameMode() || !State || State->Phase != EDemoPhase::Victory || State->LevelNumber != DemoCombatConfig::LevelCount
         || State->Difficulty != Difficulty || static_cast<uint8>(Difficulty) > 3 || State->bEndless || !FGuid::Parse(RunId, ParsedRun) || !ParsedRun.IsValid())
     { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE victory rejected: invalid final state/run")); return false; }
+    FDemoRunCompletion Completion; // 旧单机入口只负责将已验证World状态转换为不持有World的值事实。
+    Completion.RunId = RunId;
+    Completion.Difficulty = Difficulty;
+    Completion.CompletedLevel = State->LevelNumber;
+    Completion.PistolChallenge = State->PistolChallenge;
+    Completion.bEndless = State->bEndless;
+    return RecordCompletion(Completion);
+}
+bool UDemoPlayerProfile::RecordCompletion(const FDemoRunCompletion& Completion)
+{
+    DEMO_LOG_CALL();
+    FGuid ParsedRun; // 仅验证事实形状和幂等键；网络可信来源由拥有者RPC路由保证，LAN身份不代表互联网认证。
+    if (Completion.bEndless || Completion.CompletedLevel != DemoCombatConfig::LevelCount
+        || static_cast<uint8>(Completion.Difficulty) > 3 || Completion.PistolChallenge < 0 || Completion.PistolChallenge > 2
+        || !FGuid::Parse(Completion.RunId, ParsedRun) || !ParsedRun.IsValid())
+    { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE completion rejected: invalid fact")); return false; }
+    const FString& RunId = Completion.RunId; // 同步执行期间借用，跨地图不保留事实引用。
+    const EDemoDifficulty Difficulty = Completion.Difficulty; // 稳定难度只用于派生永久通关凭据。
     for (const FDemoClearRecord& Existing : Profile.Clears) // 仅同局幂等，不将重复回调计为另一次通关。
-        if (Existing.RunId == RunId) { UE_LOG(LogFPSDemo, Log, TEXT("PROFILE duplicate victory ignored")); return true; }
-    if (Profile.RecentAcceptedRuns.Contains(RunId)) { UE_LOG(LogFPSDemo, Log, TEXT("PROFILE already confirmed victory ignored")); return true; }
+        if (Existing.RunId.Equals(RunId,ESearchCase::IgnoreCase)) { UE_LOG(LogFPSDemo, Log, TEXT("PROFILE duplicate victory ignored")); return true; }
+    for (const FString& Accepted:Profile.RecentAcceptedRuns) if (Accepted.Equals(RunId,ESearchCase::IgnoreCase)) { UE_LOG(LogFPSDemo, Log, TEXT("PROFILE already confirmed victory ignored")); return true; } // .NET回执小写与UE生成大写为同一GUID。
     FDemoClearRecord Record; // 即将追加的持久化值，不包含World引用。
     Record.RunId = RunId;
     // 手枪挑战作为独立的幂等通关事实，上传后仍能从云端基线推导解锁，不只依赖本机bool。
-    Record.DifficultyId = Difficulty == EDemoDifficulty::Hell ? TEXT("hell") : Difficulty == EDemoDifficulty::Hard && State->PistolChallenge == 1 ? TEXT("hard_pistol") : Difficulty == EDemoDifficulty::Easy ? TEXT("easy") : Difficulty == EDemoDifficulty::Normal ? TEXT("normal") : TEXT("hard");
+    Record.DifficultyId = Difficulty == EDemoDifficulty::Hell ? TEXT("hell") : Difficulty == EDemoDifficulty::Hard && Completion.PistolChallenge == 1 ? TEXT("hard_pistol") : Difficulty == EDemoDifficulty::Easy ? TEXT("easy") : Difficulty == EDemoDifficulty::Normal ? TEXT("normal") : TEXT("hard");
     Record.CompletedUtc = FDateTime::UtcNow().ToIso8601();
     Profile.Clears.Add(Record);
     Normalize(Profile);
@@ -172,7 +255,7 @@ bool UDemoPlayerProfile::RecordVictory(const FString& RunId, EDemoDifficulty Dif
 void UDemoPlayerProfile::RememberPrimary(FName Id)
 {
     DEMO_LOG_CALL();
-    if (!IsUnlocked(Id) || Id == TEXT("pistol")) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE selection rejected: locked/non-primary")); return; }
+    if (DemoWeaponCatalog::IndexOf(Id)<=0) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE selection rejected: unknown/non-primary")); return; } // 偏好不是授权；真正装备已由槽来源验证。
     if (Profile.LastSelectedPrimary == Id) return;
     Profile.LastSelectedPrimary = Id;
     Profile.PreferenceRevision = Profile.LocalRevision < MAX_int32 ? Profile.LocalRevision + 1 : MAX_int32; // 标记主动选择，后续仅通关上传不覆盖别的设备偏好。
@@ -192,11 +275,13 @@ bool UDemoPlayerProfile::SaveProfile()
     DEMO_LOG_CALL();
     if (bReadOnly) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE save rejected: protected file")); return false; }
     UDemoProfileSave* Previous = Cast<UDemoProfileSave>(UGameplayStatics::LoadGameFromSlot(SlotName, 0)); // 仅有效旧档才能轮换到备份，损坏主档不能覆盖好备份。
-    if (Previous && Normalize(Previous->Data) && !UGameplayStatics::SaveGameToSlot(Previous, SlotName + TEXT("_Backup"), 0))
+    if (Previous && Previous->Data.SchemaVersion<4 && (!DemoDurableSave::Archive(SlotName,SlotName+TEXT("_LegacyRaw")) || !DemoDurableSave::Archive(SlotName+TEXT("_Backup"),SlotName+TEXT("_LegacyBackupRaw"))))
+    { bNeedsSave=true; Status=TEXT("旧档原始备份失败，冻结尚未发布"); return false; }
+    if (Previous && Normalize(Previous->Data) && !DemoDurableSave::Write(Previous, SlotName + TEXT("_Backup")))
     { Status = TEXT("备份写入失败，进度暂存内存，请重试保存"); UE_LOG(LogFPSDemo, Error, TEXT("PROFILE backup save failed")); bNeedsSave = true; return false; }
     UDemoProfileSave* Snapshot = Cast<UDemoProfileSave>(UGameplayStatics::CreateSaveGameObject(UDemoProfileSave::StaticClass())); // 同步落盘期间临时拥有的数据快照。
     Snapshot->Data = Profile;
-    bNeedsSave = !UGameplayStatics::SaveGameToSlot(Snapshot, SlotName, 0);
+    bNeedsSave = !DemoDurableSave::Write(Snapshot, SlotName);
     Status = bNeedsSave ? TEXT("本地保存失败，进度暂存内存，请重试保存") : TEXT("已保存至本地");
     UE_LOG(LogFPSDemo, Log, TEXT("PROFILE_SAVE revision=%d ok=%d"), Profile.LocalRevision, !bNeedsSave);
     return !bNeedsSave;
@@ -218,6 +303,21 @@ bool UDemoPlayerProfile::ApplyCloud(const TSharedPtr<FJsonObject>& Cloud, const 
     if (bAckPreference) Candidate.SyncedPreferenceRevision = FMath::Max(Candidate.SyncedPreferenceRevision, AckRevision); // 只有实际携带偏好变化的请求才确认它。
     if (NewRevision >= OldRevision)
     {
+        const TSharedPtr<FJsonObject>* Migration=nullptr; // HTTP3服务器冻结投影；旧API不能静默丢新字段。
+        const TArray<TSharedPtr<FJsonValue>>* Ids=nullptr; const TArray<TSharedPtr<FJsonValue>>* Runs=nullptr; // 本响应同步借用。
+        FString MigrationId; double Rules=0,Source=0; // 先检查整数/范围再转本地版本。
+        if (!Cloud->TryGetObjectField(TEXT("legacyMigration"),Migration)||!(*Migration)->TryGetStringField(TEXT("migrationId"),MigrationId)
+            ||!(*Migration)->TryGetNumberField(TEXT("rulesVersion"),Rules)||Rules!=1||!(*Migration)->TryGetNumberField(TEXT("sourceRevision"),Source)||!FMath::IsFinite(Source)||Source<0||Source>MAX_int32||Source!=FMath::FloorToDouble(Source)
+            ||!(*Migration)->TryGetArrayField(TEXT("baselineWeaponIds"),Ids)||Ids->Num()>4||!(*Migration)->TryGetArrayField(TEXT("baselineRunIds"),Runs)||Runs->Num()>4096)
+        { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE_CLOUD incompatible ownership capability")); return false; }
+        TArray<FName> LegacyIds; TArray<FString> LegacyRuns; // 候选冻结列表，无法归属旧权时保护本地不免费扩权。
+        for (const TSharedPtr<FJsonValue>& Value:*Ids) { FString Id; if (!Value||!Value->TryGetString(Id)||Id.Len()>32) return false; LegacyIds.Add(FName(*Id)); }
+        for (const TSharedPtr<FJsonValue>& Value:*Runs) { FString Id; if (!Value||!Value->TryGetString(Id)||Id.Len()>36) return false; LegacyRuns.Add(Id); }
+        FDemoWeaponOwnership RemoteOwnership; // 同一目录/GUID/去重规则，不在下载时按新Clears派枪。
+        if (!RemoteOwnership.FreezeLegacy(LegacyIds,MigrationId,static_cast<int32>(Source))) return false;
+        for (const FName Existing:Candidate.LegacyWeaponIds) if (!RemoteOwnership.Contains(Existing))
+        { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE_CLOUD legacy migration conflict; local rights preserved")); return false; }
+        Candidate.LegacyMigrationId=MigrationId; Candidate.LegacySourceRevision=static_cast<int32>(Source); Candidate.LegacyWeaponIds=LegacyIds; Candidate.LegacyRunIds=LegacyRuns;
         Candidate.CloudClearedDifficulties.Empty();
         for (const TSharedPtr<FJsonValue>& Value : *Difficulties) // 值由响应持有，立即复制到候选档案。
         { FString Difficulty; /* 严格读取字符串，不将类型错误当空值。 */ if (!Value->TryGetString(Difficulty)) return false; Candidate.CloudClearedDifficulties.AddUnique(Difficulty); }
@@ -227,7 +327,7 @@ bool UDemoPlayerProfile::ApplyCloud(const TSharedPtr<FJsonObject>& Cloud, const 
     for (const FString& Id : AcceptedRuns) // 仅移除本次回执明确确认的通关，新产生记录保留。
     {
         // 同步谓词只捕获本轮Id引用，RemoveAll在本调用内完成，不逃逸到异步回调。
-        Candidate.Clears.RemoveAll([&Id](const FDemoClearRecord& Record) { UE_LOG(LogFPSDemo, VeryVerbose, TEXT("[CALL] acknowledged run predicate")); return Record.RunId == Id; });
+        Candidate.Clears.RemoveAll([&Id](const FDemoClearRecord& Record) { UE_LOG(LogFPSDemo, VeryVerbose, TEXT("[CALL] acknowledged run predicate")); return Record.RunId.Equals(Id,ESearchCase::IgnoreCase); });
         Candidate.RecentAcceptedRuns.AddUnique(Id);
     }
     while (Candidate.RecentAcceptedRuns.Num() > 128) Candidate.RecentAcceptedRuns.RemoveAt(0);
@@ -243,8 +343,8 @@ bool UDemoPlayerProfile::BuildUploadJson(FString& OutJson) const
     OutJson.Empty();
     if (bReadOnly) { UE_LOG(LogFPSDemo, Warning, TEXT("PROFILE export rejected: protected/invalid save")); return false; }
     TSharedRef<FJsonObject> Envelope = MakeShared<FJsonObject>(); // 独立协议包，未来网络层持有序列化字符串，不持有子系统引用。
-    TSharedRef<FJsonObject> Data = MakeShared<FJsonObject>(); // USTRUCT转换的数据对象，无UObject资源路径。
-    if (!FJsonObjectConverter::UStructToJsonObject(FDemoPlayerProfileData::StaticStruct(), &Profile, Data, 0, 0)) return false;
+    TSharedPtr<FJsonObject> Data = DemoCloudProtocol::BuildLegacyProfile(Profile); // 显式协议1兼容白名单；结构新增字段不自动进入上传。
+    if (!Data) return false;
     Envelope->SetNumberField(TEXT("protocolVersion"), 1);
     Envelope->SetStringField(TEXT("requestId"), FString::Printf(TEXT("%s:%d"), *Profile.ProfileId, Profile.LocalRevision));
     Envelope->SetStringField(TEXT("baseServerRevision"), Profile.ServerRevision);

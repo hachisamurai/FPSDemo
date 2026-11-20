@@ -1,5 +1,6 @@
+// 职责：校验分区配置并解析真实骨骼命中；用于服务器武器伤害，依赖 head 弱点和保留为身体的胸部 core。
 #include "Combat/DemoEnemyHitZones.h"
-#include "AI/DemoEnemy.h"
+
 #include "Components/SkeletalMeshComponent.h"
 #include "Debug/DemoLog.h"
 #include "Engine/SkeletalMesh.h"
@@ -12,7 +13,7 @@ UDemoEnemyHitProfile::UDemoEnemyHitProfile()
     FDemoEnemyHitZoneRule Body; // 机身装甲、镜头、推进器及Boss护板/背环承受机身倍率。
     Body.Region = EDemoEnemyHitRegion::Body;
     Body.DamageMultiplier = 1.f;
-    Body.BoneNames = {TEXT("body"), TEXT("aim_pitch"), TEXT("armor_l"), TEXT("armor_r"), TEXT("fin_l"), TEXT("fin_r"),
+    Body.BoneNames = {TEXT("body"), TEXT("core"), TEXT("aim_pitch"), TEXT("armor_l"), TEXT("armor_r"), TEXT("fin_l"), TEXT("fin_r"),
         TEXT("thruster_l"), TEXT("thruster_r"), TEXT("shutter_top"), TEXT("shutter_right"), TEXT("shutter_bottom"), TEXT("shutter_left"),
         TEXT("halo"), TEXT("halo_segment_01"), TEXT("halo_segment_02"), TEXT("halo_segment_03"), TEXT("halo_segment_04"), TEXT("halo_segment_05"), TEXT("halo_segment_06")};
     FDemoEnemyHitZoneRule Arm; // 肩部到末端的所有可命中机械臂骨；左右镜像使用同一倍率。
@@ -21,10 +22,10 @@ UDemoEnemyHitProfile::UDemoEnemyHitProfile()
     Arm.BoneNames = {TEXT("arm_l"), TEXT("arm_r"), TEXT("forearm_l"), TEXT("forearm_r"), TEXT("weapon_l"), TEXT("weapon_r"),
         TEXT("shoulder_l"), TEXT("shoulder_r"), TEXT("wrist_l"), TEXT("wrist_r"), TEXT("claw_l_01"), TEXT("claw_l_02"), TEXT("claw_l_03"),
         TEXT("claw_r_01"), TEXT("claw_r_02"), TEXT("claw_r_03")};
-    FDemoEnemyHitZoneRule Core; // 只匹配实际core刚体，不把其父骨或外部护板算成核心。
+    FDemoEnemyHitZoneRule Core; // Core 保留数据协议名，但弱点已迁移到整个 head；胸前反应堆仅保留普通身体碰撞。
     Core.Region = EDemoEnemyHitRegion::Core;
     Core.DamageMultiplier = 2.f;
-    Core.BoneNames = {TEXT("core")};
+    Core.BoneNames = {TEXT("head")};
     Regions = {Body, Arm, Core};
     NonHittableBones = {TEXT("root"), TEXT("aim_yaw")};
 }
@@ -137,12 +138,12 @@ bool UDemoEnemyHitProfile::ResolveHitForChannel(const FHitResult& Hit, EDemoEnem
     const USkeletalMeshComponent* Mesh = Cast<USkeletalMeshComponent>(Hit.GetComponent()); // 必须是真骨骼查询，根球和其他组件不会获得部位伤害。
     const UPhysicsAsset* Physics = Mesh ? Mesh->GetPhysicsAsset() : nullptr; // 只借用当前组件实际使用的刚体资产，支持显式override。
     if ((QueryChannel != DemoEnemyHitZones::TraceChannel && QueryChannel != DemoEnemyHitZones::ProjectileChannel)
-        || !Hit.bBlockingHit || !Cast<ADemoEnemy>(Hit.GetActor()) || !Mesh || Mesh->GetOwner() != Hit.GetActor()
+        || !Hit.bBlockingHit || !IsValid(Hit.GetActor()) || !Mesh || Mesh->GetOwner() != Hit.GetActor()
         || Hit.BoneName.IsNone() || Mesh->GetBoneIndex(Hit.BoneName) == INDEX_NONE
         || !Physics || Physics->FindBodyIndex(Hit.BoneName) == INDEX_NONE
         || Mesh->GetCollisionResponseToChannel(QueryChannel) != ECR_Block)
     {
-        UE_LOG(LogFPSDemo, Warning, TEXT("HIT_ZONE_REJECT actor=%s component=%s bone=%s channel=%d missing/disabled skeletal enemy query body"),
+        UE_LOG(LogFPSDemo, Warning, TEXT("HIT_ZONE_REJECT actor=%s component=%s bone=%s channel=%d missing/disabled skeletal query body"),
             *GetNameSafe(Hit.GetActor()), *GetNameSafe(Hit.GetComponent()), *Hit.BoneName.ToString(), static_cast<int32>(QueryChannel));
         return false;
     }
@@ -166,7 +167,7 @@ const TCHAR* DemoEnemyHitZones::RegionName(EDemoEnemyHitRegion Region)
     {
         case EDemoEnemyHitRegion::Body: return TEXT("Body");
         case EDemoEnemyHitRegion::Arm: return TEXT("Arm");
-        case EDemoEnemyHitRegion::Core: return TEXT("Core");
+        case EDemoEnemyHitRegion::Core: return TEXT("Head"); // 日志显示当前玩法含义，序列化枚举仍兼容 Core。
         default: return TEXT("Invalid");
     }
 }

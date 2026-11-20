@@ -1,3 +1,4 @@
+// 职责：共享真实弹丸与骨骼靶场夹具；Editor 专项调用，依赖正式 GAS 武器、PhysicsAsset 和隔离存档。
 #pragma once
 #include "CoreMinimal.h"
 #include "Combat/DemoEnemyHitZones.h"
@@ -11,8 +12,8 @@ namespace DemoHitZoneTest
 {
     /** Enemy由World拥有；Action为序列路径，Seconds为固定采样秒数，返回借用网格。 */
     USkeletalMeshComponent* Pose(ADemoEnemy* Enemy,const FString& Action,float Seconds);
-    /** Mesh/Profile为只读生产资产；Wanted是区域，OutPoint接收有2cm邻域余量的模型空间点。 */
-    bool FindRegion(USkeletalMeshComponent* Mesh,const UDemoEnemyHitProfile* Profile,EDemoEnemyHitRegion Wanted,FVector& OutPoint);
+    /** Mesh/Profile为只读生产资产，Wanted是区域；OutPoint接收有2cm邻域余量的模型空间点，RequiredBone可选指定旧胸部等精确骨名。 */
+    bool FindRegion(USkeletalMeshComponent* Mesh,const UDemoEnemyHitProfile* Profile,EDemoEnemyHitRegion Wanted,FVector& OutPoint,FName RequiredBone=NAME_None);
     /** Enemy/Player为World对象；Point为模型空间探针，Distance为相机到表面距离cm。 */
     void Aim(ADemoEnemy* Enemy,ADemoCharacter* Player,const FVector& Point,float Distance);
     /** Player为测试Avatar，Id为normal/fire/frost/piercing，只改本次实例。 */

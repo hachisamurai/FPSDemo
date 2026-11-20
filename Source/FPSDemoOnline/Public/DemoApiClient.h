@@ -1,3 +1,4 @@
+// 职责：GI拥有的串行HTTP传输与设备认证接口。使用：打包游戏的存档服务调用，依赖Http/DPAPI；Editor不创建实例，类别默认Log以避免高频诊断缓存增长。
 #pragma once
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
@@ -6,7 +7,7 @@
 
 // 网络模块与玩法模块保持同一目标策略；非Editor不编译调用/路径追踪，保留关键结果与故障。
 #if WITH_EDITOR
-FPSDEMOONLINE_API DECLARE_LOG_CATEGORY_EXTERN(LogDemoOnline, VeryVerbose, All); // 导出供跨模块构建边界自检，仍由Online模块唯一拥有。
+FPSDEMOONLINE_API DECLARE_LOG_CATEGORY_EXTERN(LogDemoOnline, Log, All); // Editor保留全部编译埋点，默认仅业务调用；仍由Online模块唯一拥有。
 #else
 FPSDEMOONLINE_API DECLARE_LOG_CATEGORY_EXTERN(LogDemoOnline, Display, Display);
 #endif

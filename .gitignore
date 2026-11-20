@@ -1,3 +1,8 @@
+# Sonniss GDC许可禁止再分发原始音效文件（含修改版）；原始WAV只留本机，清单与README仍提交。见SourceAssets/Audio/SFX/Library/Sonniss_GDC/README.md。
+SourceAssets/Audio/SFX/Library/Sonniss_GDC/**/*.wav
+# 由上述素材加工的离线候选/试听同属许可素材（许可明确“再设计的声音仍受约束”），不随仓库提交；导入UE后的资产作为游戏内容随游戏发布。
+SourceAssets/Audio/SFX/Feedback/Combat/FeelGDC_V11/**/*.wav
+
 # UE/IDE产物可由源码与资产重建；不提交本机缓存、日志、打包结果和试玩/云身份。
 Binaries/
 Intermediate/

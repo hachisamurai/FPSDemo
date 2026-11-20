@@ -1,4 +1,5 @@
 #include "Tests/DemoProjectileFixtures.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Weapons/Projectiles/DemoProjectileBase.h"
 #include "Weapons/DemoWeaponComponent.h"
 #include "Characters/DemoCharacter.h"
@@ -52,6 +53,7 @@ bool DemoProjectileFixtures::EquipPrimary(ADemoCharacter* Player,int32 Index)
     const EDemoDifficulty UnlockDifficulty=Index==0?EDemoDifficulty::Easy:EDemoDifficulty::Hard; // 生产规则：步枪仍需简单通关；困难只解锁散弹与狙击，不能把难度视为全武器递进。
     State->Phase=EDemoPhase::Victory; State->LevelNumber=10; State->Difficulty=UnlockDifficulty;
     const bool bUnlocked=Profile->RecordVictory(FGuid::NewGuid().ToString(),UnlockDifficulty); // 只提交本测试GI的合法解锁事实，不绕过终端/装备权限。
+        DemoTestProgress::ImportLocalPermissions(State); // 测试通关事实显式同步到本人PS，再走真实终端授权。
     State->Phase=EDemoPhase::Hub; State->LevelNumber=PreviousLevel; State->Difficulty=PreviousDifficulty;
     if (bUnlocked)
     {

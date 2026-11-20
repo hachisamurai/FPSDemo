@@ -1,7 +1,25 @@
+// 职责：注册地图区域锚点，解析区域快照并检查本场冻结的玩家入场禁刷区。供房间和敌人生成服务使用。
 #include "Spawning/DemoEnemySpawnArea.h"
 #include "World/DemoEncounterAreaSubsystem.h"
 #include "Components/BoxComponent.h"
 #include "Debug/DemoLog.h"
+#include "Debug/DemoStaticLog.h"
+
+bool FDemoSpawnGeometry::IsOutsidePlayerEntryZone(const FVector& WorldLocation) const
+{
+    DEMO_LOG_STATIC_TICK(nullptr);
+    // 只比较水平投影，保证不同身高、坡度和射线抬升都不会绕过同一入口的保护。
+    const float RadiusSquared = FMath::Square(PlayerEntryExclusionRadiusCm);
+    for (const FVector& Entry : ProtectedPlayerEntryPoints)
+    {
+        if (FVector::DistSquared2D(WorldLocation, Entry) < RadiusSquared)
+        {
+            UE_LOG(LogFPSDemo, VeryVerbose, TEXT("SPAWN_ENTRY_REJECT center=%s entry=%s radius=%.1f"), *WorldLocation.ToCompactString(), *Entry.ToCompactString(), PlayerEntryExclusionRadiusCm);
+            return false;
+        }
+    }
+    return true;
+}
 ADemoEnemySpawnArea::ADemoEnemySpawnArea()
 {
     DEMO_LOG_CALL();

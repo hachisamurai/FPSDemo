@@ -1,3 +1,4 @@
+// 职责：武器CDO的表现、射击和弹药配置；由DemoWeaponBase验证并消费，所有实例只读共享定义。
 #pragma once
 #include "CoreMinimal.h"
 #include "DemoWeaponConfig.generated.h"
@@ -27,6 +28,12 @@ struct FPSDEMO_API FDemoWeaponConfig
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") TObjectPtr<USkeletalMesh> Mesh;
     // 可选硬引用静态武器，由 CDO 保活；非空时优先显示它并清空组件上的旧骨骼枪，避免重叠。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") TObjectPtr<UStaticMesh> StaticMesh;
+    // 可选实际瞄准镜外观，CDO硬引用供Cook；不改变ScopeFOV/命中和镜内UI逻辑。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual|Optic") TObjectPtr<UStaticMesh> OpticMesh;
+    // 骨枪上的镜体挂点，默认Root；FP/TP都继承同一个真实机械骨，不能挂在相机上。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual|Optic") FName OpticSocket=TEXT("Root");
+    // 镜体相对挂点的标定变换，厘米/度；两视角共用，无运行时骨骼修正。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual|Optic") FTransform OpticOffset=FTransform::Identity;
     // 四枪分别引用配置子AnimBP；主Mesh1P AnimClass固定，此类仅通过Linked Anim Layers切换。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Animation") TSubclassOf<UDemoWeaponLayerAnimInstance> WeaponAnimLayerClass;
     // 手枪待机隐藏左臂；换弹临时恢复双手，完成/取消按当前装备重建。长枪默认false。
@@ -37,12 +44,16 @@ struct FPSDEMO_API FDemoWeaponConfig
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") FTransform AttachOffset = FTransform::Identity;
     // 枪Mesh上的枪口；缺失时使用相机前70cm的原模板近似位置并记录日志。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") FName MuzzleSocket = TEXT("Muzzle");
+    // 每枪Mesh专用火光Socket，默认MuzzleFlash；只供附着特效，缺失拒绝火光，不回退原点或改物理Muzzle。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") FName MuzzleFlashSocket = TEXT("MuzzleFlash");
     // 单次/按住连射，松开或取消输入时都停止调度。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") EDemoFireMode FireMode = EDemoFireMode::Automatic;
     // 实体子弹硬类引用，由武器CDO负责Cook依赖；蓝图只覆盖飞行/表现数据，伤害仍来自本武器。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") TSubclassOf<ADemoProjectileBase> ProjectileClass;
     // 每分钟射击次数 [1,1200]；唯一射速定义，间隔=60/RPM。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire", meta=(ClampMin="1", ClampMax="1200")) float RoundsPerMinute = 333.33334f;
+    // 每次成功射击执行拉栓（含最后一发）；时长使用本次60/RPM，期间禁止换弹，默认仅狙击启用。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") bool bCycleBoltAfterShot = false;
     // 单颗弹丸基础伤害 [0,10000]；玩家全局加成按弹丸数量分摊。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire", meta=(ClampMin="0")) float BaseDamage = 25.f;
     // 瞄准查询及实体子弹最大飞行距离cm [100,100000]；查询不造成伤害。
@@ -57,6 +68,8 @@ struct FPSDEMO_API FDemoWeaponConfig
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Fire") float MinimumDamageMultiplier = 1.f;
     // 基础弹匣容量[1,1000]，最终容量加上玩家本局MagazineBonus。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") int32 MagazineCapacity = 12;
+    // 固定物理容量（如双管2发）；开启后忽略弹匣升级及遗物倍率，其他武器和玩家已购买成长保持原值。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") bool bFixedMagazineCapacity = false;
     // 首次生成装弹量[0,MagazineCapacity]，切换武器不会重置。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") int32 InitialAmmo = 12;
     // 每次成功开火消耗[1,MagazineCapacity]；霰弹枪一次只消耗1发。
@@ -65,11 +78,19 @@ struct FPSDEMO_API FDemoWeaponConfig
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") int32 InitialReserve = 60;
     // 默认无限备用，保持Demo既有玩法；改false即可验证真实弹匣转移。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") bool bInfiniteReserve = true;
-    // 整弹匣装填时间秒[0.1,15]，AbilityTask等待；取消不会提前补弹。
+    // 装填周期秒[0.1,15]：盒式在结束整匣结算，管式每周期装一颗；取消保留已装入颗数。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") float ReloadSeconds = 1.4f;
+    // 整次换弹的空仓时长秒；0沿用ReloadSeconds，非零为[0.1,15]。逐颗模式仍使用EmptyShellReloadSeconds。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") float EmptyReloadSeconds = 0.f;
+    // 管式弹仓逐颗装填；每周期在InsertPhase结算一颗，取消仅丢弃未完成的一颗，默认旧武器关闭。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") bool bReloadOneRoundAtATime = false;
+    // 逐颗模式空仓首颗周期秒数[0.1,15]；当前霰弹无机柄段，与ReloadSeconds同为0.9，可供其他管式武器独立配置。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") float EmptyShellReloadSeconds = .9f;
+    // 单颗真正进入弹仓的归一化时刻(0,1)；必须与作者装填动作/声音一致，权威GAS任务负责结算。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ammo") float ShellInsertPhase = .62f;
     // 每枪一次Cue；霰弹不按弹丸数重复播放，随机与衰减仍由Cue负责。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<USoundBase> FireSound;
-    // 可选枪口粒子资源；不承担命中判定，缺失仅跳过表现。
+    // 可选枪口单Burst粒子；以零相对变换挂MuzzleFlash，local-space跟枪，继承FP比例一次；无资源仅跳过表现。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<UParticleSystem> MuzzleEffect;
     // 旧武器兼容资源；WeaponAnimLayerClass非空时完全由子类AnimSet供给，不再播放单序列覆盖主图。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Feedback") TObjectPtr<UAnimSequence> IdleAnimation;

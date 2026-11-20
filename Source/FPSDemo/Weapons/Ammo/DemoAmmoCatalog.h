@@ -1,6 +1,8 @@
+// 职责：弹药展示、金币解锁价、纯视觉样式及GAS效果参数的单一目录。使用：配置DA_AmmoCatalog；视觉失效只回退表现，不干扰购买/伤害。
 #pragma once
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "Weapons/Ammo/DemoAmmoVisualStyle.h"
 #include "DemoAmmoCatalog.generated.h"
 
 /** 单项展示与解锁配置，索引0普通/1火焰/2冰冻/3穿透；ID固定保证旧存档兼容。 */
@@ -13,6 +15,7 @@ struct FDemoAmmoEntry
     UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<class UTexture2D> Icon; // 目录强引用既有图标，随目录加载并自动Cook。
     UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0")) int32 UnlockGoldCost = 0; // 一次性金币整数价格，0表示免费领取。
     UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bUnlockedByDefault = false; // 新档免购买；普通弹始终可用。
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual") FDemoAmmoVisualStyle VisualStyle; // 本弹种唯一纯表现样式；发射时按冻结ID拷贝，非存档/非Gameplay复制。
 };
 
 /** Editor可编辑的单一目录/平衡数据源，运行时只读；不修改GE的共享CDO。 */

@@ -2,9 +2,10 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameplayEffectTypes.h"
+#include "Contracts/DemoGameplayContracts.h"
 #include "DemoAmmoComponent.generated.h"
 
-/** Pawn弹药选择；金币/解锁与同槽检查点一起提交，只支持单人权威端。 */
+/** 每名Pawn独立弹药库存；服务器写入，拥有者复制展示，金币事务交给Shop。 */
 UCLASS(ClassGroup=(Demo),meta=(BlueprintSpawnableComponent))
 class FPSDEMO_API UDemoAmmoComponent : public UActorComponent
 {
@@ -14,6 +15,8 @@ public:
     UDemoAmmoComponent();
     /** EndPlayReason为Pawn卸载原因；移除PS ASC上的旧装配GE。 */
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    /** OutLifetimeProps注册本人库存；其他客户端无需接收购买列表或装配细节。 */
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     /** 只读目录，未创建资产时使用原生默认值以便Editor初次生成资产。 */
     const class UDemoAmmoCatalog* GetCatalog() const;
     /** Index为0..3，默认解锁配置与该槽已购集合共同决定权限。 */
@@ -29,12 +32,22 @@ public:
     /** Data为同一检查点值快照；导出/恢复稳定ID，不保存GE句柄。 */
     void Capture(class UDemoRunSave& Data) const;
     void Restore(const class UDemoRunSave& Data);
+    /** Data是普通领域快照，只填弹药字段，不依赖SaveGame或GE句柄。 */
+    void CaptureSnapshot(FDemoLoadoutSnapshot& Data) const;
+    /** Data来自服务器检查点或交易回滚；失败保持旧选择/解锁和GE，不静默退回普通弹。 */
+    bool RestoreSnapshot(const FDemoLoadoutSnapshot& Data);
+    /** Data为待恢复快照；在整队准备阶段验证身份、目录和ASC，不修改装备。 */
+    bool CanRestoreSnapshot(const FDemoLoadoutSnapshot& Data) const;
 private:
     friend class UDemoShopComponent; // 仅商店事务可原子修改解锁集合并回滚；UI不能绕过购买接口写库存。
-    /** 根据Selected重建唯一装配GE；ASC初始化后或合法装配成功调用。 */
-    void RefreshEffect();
+    /** Index为商店已授权的0..3项；只提交本人选择与GE，不读UI或保存，失败不改旧装配。 */
+    bool ExecuteSelection(int32 Index);
+    /** 拥有者收到库存只记日志；GE/tag从服务器ASC复制，不在OnRep重新施加。 */
+    UFUNCTION() void OnRep_Inventory();
+    /** 根据Selected准备新装配GE，成功后才移除旧Handle；ASC缺失/Spec失败返回false且保留旧效果。 */
+    bool RefreshEffect();
     UPROPERTY(EditDefaultsOnly,Category="Ammo") TObjectPtr<class UDemoAmmoCatalog> Catalog; // Editor生成的单一配置资产。
-    UPROPERTY() TArray<FName> Unlocked = {FName(TEXT("normal"))}; // 本槽购买结果，不作为全局武器解锁。
-    int32 Selected = 0; // 当前类型，恢复时未知/未解锁回退0。
+    UPROPERTY(ReplicatedUsing=OnRep_Inventory) TArray<FName> Unlocked = {FName(TEXT("normal"))}; // 本人购买结果，只复制给拥有者。
+    UPROPERTY(ReplicatedUsing=OnRep_Inventory) int32 Selected = 0; // 当前类型，恢复时未知/未解锁回退0；由服务器提交。
     FActiveGameplayEffectHandle LoadoutEffect; // PS ASC拥有，组件卸载必须精确移除。
 };

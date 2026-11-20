@@ -1,3 +1,5 @@
+// 职责：Boss俯冲真实World回归；使用-DemoEnemyAttackTest -DemoBossDiveTest运行隔离夹具。
+// 依赖第十关生产模板、BossDive GA/GAS、NavMesh与Sweep；不再假定旧第五关包含Boss，避免配置调整导致测试在开场失败。
 #include "Tests/DemoEnemyAttackTest.h"
 #include "AI/DemoEnemy.h"
 #include "AI/DemoBossDiveVFX.h"
@@ -5,7 +7,7 @@
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoTags.h"
-#include "GAS/DemoGameplayAbility.h"
+#include "GAS/Abilities/DemoPlayerAbilityTypes.h"
 #include "GAS/DemoAbilitySystemComponent.h"
 #include "GAS/Ammo/DemoAmmoEffects.h"
 #include "Game/FPSDemoGameMode.h"
@@ -36,8 +38,9 @@ void ADemoEnemyAttackTest::TickDiveTest()
         if (!Check(Mode->StartRun(),TEXT("dive isolated run"))) return;
         Mode->StartNextLevel(); PC->OnRunReady();
         for (TActorIterator<ADemoEnemy> It(GetWorld());It;++It) { It->SetActorTickEnabled(false); It->SetActorEnableCollision(false); } // 保留战役注册怪避免误触发清场。
-        FDemoEnemySpawnStats Production; FString Error; // 真实第5关Boss解析快照和错误信息。
-        if (!Check(Mode->GetSpawnStats(5,true,Production,Error)&&Production.bUseDive,TEXT("production boss table enables dive"))) return;
+        FDemoEnemySpawnStats Production; // 当前十关战役最终关Boss的生产配置，不借用已移除的第五关Boss引用。
+        FString Error; // 本次解析失败原因，由生产接口输出日志；不缓存跨关卡状态。
+        if (!Check(Mode->GetSpawnStats(DemoCombatConfig::LevelCount,true,Production,Error)&&Production.bUseDive,TEXT("production final-level boss table enables dive"))) return;
         FDemoBossDiveSettings Invalid; Invalid.Height=-1; // 仅测试副本。
         if (!Check(!Invalid.IsValid(),TEXT("negative rise height rejected"))) return;
         Advance(.1f); return;
@@ -151,7 +154,8 @@ void ADemoEnemyAttackTest::TickDiveTest()
         }
         if (DiveScenario==7)
         {
-            if (Player->GetDemoAttributes()->GetHealth()>0) return;
+            // 致命伤害同步清成长，RefillPlayer还会补血/清阵亡标记；以真实Defeat流转证明40HP玩家被50伤害击败。
+            if (State->Phase!=EDemoPhase::Defeat) return;
             if (!Check(!Dive->IsActive()&&!Boss->GetAbilitySystemComponent()->HasMatchingGameplayTag(DemoBossTags::Invulnerable),TEXT("lethal impact safely cancels ability during health delegate"))) return;
         }
         else if (DiveScenario==6)

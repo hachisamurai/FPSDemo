@@ -1,3 +1,4 @@
+// 职责：Editor资产导入/插槽配置桥接；Python调用，依赖Engine原生骨架和渲染数据，不在游戏运行时写资产。
 #pragma once
 
 #include "CoreMinimal.h"
@@ -19,6 +20,13 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category="Demo|Editor|Skeletal Assets")
     static bool SetSkeletonSocket(USkeletalMesh* Mesh, FName SocketName, FName BoneName, const FTransform& ComponentTransform);
+    /**
+     * Editor/Python配置武器时调用；Mesh借用当前实际使用的网格，BoneRelativeTransform是父骨局部厘米/度/正缩放。
+     * PreviewAsset可空，仅供动画编辑器预览；创建/更新Skeleton插槽，不改骨骼参考姿势、动画或蒙皮，调用方负责保存。
+     */
+    UFUNCTION(BlueprintCallable, Category="Demo|Editor|Skeletal Assets")
+    static bool SetSkeletonSocketLocal(USkeletalMesh* Mesh, FName SocketName, FName BoneName,
+        const FTransform& BoneRelativeTransform, UObject* PreviewAsset);
     /** Mesh 为借用的已构建资产，ExpectedWeightedBones 为实际带几何的骨数；检查 LOD0 每点恰有一个有效权重及骨索引。 */
     UFUNCTION(BlueprintCallable, Category="Demo|Editor|Skeletal Assets")
     static bool ValidateRigidSkin(USkeletalMesh* Mesh, int32 ExpectedWeightedBones);

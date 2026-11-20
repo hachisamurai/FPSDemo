@@ -67,6 +67,6 @@ private:
     bool bImpacted=false; // 应用GE前消费，阻断重入或多组件重复伤害。
     bool bHasOrigin=false; // 只有完成启动验证才允许取消回收，避免默认零向量传送。
     FActiveGameplayEffectHandle Immunity; // 仅本次无敌GE句柄，不能误删其他技能状态。
-    TWeakObjectPtr<class ADemoCharacter> IgnoredPlayer; // 临时只忽略移动Sweep，玩家仍可射击Boss。
+    TArray<TWeakObjectPtr<class ADemoCharacter>> IgnoredPlayers; // 本次固定队伍只忽略Boss移动Sweep，所有玩家仍可射击Boss；结束逐一恢复。
     UPROPERTY() TObjectPtr<class ADemoBossDiveVFX> VFX; // 本GA持有纯表现Actor，结束显式销毁，World卸载兜底。
 };

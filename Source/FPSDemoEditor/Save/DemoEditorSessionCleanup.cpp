@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "Kismet/GameplayStatics.h"
 #include "Debug/DemoLog.h"
+#include "Debug/DemoNetworkDiagnostics.h" // 只有子进程状态变化记录独立诊断，不把每秒轮询复制到诊断文件。
 
 namespace
 {
@@ -47,8 +48,11 @@ namespace
         for (auto It = WatchedProcesses.CreateIterator(); It; ++It) // 迭代器仅在本次同步调用持有，不跨帧。
         {
             if (FPlatformProcess::IsProcRunning(It.Value())) continue;
+            DEMO_NET_DIAG(TEXT("Standalone.Child.Exited"), nullptr, FString::Printf(TEXT("childPid=%u"), It.Key())); // 仅记录本Editor创建并监视的子进程。
             CleanupExitedProcess(It.Key());
+            DEMO_NET_DIAG(TEXT("Standalone.Child.SavesCleaned"), nullptr, FString::Printf(TEXT("childPid=%u"), It.Key()));
             FPlatformProcess::CloseProc(It.Value());
+            DEMO_NET_DIAG(TEXT("Standalone.Child.HandleClosed"), nullptr, FString::Printf(TEXT("childPid=%u"), It.Key())); // CloseProc只释放查询句柄，不终止子进程或系统服务。
             It.RemoveCurrent();
         }
         return true;
@@ -72,14 +76,17 @@ void DemoEditorSessionCleanup::WatchProcess(uint32 ProcessId)
     FProcHandle Handle = FPlatformProcess::OpenProcess(ProcessId); // 父进程拥有查询句柄；关闭句柄不终止游戏。
     if (!Handle.IsValid()) { UE_LOG(LogFPSDemo, Warning, TEXT("EDITOR_CHILD_CLEANUP unable to watch pid=%u"), ProcessId); return; }
     WatchedProcesses.Add(ProcessId, Handle);
+    DEMO_NET_DIAG(TEXT("Standalone.Child.Watched"), nullptr, FString::Printf(TEXT("childPid=%u"), ProcessId));
 }
 
 void DemoEditorSessionCleanup::Shutdown()
 {
     UE_LOG(LogFPSDemo, Log, TEXT("[CALL] DemoEditorSessionCleanup::Shutdown"));
+    DEMO_NET_DIAG(TEXT("Standalone.Watcher.Shutdown.Begin"), nullptr, FString::Printf(TEXT("watched=%d"), WatchedProcesses.Num()));
     FEditorDelegates::BeginStandaloneLocalPlay.Remove(BeginHandle);
     FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
     TickProcesses(0);
     for (auto& Entry : WatchedProcesses) FPlatformProcess::CloseProc(Entry.Value); // 活跃子进程只关闭监视句柄，自身正常退出仍会清理。
     WatchedProcesses.Empty();
+    DEMO_NET_DIAG(TEXT("Standalone.Watcher.Shutdown.End"), nullptr, TEXT("watched=0"));
 }

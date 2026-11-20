@@ -1,4 +1,5 @@
 #include "Tests/DemoCloudTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Player/DemoCloudSync.h"
 #include "Player/DemoPlayerProfile.h"
 #include "Player/DemoPlayerController.h"
@@ -64,7 +65,7 @@ void ADemoCloudTest::Tick(float DeltaSeconds)
         {
             if (Mode == TEXT("exit-online") && !bSynced) return;
             if (!Check(Runs->CreateSlot(0) && Game->StartRun(),TEXT("exit owns fresh isolated run"))) return;
-            State->Coins = 41; // 可辨识检查点数值，用来验证本地写入与随后上传。
+            DemoTestProgress::SetGold(State,41); /* 夹具通过本人PS提交，不能写共享GS钱包。 */ // 可辨识检查点数值，用来验证本地写入与随后上传。
             PC->OnRunReady(); PC->EscapePressed(); PC->QuitPressed();
             Step = 10; return;
         }
@@ -74,7 +75,7 @@ void ADemoCloudTest::Tick(float DeltaSeconds)
             if (PC->GetQuitState() == EDemoQuitState::WaitingCloud && Cloud->GetStatus() == TEXT("正在同步永久进度与检查点"))
             {
                 // 第一份请求已固定为41金币；模拟在途时额外落盘，旧回执必须继续补传73金币才能退出。
-                State->Coins = 73;
+                DemoTestProgress::SetGold(State,73); /* 夹具通过本人PS提交，不能写共享GS钱包。 */
                 if (!Check(Game->SaveCheckpoint(),TEXT("new checkpoint while old upload is in flight"))) return;
                 Step = 11;
             }

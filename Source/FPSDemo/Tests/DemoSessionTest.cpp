@@ -1,4 +1,6 @@
+// 职责：DemoSessionTest模块的独立实现/声明。使用：由同名类型公开接口调用，玩家技能类型从DemoPlayerAbilityTypes聚合头引用，具体GA行为各自维护。
 #include "Tests/DemoSessionTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Player/DemoPlayerController.h"
 #include "Player/DemoPlayerProfile.h"
 #include "Player/DemoCloudSync.h"
@@ -12,7 +14,7 @@
 #include "GAS/DemoAbilitySystemComponent.h"
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoEffects.h"
-#include "GAS/DemoGameplayAbility.h"
+#include "GAS/Abilities/DemoPlayerAbilityTypes.h"
 #include "GAS/DemoTags.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "AI/DemoEnemy.h"
@@ -106,15 +108,15 @@ TArray<double> ADemoSessionTest::CaptureProgress() const
     const UDemoWeaponComponent* Equipment = Player->GetWeaponComponent(); // 当前实例库存/武器槽。
     const ADemoWeaponBase* Weapon = Equipment->GetActiveWeapon(); // 当前枪的独立弹药。
     TArray<double> Values; // double无损容纳int32及float，以顺序比较全部保留字段。
-    Values.Add(State->Coins); Values.Add(State->TotalKills); Values.Add(State->Purchases); // 钱包、统计和下次价格依据。
+    Values.Add(DemoTestProgress::Read(State).Coins); Values.Add(DemoTestProgress::Read(State).Kills); Values.Add((DemoTestProgress::Read(State).UpgradeProgress.Total(true)+DemoTestProgress::Read(State).UpgradeProgress.Total(false))); // 钱包、统计和下次价格依据。
     Values.Add(Attributes->GetHealth()); Values.Add(Attributes->GetMaxHealth()); // 当前HP和上限都不能被StartRun默认值覆盖。
     Values.Add(Attributes->GetWeaponDamageBonus()); Values.Add(Attributes->GetMagazineBonus()); // 两个全武器GAS加成。
     Values.Add(Player->GetHealAmount()); Values.Add(Player->GetDashSpeed()); // Pawn持有的两类技能成长。
     Values.Add(Equipment->GetPrimaryIndex()); Values.Add(Equipment->GetActiveSlot()); // 保留选定型号和主副槽。
     Values.Add(Weapon->GetAmmo()); Values.Add(Weapon->GetReserveAmmo()); // 非满弹药用于识别意外补满/初始化。
-    Values.Add(State->SilverCoins); Values.Add(State->GoldPurchases); Values.Add(State->SilverPurchases); // 双币余额和独立价格也必须跨普通检查点恢复。
-    for (int32 Choice=0; Choice<3; ++Choice) { Values.Add(State->UpgradeProgress.GoldLevels[Choice]); Values.Add(State->UpgradeProgress.SilverLevels[Choice]); } // 六项价格需逐项恢复。
-    Values.Add(State->UpgradeProgress.PermanentDamage); Values.Add(State->UpgradeProgress.PermanentHealth); Values.Add(State->UpgradeProgress.PermanentMagazine); // 来源不能被总属性替代。
+    Values.Add(DemoTestProgress::Read(State).SilverCoins); Values.Add(DemoTestProgress::Read(State).UpgradeProgress.Total(true)); Values.Add(DemoTestProgress::Read(State).UpgradeProgress.Total(false)); // 双币余额和独立价格也必须跨普通检查点恢复。
+    for (int32 Choice=0; Choice<3; ++Choice) { Values.Add(DemoTestProgress::Read(State).UpgradeProgress.GoldLevels[Choice]); Values.Add(DemoTestProgress::Read(State).UpgradeProgress.SilverLevels[Choice]); } // 六项价格需逐项恢复。
+    Values.Add(DemoTestProgress::Read(State).UpgradeProgress.PermanentDamage); Values.Add(DemoTestProgress::Read(State).UpgradeProgress.PermanentHealth); Values.Add(DemoTestProgress::Read(State).UpgradeProgress.PermanentMagazine); // 来源不能被总属性替代。
     return Values;
 }
 bool ADemoSessionTest::VerifyPlayerSkills(bool bAllowed)
@@ -193,10 +195,10 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         PC->SetTerminalWeaponPage(true); PC->InspectWeapon(1); PC->EquipInspectedWeapon();
         PC->CloseWeaponTip(); PC->CloseUpgradeMenu();
         if (!Check(Player->GetWeaponComponent()->GetPrimaryIndex() == 0 && Saves->GetSlot(0)->PrimaryId == TEXT("rifle"), TEXT("terminal selection saved to current slot"))) return;
-        EquipmentGold = State->Coins; EquipmentRunId = Saves->GetSlot(0)->RunId;
+        EquipmentGold = DemoTestProgress::Read(State).Coins; EquipmentRunId = Saves->GetSlot(0)->RunId;
         Mode->StartNextLevel();
         DemoEffects::Apply(Player->GetDemoASC(), Player->GetDemoASC(), UDemoMagazineEffect::StaticClass(), 4.f); // 独立临时加成夹具，死亡不能把旧容量当永久容量。
-        State->SilverCoins = 33; // 半场可清零钱包夹具，不能进入重开快照。
+        DemoTestProgress::SetSilver(State,33); /* 夹具通过本人PS提交，不能写共享GS钱包。 */ // 半场可清零钱包夹具，不能进入重开快照。
         Player->GetWeaponComponent()->GetActiveWeapon()->RestoreAmmo(2, 3);
         DemoEffects::Apply(Player->GetDemoASC(), Player->GetDemoASC(), UDemoHealthEffect::StaticClass(), -100000.f); // 真实GAS归零走死亡回调。
         Saves->RefreshSlots(); // 从UE磁盘文件重新载入，不能只检查内存副本。
@@ -207,7 +209,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         Mode->RestartDemo(); Advance(403); break;
     case 403:
         if (!Check(State->Phase == EDemoPhase::Hub && Player->GetWeaponComponent()->GetPrimaryIndex() == 0
-            && Player->GetWeaponComponent()->GetActiveSlot() == 1 && State->Coins == EquipmentGold && State->SilverCoins == 0
+            && Player->GetWeaponComponent()->GetActiveSlot() == 1 && DemoTestProgress::Read(State).Coins == EquipmentGold && DemoTestProgress::Read(State).SilverCoins == 0
             && Attributes->GetMagazineBonus() == 4 && Player->GetWeaponComponent()->GetActiveWeapon()->GetAmmo() == Player->GetWeaponComponent()->GetActiveWeapon()->Config.MagazineCapacity + 4
             && Player->GetWeaponComponent()->GetActiveWeapon()->GetReserveAmmo() == Player->GetWeaponComponent()->GetActiveWeapon()->Config.InitialReserve,
             TEXT("new Pawn restores rifle and refills using permanent capacity"))) return;
@@ -253,13 +255,13 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
             State->Difficulty=EDemoDifficulty::Normal;
         }
         Mode->SelectDifficulty(EDemoDifficulty::Hard); Mode->StartNextLevel();
-        if (!Check(Mode->RegisterWeaponShot(TEXT("rifle")) && State->PistolChallenge==2 && Saves->GetSlot(0)->PistolChallenge==2,TEXT("nonpistol shot immediately persists disqualification"))) return;
+        if (!Check(Mode->RegisterWeaponShot(TEXT("rifle")) && DemoTestProgress::Read(State).PistolChallenge==2 && Saves->GetSlot(0)->PistolChallenge==2,TEXT("nonpistol shot immediately persists disqualification"))) return;
         // 半场返回大厅再读同一检查点，不能恢复资格；通过真实OpenLevel创建新GameMode。
         PC->EscapePressed(); PC->ReturnLobbyPressed(); Advance(306); break;
     case 306:
         PC->StartGamePressed(); PC->SelectSaveSlot(0); Advance(307); break;
     case 307:
-        if (!Check(State->PistolChallenge==2 && State->LevelNumber==0,TEXT("checkpoint restart retains failed pistol challenge"))) return;
+        if (!Check(DemoTestProgress::Read(State).PistolChallenge==2 && State->LevelNumber==0,TEXT("checkpoint restart retains failed pistol challenge"))) return;
         Mode->StartNextLevel(); Advance(301,.1); break;
     case 301:
         if (!Check(FPlatformTime::Seconds()-ChallengeStarted<180,TEXT("challenge regression bounded runtime"))) return;
@@ -279,7 +281,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
                 EncounterBosses = 0;
                 if (ChallengeRound==1 && State->LevelNumber==1)
                 {
-                    if (!Check(Player->GetDemoASC()->ActivateDemoAbility(UDemoFireAbility::StaticClass()) && State->PistolChallenge==1 && Saves->GetSlot(0)->PistolChallenge==1,TEXT("real GAS pistol shot qualifies and persists before damage"))) return;
+                    if (!Check(Player->GetDemoASC()->ActivateDemoAbility(UDemoFireAbility::StaticClass()) && DemoTestProgress::Read(State).PistolChallenge==1 && Saves->GetSlot(0)->PistolChallenge==1,TEXT("real GAS pistol shot qualifies and persists before damage"))) return;
                 }
                 if (ChallengeRound==3)
                 {
@@ -313,7 +315,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
             PC->SelectUpgrade(0);
             if (ChallengeRound==3 && State->LevelNumber==20) // 实际运行到第二个Boss周期，覆盖15关无Boss、20关有Boss以及其间所有补怪。
             {
-                if (!Check(bChallengeSawQueue && State->BestEndlessLevel==20 && Saves->GetSlot(0)->CompletedLevel==20 && Saves->GetSlot(0)->BestEndlessLevel==20,TEXT("endless reaches twenty, batches spawn and best record autosaves"))) return;
+                if (!Check(bChallengeSawQueue && DemoTestProgress::Read(State).BestEndlessLevel==20 && Saves->GetSlot(0)->CompletedLevel==20 && Saves->GetSlot(0)->BestEndlessLevel==20,TEXT("endless reaches twenty, batches spawn and best record autosaves"))) return;
                 PC->EscapePressed(); PC->ReturnLobbyPressed(); Advance(308); return;
             }
             Mode->StartNextLevel();
@@ -329,7 +331,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
                     && Profile->GetData().Clears.Num()==1 && Profile->GetData().Clears[0].DifficultyId==TEXT("hard")
                     && Profile->ReloadFromDisk() && Profile->IsUnlocked(TEXT("shotgun")), TEXT("hard-only victory unlocks shotgun and sniper without fabricated normal/easy clears; reload retains it"))) return;
                 Mode->ContinueAfterVictory(); ChallengeRound=1; ChallengeObservedLevel=0;
-                if (!Check(State->PistolChallenge==0,TEXT("new challenge resets qualification"))) return;
+                if (!Check(DemoTestProgress::Read(State).PistolChallenge==0,TEXT("new challenge resets qualification"))) return;
                 Mode->SelectDifficulty(EDemoDifficulty::Hard); Mode->StartNextLevel();
             }
             else if (ChallengeRound==1)
@@ -360,12 +362,12 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
     case 308:
         PC->StartGamePressed(); PC->SelectSaveSlot(0); Advance(309); break;
     case 309:
-        if (!Check(State->bEndless && State->LevelNumber==20 && State->BestEndlessLevel==20 && State->Phase==EDemoPhase::Intermission,TEXT("endless checkpoint restores beyond level ten"))) return;
+        if (!Check(State->bEndless && State->LevelNumber==20 && DemoTestProgress::Read(State).BestEndlessLevel==20 && State->Phase==EDemoPhase::Intermission,TEXT("endless checkpoint restores beyond level ten"))) return;
         if (!Check(Saves->ImportCloud(2,Saves->ExportCloud(0)) && Saves->GetSlot(2)->bEndless && Saves->GetSlot(2)->CompletedLevel==20 && Saves->GetSlot(2)->BestEndlessLevel==20,TEXT("V5 JSON export/import retains mode and endless record"))) return;
         {
             UDemoRunSave* Legacy=DuplicateObject<UDemoRunSave>(Saves->GetSlot(0),this); // 独立值样本验证V4迁移，不覆盖真实测试检查点。
             Legacy->Version=4; Legacy->bEndless=false; Legacy->BestEndlessLevel=0; Legacy->PistolChallenge=0; Legacy->Difficulty=EDemoDifficulty::Hard; Legacy->CompletedLevel=2;
-            if (!Check(Legacy->UpgradeLegacy() && Legacy->PistolChallenge==2 && Legacy->Version==5,TEXT("legacy active campaign cannot retroactively prove pistol-only"))) return;
+            if (!Check(Legacy->UpgradeLegacy() && Legacy->PistolChallenge==2 && Legacy->Version==7 /* V6空研究迁移继续保留旧挑战资格 */,TEXT("legacy active campaign cannot retroactively prove pistol-only"))) return;
         }
         Mode->NotifyPlayerDied();
         if (!Check(Saves->GetSlot(0)->CompletedLevel==0 && Saves->GetSlot(0)->BestEndlessLevel==20 && Saves->GetSlot(0)->bEndless && Saves->GetSlot(0)->SilverCoins==0,TEXT("death clears current run and silver but retains endless best"))) return;
@@ -429,7 +431,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         if (!Check(State->Phase==EDemoPhase::Combat,TEXT("continuation campaign actually enters combat"))) return;
         FDemoLevelRow Level; FDemoDifficultyRow Difficulty; FString Error; // 本帧配置值，前九关金币为0，只有最终关按难度计算整轮奖励。
         if (!Check(Mode->GetLevelConfig(State->LevelNumber,Level,Difficulty,Error),TEXT("currency reward config available"))) return;
-        BeforeClearGold=State->Coins; ExpectedClearGold=State->LevelNumber==DemoCombatConfig::LevelCount?Difficulty.VictoryGoldReward:0; BeforeClearSilver=State->SilverCoins;
+        BeforeClearGold=DemoTestProgress::Read(State).Coins; ExpectedClearGold=State->LevelNumber==DemoCombatConfig::LevelCount?Difficulty.VictoryGoldReward:0; BeforeClearSilver=DemoTestProgress::Read(State).SilverCoins;
         int32 KilledThisLevel = 0; // 尸体因死亡动画延迟1.65秒销毁，预期只累计本关真正由活转死的实例。
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 实际注册怪经GAS死亡推进，不直接伪造Victory或解锁状态。
         {
@@ -441,11 +443,11 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
             Mode->NotifyEnemyKilled(*It); // 真实死亡后的重复通知必须不再发银币。
         }
         if (!Check(KilledThisLevel==Level.EnemyCount+(Level.BossRow.IsNone()?0:1), TEXT("all expected current-wave enemies actually killed"))) return;
-        if (!Check(State->Coins==BeforeClearGold && State->SilverCoins==BeforeClearSilver,TEXT("kills and duplicate callbacks only award exact silver, never gold"))) return;
+        if (!Check(DemoTestProgress::Read(State).Coins==BeforeClearGold && DemoTestProgress::Read(State).SilverCoins==BeforeClearSilver,TEXT("kills and duplicate callbacks only award exact silver, never gold"))) return;
         Advance(103); break;
         }
     case 103:
-        if (!Check(State->Coins==BeforeClearGold+ExpectedClearGold,TEXT("complete stage awards configured gold exactly once"))) return;
+        if (!Check(DemoTestProgress::Read(State).Coins==BeforeClearGold+ExpectedClearGold,TEXT("complete stage awards configured gold exactly once"))) return;
         if (State->Phase==EDemoPhase::Reward)
         {
             PC->SelectUpgrade(State->LevelNumber%3); // 覆盖伤害/治疗/冲刺三种成长。
@@ -455,7 +457,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
                 Mode->GetShopTerminal()->Interact(Player);
                 if (!Check(Mode->GetUpgradeCost()==20,TEXT("silver prices independent of hub gold purchases"))) return;
                 PC->SelectUpgrade(1); PC->SelectUpgrade(2); // 实际关间购买生命/容量，只消耗银币。
-                if (!Check(State->Coins==BeforeClearGold+ExpectedClearGold && State->SilverCoins==BeforeClearSilver-40 && State->SilverPurchases==2 && Mode->GetUpgradeCost(0)==20 && Mode->GetUpgradeCost(1)==30 && Mode->GetUpgradeCost(2)==30,TEXT("arena purchases cost 20 each; other attributes retain their own prices"))) return;
+                if (!Check(DemoTestProgress::Read(State).Coins==BeforeClearGold+ExpectedClearGold && DemoTestProgress::Read(State).SilverCoins==BeforeClearSilver-40 && DemoTestProgress::Read(State).UpgradeProgress.Total(false)==2 && Mode->GetUpgradeCost(0)==20 && Mode->GetUpgradeCost(1)==30 && Mode->GetUpgradeCost(2)==30,TEXT("arena purchases cost 20 each; other attributes retain their own prices"))) return;
                 Capture(TEXT("11-SilverTerminal")); Advance(130); break;
             }
             Mode->StartNextLevel(); Advance(102);
@@ -464,7 +466,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         {
             if (!Check(State->Phase==EDemoPhase::Victory && State->LevelNumber==10,TEXT("ten real clears reach victory"))) return;
             if (!VerifyPlayerSkills(false)) return; // 结算为模态页，返回可行走Hub后才允许技能。
-            if (!Check(State->SilverCoins==0 && State->Purchases==(VictoryRound==0?0:4) && !Mode->HasRunUpgrades() && Attributes->GetHealth()==(VictoryRound==0?100:125) && Attributes->GetWeaponDamageBonus()==(VictoryRound==0?0:10) && Attributes->GetMagazineBonus()==(VictoryRound==0?0:4) && Player->GetHealAmount()==35 && Player->GetDashSpeed()==1300,TEXT("victory clears silver/free upgrades while retaining permanent gold health/damage/magazine and prices"))) return;
+            if (!Check(DemoTestProgress::Read(State).SilverCoins==0 && (DemoTestProgress::Read(State).UpgradeProgress.Total(true)+DemoTestProgress::Read(State).UpgradeProgress.Total(false))==(VictoryRound==0?0:4) && !Mode->HasRunUpgrades() && Attributes->GetHealth()==(VictoryRound==0?100:125) && Attributes->GetWeaponDamageBonus()==(VictoryRound==0?0:10) && Attributes->GetMagazineBonus()==(VictoryRound==0?0:4) && Player->GetHealAmount()==35 && Player->GetDashSpeed()==1300,TEXT("victory clears silver/free upgrades while retaining permanent gold health/damage/magazine and prices"))) return;
             if (!Check(Mode->SaveCheckpoint(),TEXT("real victory snapshot persists"))) return;
             VictoryValues=CaptureProgress(); CompletedRunId=Saves->GetSlot(0)->RunId; ++VictoryRound;
             Capture(TEXT("08-VictoryContinue")); Advance(104);
@@ -505,9 +507,9 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         if (!Check(Player->GetWeaponComponent()->GetPrimaryIndex()==0,TEXT("easy clear rifle can be equipped immediately in safe hub"))) return;
         Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
         Mode->GetShopTerminal()->Interact(Player); PC->SetTerminalWeaponPage(false);
-        SavedCoins=State->Coins;
+        SavedCoins=DemoTestProgress::Read(State).Coins;
         PC->SelectUpgrade(0); PC->SelectUpgrade(0); PC->SelectUpgrade(1); PC->SelectUpgrade(2); // 伤害20+30，另两项各20；购买某项不会带涨其他项目。
-        if (!Check(State->Coins==SavedCoins-90 && State->SilverCoins==0 && State->GoldPurchases==4 && State->SilverPurchases==0 && Mode->GetUpgradeCost(0)==40 && Mode->GetUpgradeCost(1)==30 && Mode->GetUpgradeCost(2)==30 && Attributes->GetWeaponDamageBonus()==10 && Attributes->GetMaxHealth()==125 && Attributes->GetMagazineBonus()==4,TEXT("hub spends 20+30 on damage and 20 each on health/magazine; prices independent"))) return;
+        if (!Check(DemoTestProgress::Read(State).Coins==SavedCoins-90 && DemoTestProgress::Read(State).SilverCoins==0 && DemoTestProgress::Read(State).UpgradeProgress.Total(true)==4 && DemoTestProgress::Read(State).UpgradeProgress.Total(false)==0 && Mode->GetUpgradeCost(0)==40 && Mode->GetUpgradeCost(1)==30 && Mode->GetUpgradeCost(2)==30 && Attributes->GetWeaponDamageBonus()==10 && Attributes->GetMaxHealth()==125 && Attributes->GetMagazineBonus()==4,TEXT("hub spends 20+30 on damage and 20 each on health/magazine; prices independent"))) return;
         Capture(TEXT("12-GoldTerminal")); Advance(131); break;
     case 131:
         PC->CloseUpgradeMenu();
@@ -546,26 +548,26 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         break;
     case 140:
         // 获得真实银币后死亡，不清关，不得新增金币；死亡页面直接回大厅再读档检验持久化重置。
-        SavedCoins=State->Coins;
+        SavedCoins=DemoTestProgress::Read(State).Coins;
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 冻结AI防止测试操作期间非确定性伤害，只击杀一只。
         { It->SetActorTickEnabled(false); }
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It)
         { DemoEffects::Apply(Player->GetDemoASC(),It->GetAbilitySystemComponent(),UDemoHealthEffect::StaticClass(),-100000.f); break; }
         Player->ApplyAbilityReward(0); Player->ApplyAbilityReward(1); // 临时成长必须随着死亡清掉。
-        if (!Check(State->SilverCoins>0 && State->Coins==SavedCoins,TEXT("unfinished combat earns silver but no clear gold"))) return;
+        if (!Check(DemoTestProgress::Read(State).SilverCoins>0 && DemoTestProgress::Read(State).Coins==SavedCoins,TEXT("unfinished combat earns silver but no clear gold"))) return;
         DemoEffects::Apply(Player->GetDemoASC(),Player->GetDemoASC(),UDemoHealthEffect::StaticClass(),-100000.f);
-        if (!Check(State->Phase==EDemoPhase::Defeat && State->SilverCoins==0 && Saves->GetSlot(0)->Phase==EDemoPhase::Hub && Saves->GetSlot(0)->Coins==SavedCoins && Saves->GetSlot(0)->SilverCoins==0 && Saves->GetSlot(0)->DamageBonus==10 && Saves->GetSlot(0)->MaxHealth==125 && Saves->GetSlot(0)->MagazineBonus==4,TEXT("death immediately persists fresh hub retaining gold and clearing silver/growth"))) return;
+        if (!Check(State->Phase==EDemoPhase::Defeat && DemoTestProgress::Read(State).SilverCoins==0 && Saves->GetSlot(0)->Phase==EDemoPhase::Hub && Saves->GetSlot(0)->Coins==SavedCoins && Saves->GetSlot(0)->SilverCoins==0 && Saves->GetSlot(0)->DamageBonus==10 && Saves->GetSlot(0)->MaxHealth==125 && Saves->GetSlot(0)->MagazineBonus==4,TEXT("death immediately persists fresh hub retaining gold and clearing silver/growth"))) return;
         PC->EscapePressed(); Advance(141); PC->ReturnLobbyPressed(); break;
     case 141:
         PC->StartGamePressed(); PC->SelectSaveSlot(0); Advance(142); break;
     case 142:
-        if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==SavedCoins && State->SilverCoins==0 && !Mode->HasRunUpgrades() && State->Purchases==4 && Attributes->GetWeaponDamageBonus()==10 && Attributes->GetMaxHealth()==125 && Attributes->GetMagazineBonus()==4 && Mode->GetUpgradeCost(0)==40 && Mode->GetUpgradeCost(1)==30 && Mode->GetUpgradeCost(2)==30
+        if (!Check(State->Phase==EDemoPhase::Hub && DemoTestProgress::Read(State).Coins==SavedCoins && DemoTestProgress::Read(State).SilverCoins==0 && !Mode->HasRunUpgrades() && (DemoTestProgress::Read(State).UpgradeProgress.Total(true)+DemoTestProgress::Read(State).UpgradeProgress.Total(false))==4 && Attributes->GetWeaponDamageBonus()==10 && Attributes->GetMaxHealth()==125 && Attributes->GetMagazineBonus()==4 && Mode->GetUpgradeCost(0)==40 && Mode->GetUpgradeCost(1)==30 && Mode->GetUpgradeCost(2)==30
             && GetGameInstance()->GetSubsystem<UDemoPlayerProfile>()->IsUnlocked(TEXT("shotgun")),TEXT("death reload retains permanent gold stats/prices and unlocks, removes temporary growth/silver"))) return;
         // 已在Hub时“返回安全区”只关闭暂停，不重载World；下一步验证永久属性和价格保持不变。
         PC->EscapePressed(); Advance(143); PC->ReturnHubPressed(); break;
     case 143:
         if (!Check(State->Phase==EDemoPhase::Hub && !PC->HasBlockingOverlay() && Attributes->GetWeaponDamageBonus()==10
-            && Attributes->GetMaxHealth()==125 && Attributes->GetMagazineBonus()==4 && Mode->GetUpgradeCost(0)==40 && State->Coins==SavedCoins,
+            && Attributes->GetMaxHealth()==125 && Attributes->GetMagazineBonus()==4 && Mode->GetUpgradeCost(0)==40 && DemoTestProgress::Read(State).Coins==SavedCoins,
             TEXT("permanent-only return skips confirmation and keeps all gold progression"))) return;
         Advance(112); break;
     case 112:
@@ -602,7 +604,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         if (!Click(TEXT("CreateYes"))) return;
         break;
     case 3:
-        if (!Check(State->Phase==EDemoPhase::Hub && Saves->GetActiveSlot()==0 && State->Coins==0 && !PC->HasBlockingOverlay(),TEXT("created slot enters fresh hub through new World"))) return;
+        if (!Check(State->Phase==EDemoPhase::Hub && Saves->GetActiveSlot()==0 && DemoTestProgress::Read(State).Coins==0 && !PC->HasBlockingOverlay(),TEXT("created slot enters fresh hub through new World"))) return;
         SlotCreatedAt=Saves->GetSlot(0)->CreatedLocal;
         if (!Check(FMath::Abs((FDateTime::Now()-SlotCreatedAt).GetTotalSeconds())<60,TEXT("slot records actual local creation time"))) return;
         Escape(true); Advance(4); break;
@@ -654,7 +656,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         DemoEffects::Apply(Player->GetDemoASC(),Player->GetDemoASC(),UDemoPowerEffect::StaticClass(),5.f);
         Player->ApplyAbilityReward(1); // 免费医疗成长也属于返回确认范围。
         Player->GetWeaponComponent()->GetActiveWeapon()->RestoreAmmo(9,83); // 人工构造非满弹药检查点，验证实际武器实例恢复。
-        State->Coins=80;
+        DemoTestProgress::SetGold(State,80); /* 夹具通过本人PS提交，不能写共享GS钱包。 */
         if (!Check(Mode->SaveCheckpoint(),TEXT("hub upgrades save to active slot"))) return;
         Escape(true); Advance(10); break;
     case 10:
@@ -675,7 +677,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         if (!Click(TEXT("Save0"))) return;
         break;
     case 13:
-        if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==80 && Attributes->GetWeaponDamageBonus()==5 && Player->GetHealAmount()==55,TEXT("existing slot restores coins, GAS upgrades and Pawn ability progression"))) return;
+        if (!Check(State->Phase==EDemoPhase::Hub && DemoTestProgress::Read(State).Coins==80 && Attributes->GetWeaponDamageBonus()==5 && Player->GetHealAmount()==55,TEXT("existing slot restores coins, GAS upgrades and Pawn ability progression"))) return;
         if (!Check(Player->GetWeaponComponent()->GetActiveWeapon()->GetAmmo()==9 && Player->GetWeaponComponent()->GetActiveWeapon()->GetReserveAmmo()==83,TEXT("checkpoint restores magazine and reserve independently"))) return;
         // 已在Hub时返回只关闭暂停；放弃确认必须在真实出发/清关后验证，不能用已废弃的Hub重置预期。
         PC->EscapePressed(); PC->ReturnHubPressed();
@@ -695,7 +697,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         PC->ReturnHubPressed();
         if (!Check(PC->GetMenuPage()==EDemoMenuPage::ReturnHub,TEXT("upgraded run requires explicit confirmation"))) return;
         PC->ConfirmReturnHub(false);
-        if (!Check(State->Coins==80 && Attributes->GetWeaponDamageBonus()==5 && PC->IsPauseMenuOpen(),TEXT("No closes confirmation only, preserving progression and pause"))) return;
+        if (!Check(DemoTestProgress::Read(State).Coins==80 && Attributes->GetWeaponDamageBonus()==5 && PC->IsPauseMenuOpen(),TEXT("No closes confirmation only, preserving progression and pause"))) return;
         PC->ReturnHubPressed();
         Advance(15); break;
     case 15:
@@ -706,7 +708,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         if (!Click(TEXT("HubYes"))) return;
         break;
     case 16:
-        if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==80 && State->SilverCoins==0 && Attributes->GetWeaponDamageBonus()==0 && Player->GetHealAmount()==35 && Saves->GetSlot(0)->CreatedLocal==SlotCreatedAt,TEXT("confirmed return clears silver/growth, retains gold and slot creation identity"))) return;
+        if (!Check(State->Phase==EDemoPhase::Hub && DemoTestProgress::Read(State).Coins==80 && DemoTestProgress::Read(State).SilverCoins==0 && Attributes->GetWeaponDamageBonus()==0 && Player->GetHealAmount()==35 && Saves->GetSlot(0)->CreatedLocal==SlotCreatedAt,TEXT("confirmed return clears silver/growth, retains gold and slot creation identity"))) return;
         Player->SetActorLocation(Mode->GetNextLevelTerminal()->GetActorLocation()+FVector(-180,0,20));
         Mode->GetNextLevelTerminal()->Interact(Player);
         PC->ConfirmNextLevel();
@@ -719,7 +721,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         if (!Click(TEXT("Hard"))) return;
         if (!Check(State->Phase==EDemoPhase::Combat && State->Difficulty==EDemoDifficulty::Hard && !Mode->SelectDifficulty(EDemoDifficulty::Easy),TEXT("terminal difficulty selection starts and locks run"))) return;
         // 战斗中临时奖励不能替换出发前检查点，离开再载入必须恢复起点。
-        State->SilverCoins=999; // 战斗未完成银币不能覆盖出发检查点，金币无清关奖励保持80。
+        DemoTestProgress::SetSilver(State,999); /* 夹具通过本人PS提交，不能写共享GS钱包。 */ // 战斗未完成银币不能覆盖出发检查点，金币无清关奖励保持80。
         if (!Check(Mode->SaveCheckpoint() && Saves->GetSlot(0)->Phase==EDemoPhase::Hub && Saves->GetSlot(0)->Coins==80 && Saves->GetSlot(0)->SilverCoins==0,TEXT("combat progress cannot overwrite departure checkpoint"))) return;
         Escape(true); Advance(50); break;
     case 50:
@@ -727,7 +729,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
     case 51:
         PC->StartGamePressed(); PC->SelectSaveSlot(0); Advance(52); break;
     case 52:
-        if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==80 && State->SilverCoins==0 && State->Difficulty==EDemoDifficulty::Hard,TEXT("unfinished combat resumes at departure checkpoint without partial loot"))) return;
+        if (!Check(State->Phase==EDemoPhase::Hub && DemoTestProgress::Read(State).Coins==80 && DemoTestProgress::Read(State).SilverCoins==0 && State->Difficulty==EDemoDifficulty::Hard,TEXT("unfinished combat resumes at departure checkpoint without partial loot"))) return;
         Player->SetActorLocation(Mode->GetNextLevelTerminal()->GetActorLocation()+FVector(-180,0,20));
         Mode->GetNextLevelTerminal()->Interact(Player);
         PC->DifficultyPressed(EDemoDifficulty::Hard);
@@ -747,7 +749,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
     case 62:
         if (!Check(State->Phase==EDemoPhase::Reward && PC->IsRewardMenu() && Attributes->GetWeaponDamageBonus()==0,TEXT("pending reward checkpoint reopens mandatory reward UI"))) return;
         if (!Click(TEXT("Upgrade0"))) return;
-        SavedCoins=State->Coins;
+        SavedCoins=DemoTestProgress::Read(State).Coins;
         if (!Check(State->Phase==EDemoPhase::Intermission && Saves->GetSlot(0)->DamageBonus==10,TEXT("reward persisted once with intermission phase"))) return;
         Escape(true); Advance(19); break;
     case 19:
@@ -759,7 +761,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         PC->StartGamePressed(); PC->SelectSaveSlot(0);
         Advance(21); break;
     case 21:
-        if (!Check(State->Phase==EDemoPhase::Intermission && State->LevelNumber==1 && State->Coins==SavedCoins && Attributes->GetWeaponDamageBonus()==10
+        if (!Check(State->Phase==EDemoPhase::Intermission && State->LevelNumber==1 && DemoTestProgress::Read(State).Coins==SavedCoins && Attributes->GetWeaponDamageBonus()==10
             && State->Difficulty==EDemoDifficulty::Hard && Mode->GetShopTerminal() && !PC->IsRewardMenu(),TEXT("read checkpoint restores cleared arena and does not grant reward twice"))) return;
         Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
         Mode->GetShopTerminal()->Interact(Player);
@@ -773,7 +775,7 @@ void ADemoSessionTest::Tick(float DeltaSeconds)
         PC->StartGamePressed(); PC->SelectSaveSlot(1);
         Advance(24); PC->ConfirmCreateSave(true); break;
     case 24:
-        if (!Check(Saves->GetActiveSlot()==1 && State->Phase==EDemoPhase::Hub && Attributes->GetMaxHealth()==100 && State->Coins==0
+        if (!Check(Saves->GetActiveSlot()==1 && State->Phase==EDemoPhase::Hub && Attributes->GetMaxHealth()==100 && DemoTestProgress::Read(State).Coins==0
             && Saves->GetSlot(0)->MaxHealth==125,TEXT("second slot is independent and first checkpoint stays intact"))) return;
         {
             UDemoProfileSave* Invalid = NewObject<UDemoProfileSave>(this); // 用具体但错误的存档类制造槽2样本；USaveGame基类是抽象类，不能实例化。

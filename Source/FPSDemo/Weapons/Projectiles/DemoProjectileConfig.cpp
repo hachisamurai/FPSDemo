@@ -1,3 +1,4 @@
+// 职责：校验BP子弹定义与新增弹射视觉数值，准备和纯表现初始化共用；可空FX无Gameplay依赖，不回退射线伤害。
 #include "Weapons/Projectiles/DemoProjectileConfig.h"
 #include "Debug/DemoLog.h"
 
@@ -9,10 +10,15 @@ bool FDemoProjectileConfig::Validate(FString& Error) const
     else if (!FMath::IsFinite(CollisionRadius) || CollisionRadius < .1f || CollisionRadius > 20.f) Error = TEXT("Projectile.CollisionRadius must be 0.1..20 cm");
     else if (!FMath::IsFinite(MaxLifeSeconds) || MaxLifeSeconds < .05f || MaxLifeSeconds > 60.f) Error = TEXT("Projectile.MaxLifeSeconds must be 0.05..60 seconds");
     else if (VisualTransform.ContainsNaN()) Error = TEXT("Projectile.VisualTransform must be finite");
+    else if (!FMath::IsFinite(OwnerMuzzleBlendDistance) || OwnerMuzzleBlendDistance < 10.f || OwnerMuzzleBlendDistance > 500.f) Error = TEXT("Projectile.OwnerMuzzleBlendDistance must be 10..500 cm");
     // 显式关闭亮条时，未启用的历史/自定义视觉数值不应阻止合法实体弹发射。
     else if (bEnableTracer && (!FMath::IsFinite(TracerWidth) || TracerWidth < .1f || TracerWidth > 50.f)) Error = TEXT("Projectile.TracerWidth must be 0.1..50 cm");
     else if (bEnableTracer && (!FMath::IsFinite(TracerLength) || TracerLength < 1.f || TracerLength > 1000.f)) Error = TEXT("Projectile.TracerLength must be 1..1000 cm");
     else if (bEnableTracer && (!FMath::IsFinite(TracerFadeSeconds) || TracerFadeSeconds < 0.f || TracerFadeSeconds > 1.f)) Error = TEXT("Projectile.TracerFadeSeconds must be 0..1 seconds");
+    else if (!FMath::IsFinite(RicochetTracerWidthScale) || RicochetTracerWidthScale < .1f || RicochetTracerWidthScale > 4.f) Error = TEXT("Projectile.RicochetTracerWidthScale must be 0.1..4");
+    else if (!FMath::IsFinite(RicochetCoreBoost) || RicochetCoreBoost < 1.f || RicochetCoreBoost > 8.f) Error = TEXT("Projectile.RicochetCoreBoost must be 1..8");
+    else if (!FMath::IsFinite(RicochetTracerFadeSeconds) || RicochetTracerFadeSeconds < 0.f || RicochetTracerFadeSeconds > 1.f) Error = TEXT("Projectile.RicochetTracerFadeSeconds must be 0..1 seconds");
+    else if (!FMath::IsFinite(IncomingTracerFadeOnRicochet) || IncomingTracerFadeOnRicochet < 0.f || IncomingTracerFadeOnRicochet > 1.f) Error = TEXT("Projectile.IncomingTracerFadeOnRicochet must be 0..1 seconds");
     if (!Error.IsEmpty()) UE_LOG(LogFPSDemo, Error, TEXT("PROJECTILE_CONFIG_REJECT %s"), *Error);
     return Error.IsEmpty();
 }

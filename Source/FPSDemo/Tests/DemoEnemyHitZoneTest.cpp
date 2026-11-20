@@ -1,3 +1,4 @@
+// 职责：隔离 Editor 游戏中验证真实头/身体/手臂碰撞与 GAS 弹丸伤害；依赖正式模型、PhysicsAsset、武器和测试基类。
 #include "Tests/DemoEnemyAttackTest.h"
 #include "Tests/DemoProjectileFixtures.h"
 #include "AI/DemoEnemy.h"
@@ -7,6 +8,8 @@
 #include "Components/SphereComponent.h"
 #include "Components/BoxComponent.h"
 #include "Animation/AnimSequence.h"
+#include "Engine/SkeletalMesh.h" // 出生变体回归检查实际网格名，而非只检查配置字典。
+#include "EngineUtils.h" // 同步停用正式关卡敌人，保留 Spawner 登记避免夹具触发清关。
 #include "Characters/DemoCharacter.h"
 #include "Player/DemoPlayerController.h"
 #include "Game/FPSDemoGameMode.h"
@@ -50,21 +53,58 @@ namespace DemoHitZoneTest
         return Mesh->GetWorld()->LineTraceSingleByChannel(OutHit,Transform.TransformPosition(FVector(500,Y,Z)),
             Transform.TransformPosition(FVector(-500,Y,Z)),DemoEnemyHitZones::TraceChannel,Query)&&OutHit.GetComponent()==Mesh;
     }
-    /** Mesh/Profile为只读夹具，Wanted为明确区域；OutPoint为稳定表面点，周围2cm仍需命中相同区域。 */
-    bool FindRegion(USkeletalMeshComponent* Mesh,const UDemoEnemyHitProfile* Profile,EDemoEnemyHitRegion Wanted,FVector& OutPoint)
+    /** World/Profile 为当前隔离游戏与只读伤害配置；逐种走生产 Configure，检查真实头体及旧动画跟随，不发奖或存档。 */
+    bool VerifyHeadVariants(UWorld* World,const UDemoEnemyHitProfile* Profile)
+    {
+        UE_LOG(LogFPSDemo,Log,TEXT("[CALL] HitZoneTest::VerifyHeadVariants"));
+        const TArray<FString> Names={TEXT("Chaser"),TEXT("Ranged"),TEXT("Flanker"),TEXT("Melee"),TEXT("Charger"),TEXT("Guard"),TEXT("Bombardier"),TEXT("Mender"),TEXT("Exploder"),TEXT("Anchor"),TEXT("Warden"),TEXT("Weaver")}; // 前五项同时覆盖 Mixed 槽位选择。
+        for (int32 Index=0;Index<Names.Num();++Index) // 同步创建并销毁，避免测试敌人参与后续枪弹场景。
+        {
+            FDemoEnemySpawnStats Stats; // 当前孤立敌人的生产初始化参数，生命仅用于保持夹具存活。
+            Stats.Health=1000; Stats.bUseTactics=true; Stats.bBoss=Index>=10;
+            if (Index<5) { Stats.Tactics.Role=EDemoEnemyRole::Mixed; Stats.FormationSlot=Index; }
+            else Stats.Roster.Kind=static_cast<EDemoRosterKind>(StaticEnum<EDemoRosterKind>()->GetValueByNameString(Names[Index]));
+            Stats.Roster.Windup=1.5f; // 所有角色满足生产前摇下限，尤其 Mender 不接受默认 1.2 秒；不绕过出生校验。
+            FActorSpawnParameters Spawn; Spawn.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn; // 隔离高空夹具，仍创建真实物理状态。
+            ADemoEnemy* Enemy=World->SpawnActor<ADemoEnemy>(ADemoEnemy::StaticClass(),FVector(0,5000,5000),FRotator::ZeroRotator,Spawn); // World 拥有，仅本循环借用。
+            if (!Enemy) return false;
+            Enemy->Configure(Stats);
+            USkeletalMeshComponent* Mesh=Enemy->FindComponentByClass<USkeletalMeshComponent>(); // 已由服务器选择的真实外观。
+            bool bPassed=Enemy->IsSpawnInitialized()&&Mesh&&Mesh->GetSkeletalMeshAsset()&&Mesh->GetSkeletalMeshAsset()->GetName()==TEXT("SK_Breach_")+Names[Index]; // 不允许错误模型仍凭同骨架通过。
+            if (bPassed)
+            {
+                Pose(Enemy,FString::Printf(TEXT("/Game/Enemies/Breach/Animation/Sequences/A_Breach_%s_Hit.A_Breach_%s_Hit"),Stats.bBoss?TEXT("Warden"):TEXT("Chaser"),Stats.bBoss?TEXT("Warden"):TEXT("Chaser")),0.f);
+                FHitResult Hit; EDemoEnemyHitRegion Region; float Multiplier=0.f; // 当前真实 head 射线；测试不人工填写 BoneName。
+                bPassed=Trace(Mesh,0,Stats.bBoss?140.f:60.f,Hit)&&Hit.BoneName==TEXT("head")&&Profile->ResolveHit(Hit,Region,Multiplier)
+                    &&Region==EDemoEnemyHitRegion::Core&&FMath::IsNearlyEqual(Multiplier,2.f)&&Mesh->GetBodyInstance(TEXT("head"));
+                if (bPassed)
+                {
+                    const FTransform Before=Mesh->GetBodyInstance(TEXT("head"))->GetUnrealWorldTransform(); // 真 Chaos 运动学体参考位置。
+                    Pose(Enemy,FString::Printf(TEXT("/Game/Enemies/Breach/Animation/Sequences/A_Breach_%s_Hit.A_Breach_%s_Hit"),Stats.bBoss?TEXT("Warden"):TEXT("Chaser"),Stats.bBoss?TEXT("Warden"):TEXT("Chaser")),.12f);
+                    bPassed=!Before.Equals(Mesh->GetBodyInstance(TEXT("head"))->GetUnrealWorldTransform(),.01f); // 原 Hit 动作无需 head 曲线也会通过 body 父链驱动新碰撞体。
+                }
+            }
+            UE_LOG(LogFPSDemo,Log,TEXT("ENEMY_HEAD_VARIANT_TEST kind=%s passed=%d"),*Names[Index],bPassed);
+            Enemy->Destroy();
+            if (!bPassed) return false;
+        }
+        return true;
+    }
+    /** Mesh/Profile为只读夹具，Wanted为明确区域，RequiredBone可选精确骨名；OutPoint为稳定表面点，周围2cm仍需同区/同指定骨。 */
+    bool FindRegion(USkeletalMeshComponent* Mesh,const UDemoEnemyHitProfile* Profile,EDemoEnemyHitRegion Wanted,FVector& OutPoint,FName RequiredBone)
     {
         UE_LOG(LogFPSDemo,Log,TEXT("[CALL] HitZoneTest::FindRegion %d"),static_cast<int32>(Wanted));
-        for (int32 Z=-44;Z<=40;Z+=2) // 覆盖Chaser主体/臂/核心的真实厘米边界。
+        for (int32 Z=-44;Z<=90;Z+=2) // 覆盖 Chaser 身体/手臂及新头部，不再只扫描原胸部高度。
             for (int32 Y=-74;Y<=74;Y+=2) // 先扫描表面，再做邻域稳健性检查，避免枪口视差刚好落在缝隙。
             {
                 FHitResult Hit; // 真实射线结果，未知骨不可按默认机身蒙混通过。
                 EDemoEnemyHitRegion Region; float Multiplier=0.f; // 当前查询区域及配置倍率，无网络状态。
-                if (!Trace(Mesh,Y,Z,Hit)||!Profile->ResolveHit(Hit,Region,Multiplier)||Region!=Wanted) continue;
+                if (!Trace(Mesh,Y,Z,Hit)||!Profile->ResolveHit(Hit,Region,Multiplier)||Region!=Wanted||(!RequiredBone.IsNone()&&Hit.BoneName!=RequiredBone)) continue;
                 bool bStable=true; // 四邻域都需要相同区域，几何边界处继续寻找更内部探针。
                 for (const FVector2D Delta:{FVector2D(2,0),FVector2D(-2,0),FVector2D(0,2),FVector2D(0,-2)})
                 {
                     FHitResult Neighbor; // 仅用于本点可靠性，不参与最终武器伤害。
-                    if (!Trace(Mesh,Y+Delta.X,Z+Delta.Y,Neighbor)||!Profile->ResolveHit(Neighbor,Region,Multiplier)||Region!=Wanted) { bStable=false; break; }
+                    if (!Trace(Mesh,Y+Delta.X,Z+Delta.Y,Neighbor)||!Profile->ResolveHit(Neighbor,Region,Multiplier)||Region!=Wanted||(!RequiredBone.IsNone()&&Neighbor.BoneName!=RequiredBone)) { bStable=false; break; }
                 }
                 if (!bStable) continue;
                 OutPoint=Mesh->GetComponentTransform().InverseTransformPosition(Hit.ImpactPoint);
@@ -115,7 +155,13 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
     {
     case 0:
         if (!Check(Mode->StartRun(),TEXT("hit zones isolated run"))) return;
-        PC->OnRunReady(); State->Phase=EDemoPhase::Combat; State->LevelNumber=1;
+        PC->OnRunReady();
+        if (!Check(DemoProjectileFixtures::EquipPrimary(Player,1)&&Player->GetWeaponComponent()->EquipSlot(2),TEXT("hub terminal prepares shotgun and returns to pistol before combat"))) return;
+        Weapon=Player->GetWeaponComponent()->GetActiveWeapon(); // 终端可能重建库存，重新借用当前手枪，禁止继续修改旧实例。
+        Mode->StartNextLevel(); // 创建真实 CombatSession，显示阶段无法替代发射上下文的权威凭据。
+        if (!Check(State->Phase==EDemoPhase::Combat&&State->LevelNumber==1,TEXT("hit zones production combat session started"))) return;
+        for (TActorIterator<ADemoEnemy> It(GetWorld());It;++It) { It->SetActorTickEnabled(false); It->SetActorEnableCollision(false); } // 保留战役计数但移出射击查询，夹具在隔离高空测试。
+        if (!Check(DemoHitZoneTest::VerifyHeadVariants(GetWorld(),Profile),TEXT("12 production spawn variants, actual head raycasts and animated head bodies"))) return;
         Player->SetActorLocation(FVector(0,0,3000)); Player->GetCharacterMovement()->SetMovementMode(MOVE_Flying);
         Player->GetCharacterMovement()->StopMovementImmediately(); PC->SetControlRotation(FRotator::ZeroRotator);
         Weapon->Config.SpreadHalfAngle=0; Weapon->Config.RecoilPitch=0; Weapon->Config.BaseDamage=20; Weapon->Config.FalloffStart=4000; Weapon->Config.Range=5000; // 只改本次武器，明确定义20基础伤害。
@@ -147,6 +193,9 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
         if (!Check(DemoHitZoneTest::Trace(BossMesh,0,54,Closed)&&Closed.BoneName==TEXT("shutter_top"),TEXT("closed core shutter blocks weapon trace"))) return;
         DemoHitZoneTest::Pose(Boss.Get(),TEXT("/Game/Enemies/Breach/Animation/Sequences/A_Breach_Warden_Global.A_Breach_Warden_Global"),2.f);
         if (!Check(DemoHitZoneTest::Trace(BossMesh,0,54,Open)&&Open.BoneName==TEXT("core"),TEXT("same ray hits core after animated shutter opens"))) return;
+        EDemoEnemyHitRegion ChestRegion; float ChestMultiplier=0.f; // 开合前后胸部都必须普通伤害，不继承旧核心弱点。
+        if (!Check(Profile->ResolveHit(Closed,ChestRegion,ChestMultiplier)&&ChestRegion==EDemoEnemyHitRegion::Body&&FMath::IsNearlyEqual(ChestMultiplier,1.f)
+            &&Profile->ResolveHit(Open,ChestRegion,ChestMultiplier)&&ChestRegion==EDemoEnemyHitRegion::Body&&FMath::IsNearlyEqual(ChestMultiplier,1.f),TEXT("boss chest shutter and exposed reactor both Body x1"))) return;
         DemoHitZoneTest::Ammo(Player,TEXT("normal")); DemoHitZoneTest::Aim(Shooter.Get(),Player,HitZonePoints[0],700); Advance(.2f); break;
     }
     case 2:
@@ -179,7 +228,7 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
     {
         if (!bHitZoneShotPending)
         {
-            if (!Check(DemoProjectileFixtures::EquipPrimary(Player,1),TEXT("shotgun uses real terminal-equipped instance"))) return;
+            if (!Check(Player->GetWeaponComponent()->EquipSlot(1),TEXT("shotgun uses instance prepared at hub terminal"))) return; // 战斗开始后终端已销毁，只切到开战前合法装配的主武器。
             ADemoWeaponBase* PreparedWeapon=Player->GetWeaponComponent()->GetActiveWeapon(); // 准备凭据必须对应装备组件真正的当前实例。
             PreparedWeapon->Config.SpreadHalfAngle=0; PreparedWeapon->Config.RecoilPitch=0; PreparedWeapon->Config.MuzzleSocket=NAME_None;
             PreparedWeapon->Config.FalloffStart=4000; PreparedWeapon->Config.Range=5000; // 排除700cm处默认距离衰减，只验证真实核心碰撞与每枪去重。
@@ -230,7 +279,20 @@ void ADemoEnemyAttackTest::TickHitZoneTest()
         if (!bHitZoneShotPending) HitZoneHealth=Shooter->GetHealth(); // 保存开火前快照，等待期间不能重复覆盖。
         if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
         if (!Check(Shooter->GetHealth()==HitZoneHealth,TEXT("wall blocks actual projectile before skeletal target"))) return;
-        Wall->Destroy(); Shooter->Destroy(); Boss->Destroy();
+        Wall->Destroy(); Boss->Destroy();
+        {
+            // 把原胸部核心放回同一真实武器链，确保不只是配置文本变化；对 core 实体表面重新瞄准。
+            FVector ChestPoint; // 扫描可见的反应堆表面，中心可能被原胸甲遮挡，不能假定中心射线必达 core。
+            Mesh->SetWorldRotation(FRotator::ZeroRotator); Mesh->RefreshBoneTransforms();
+            if (!Check(DemoHitZoneTest::FindRegion(Mesh,Profile,EDemoEnemyHitRegion::Body,ChestPoint,TEXT("core")),TEXT("old chest reactor remains a hittable physical body"))) return;
+            DemoHitZoneTest::Ammo(Player,TEXT("normal")); DemoHitZoneTest::Aim(Shooter.Get(),Player,ChestPoint,700);
+        }
+        Advance(.5f); break;
+    case 11:
+        if (!bHitZoneShotPending) HitZoneHealth=Shooter->GetHealth(); // 胸部普通弹伤前值，跨飞行帧保留。
+        if (!DemoProjectileFixtures::FireAndWait(Player,bHitZoneShotPending,HitZoneShotDeadline)) return;
+        if (!Check(FMath::IsNearlyEqual(HitZoneHealth-Shooter->GetHealth(),20.f,.02f),TEXT("old chest core real Fire GA damage 20 x 1, no head bonus"))) return;
+        Shooter->Destroy();
         UE_LOG(LogFPSDemo,Display,TEXT("DEMO_ENEMY_HIT_ZONE_SUCCESS")); SetActorTickEnabled(false); FPlatformMisc::RequestExitWithStatus(false,0); break;
     }
 }

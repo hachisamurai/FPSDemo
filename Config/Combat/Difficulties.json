@@ -1,13 +1,15 @@
 [
   {
     "Name": "Easy",
+    "EnemyCountMultiplier": 1.5,
     "HealthMultiplier": 0.75,
     "AttackMultiplier": 0.7,
     "VictoryGoldReward": 500,
-    "AttackFrequencyMultiplier": 1.0
+    "AttackFrequencyMultiplier": 0.9
   },
   {
     "Name": "Normal",
+    "EnemyCountMultiplier": 2.0,
     "HealthMultiplier": 1,
     "AttackMultiplier": 1,
     "VictoryGoldReward": 750,
@@ -15,16 +17,18 @@
   },
   {
     "Name": "Hard",
+    "EnemyCountMultiplier": 2.5,
     "HealthMultiplier": 1.5,
     "AttackMultiplier": 1.4,
     "VictoryGoldReward": 1000,
-    "AttackFrequencyMultiplier": 1.0
+    "AttackFrequencyMultiplier": 1.2
   },
   {
     "Name": "Hell",
+    "EnemyCountMultiplier": 3.0,
     "HealthMultiplier": 2.0,
     "AttackMultiplier": 1.8,
-    "AttackFrequencyMultiplier": 1.35,
+    "AttackFrequencyMultiplier": 1.45,
     "VictoryGoldReward": 1500
   }
 ]

@@ -1,4 +1,7 @@
+// 职责：服务端导航、足下支撑与真实球体碰撞，供普通追击、冲刺与击退共用。
 #include "AI/DemoEnemyNavigation.h"
+#include "Engine/Level.h"
+#include "UObject/Package.h"
 #include "AI/DemoEnemy.h"
 #include "Characters/DemoCharacter.h"
 #include "Components/SphereComponent.h"
@@ -12,6 +15,63 @@
 static TAutoConsoleVariable<int32> CVarDemoNavigation(TEXT("Demo.AI.DebugNavigation"),0,TEXT("Draw enemy navigation paths and stop reasons (0/1)."));
 
 UDemoEnemyNavigation::UDemoEnemyNavigation() { DEMO_LOG_CALL(); PrimaryComponentTick.bCanEverTick = false; }
+void UDemoEnemyNavigation::BindSpawnFloor(FName LevelPackage)
+{
+    DEMO_LOG_CALL();
+    FloorPackage=LevelPackage;
+}
+
+bool UDemoEnemyNavigation::MoveGrounded(const FVector& Offset,FHitResult& OutHit)
+{
+    DEMO_LOG_TICK();
+    AActor* Enemy=GetOwner(); // 仅服务器驱动，客户端接收既有的移动复制。
+    OutHit=FHitResult();
+    if (!Enemy || !Enemy->HasAuthority() || Offset.ContainsNaN()) return false;
+    if (FloorPackage.IsNone()) { Enemy->AddActorWorldOffset(Offset,true,&OutHit); return !OutHit.bBlockingHit; }
+    const USphereComponent* Sphere=Cast<USphereComponent>(Enemy->GetRootComponent());
+    if (!Sphere) return false;
+    const float Radius=Sphere->GetScaledSphereRadius(); // 根球半径决定站位及台阶棱边的净空。
+    const FVector Flat(Offset.X,Offset.Y,0);
+    const int32 Steps=FMath::Clamp(FMath::CeilToInt(Flat.Size()/24.),1,16); // 短于港区28cm踏步，长帧宁可少走，不隔空跳阶。
+    const FVector Step=(Flat/Steps).GetClampedToMaxSize(24.);
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(DemoEnemyStepFloor),false,Enemy);
+    Query.MobilityType=EQueryMobilityType::Static;
+    FCollisionObjectQueryParams Objects(ECC_WorldStatic);
+    Objects.AddObjectTypesToQuery(ECC_WorldDynamic);
+    constexpr float MaxStep=42.f; // cm，一次只接相邻地面；隔层和悬崖不能作为下一步。
+    for (int32 Index=0;Index<Steps;++Index)
+    {
+        const FVector Before=Enemy->GetActorLocation(), Next=Before+Step;
+        const FVector Foot=Next-FVector(0,0,Radius+2.f);
+        const FVector Up(0,0,MaxStep);
+        FHitResult Floor;
+        if (!GetWorld()->LineTraceSingleByObjectType(Floor,Foot+Up,Foot-Up,Objects,Query)
+            || Floor.ImpactNormal.Z<.7f || !Floor.GetActor() || Floor.GetActor()->GetLevel()->GetOutermost()->GetFName()!=FloorPackage)
+        { UE_LOG(LogFPSDemo,VeryVerbose,TEXT("ENEMY_STEP_NO_FLOOR actor=%s at=%s"),*Enemy->GetName(),*Foot.ToCompactString()); return false; }
+        // 真实球扫先测踏步棱边：上阶时碰撞球前缘先到，下降时后缘可继续受上一阶支撑。
+        double CenterZ=Floor.ImpactPoint.Z+Radius/Floor.ImpactNormal.Z+2.;
+        FHitResult Support; // 落脚面坡度由中线验证；圆球在踏步上缘的接触法线会明显偏斜，取其实际接触高度。
+        if (GetWorld()->SweepSingleByObjectType(Support,Next+Up,Next-Up,FQuat::Identity,Objects,FCollisionShape::MakeSphere(Radius),Query)
+            && !Support.bStartPenetrating && Support.Normal.Z>KINDA_SMALL_NUMBER && Support.GetActor() && Support.GetActor()->GetLevel()==Floor.GetActor()->GetLevel())
+            CenterZ=FMath::Max(CenterZ,Support.Location.Z+2.);
+        const double Lift=CenterZ-Before.Z;
+        if (FMath::Abs(Lift)>MaxStep) return false;
+        if (Lift>0.05)
+        {
+            Enemy->AddActorWorldOffset(FVector(0,0,Lift),true,&OutHit);
+            if (OutHit.bBlockingHit)
+            { Enemy->AddActorWorldOffset(FVector(0,0,Before.Z-Enemy->GetActorLocation().Z),true); return false; }
+        }
+        Enemy->AddActorWorldOffset(Step,true,&OutHit);
+        if (OutHit.bBlockingHit)
+        {
+            if (Lift>0.05) Enemy->AddActorWorldOffset(FVector(0,0,-Lift),true);
+            return false;
+        }
+        if (Lift<-.05) Enemy->AddActorWorldOffset(FVector(0,0,Lift),true); // 接触台阶后可提前停止下落。
+    }
+    return true;
+}
 FName UDemoEnemyNavigation::GetStatus() const { DEMO_LOG_TICK(); return Status; }
 void UDemoEnemyNavigation::SetStatus(FName NewStatus)
 {
@@ -132,16 +192,17 @@ void UDemoEnemyNavigation::AdvancePath(float Speed,float DeltaSeconds)
     const FVector Direction = (Points[PointIndex]-Before).GetSafeNormal2D(); // 沿缓存拐点走，不能直接穿过中间障碍朝玩家移动。
     const float Travel = FMath::Min(Speed*DeltaSeconds,FVector::Dist2D(Before,Points[PointIndex])); // cm，防低帧率越过拐角。
     FHitResult Hit; // Sweep仍是最终防穿墙约束，NavMesh不替代实际碰撞。
-    GetOwner()->AddActorWorldOffset(Direction*Travel,true,&Hit);
+    MoveGrounded(Direction*Travel,Hit);
     if (Hit.bBlockingHit)
     {
         const FVector Slide = FVector::VectorPlaneProject(Direction,Hit.Normal).GetSafeNormal2D(); // 沿碰撞表面滑动，长度仍受本帧剩余预算约束。
-        GetOwner()->AddActorWorldOffset(Slide*Travel*(1.f-Hit.Time),true);
+        FHitResult SlideHit; // 保留第一次阻挡供同伴避让判定。
+        MoveGrounded(Slide*Travel*(1.f-Hit.Time),SlideHit);
         if (Cast<ADemoEnemy>(Hit.GetActor()))
         {
             // 动态同伴不烘焙进NavMesh；朝路径右侧让行，实际Sweep保证不能穿过墙体或其他敌人。
             const FVector Side = FVector::CrossProduct(Direction,FVector::UpVector);
-            GetOwner()->AddActorWorldOffset(Side*Travel*.5f,true);
+            MoveGrounded(Side*Travel*.5f,SlideHit);
         }
     }
     if (FVector::DistSquared2D(Before,GetOwner()->GetActorLocation()) < FMath::Square(Travel*.15f)) BlockedSeconds += DeltaSeconds;

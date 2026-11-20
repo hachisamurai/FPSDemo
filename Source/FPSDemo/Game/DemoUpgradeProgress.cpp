@@ -1,5 +1,6 @@
 #include "Game/DemoUpgradeProgress.h"
 #include "Debug/DemoLog.h"
+#include "Economy/DemoUpgradeCatalog.h"
 
 bool FDemoUpgradeProgress::Validate() const
 {
@@ -29,7 +30,10 @@ int32 FDemoUpgradeProgress::Cost(int32 Choice, bool bGold) const
     const TArray<int32>& Levels = bGold ? GoldLevels : SilverLevels; // 固定三项，UI不能自行选择权威钱包。
     if (Choice < 0 || Choice > 2 || !Levels.IsValidIndex(Choice))
     { UE_LOG(LogFPSDemo, Warning, TEXT("UPGRADE_COST rejected invalid choice=%d"), Choice); return INDEX_NONE; }
-    return 20 + 10 * Levels[Choice];
+    const UDemoUpgradeCatalog* Catalog = UDemoUpgradeCatalog::Get(); // 价格配置与账本分离；旧永久值不根据新目录重算。
+    const FDemoUpgradeDefinition* Item = Catalog ? Catalog->Find(false, Choice) : nullptr; // 稳定ID映射旧三列。
+    const int64 Price = Item ? static_cast<int64>(Item->BasePrice) + static_cast<int64>(Item->PriceStep) * Levels[Choice] : -1; // 防止配置与高等级乘法溢出。
+    return Price >= 0 && Price <= 100000000 ? static_cast<int32>(Price) : INDEX_NONE;
 }
 void FDemoUpgradeProgress::ResetTemporary()
 {

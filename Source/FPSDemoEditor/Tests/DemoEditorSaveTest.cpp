@@ -1,3 +1,4 @@
+// 职责：真实PIE临时存档与调试授权回归。使用：Automation RunTests FPSDemo.Editor.TemporarySaves；依赖Editor队列、SaveGame与生产控制台，连续启停两次验证清理。
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "Editor.h"
@@ -12,6 +13,10 @@
 #include "Misc/OutputDeviceNull.h" // 测试同步丢弃控制台用户提示，关键结果仍由DemoLog记录。
 #include "Weapons/Ammo/DemoAmmoComponent.h" // 验证真实Pawn的弹药权限及无效索引保护。
 #include "GameFramework/PlayerController.h" // 每个PIE借用当前玩家，不跨会话保留。
+#include "Player/DemoPlayerController.h" // 验证解锁命令立即更新UI使用的菜单快照。
+#include "Player/DemoPlayerState.h"
+#include "Player/DemoPlayerProgressComponent.h" // 检查读档提交不会覆盖GI临时模式权限。
+#include "Game/FPSDemoGameMode.h" // 实际安全区难度/无尽选择接口，不以Profile查询代替入口验证。
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -36,7 +41,7 @@ namespace
             : Test(InTest), Probe(InProbe), Stage(InStage)
         { UE_LOG(LogFPSDemo, Log, TEXT("[CALL] FEditorSaveProbeCommand stage=%d"), Stage); }
 
-        /** 游戏线程轮询真实Editor PlayWorld；完成或30秒超时才推进自动化队列。 */
+        /** 游戏线程轮询真实PIE；校验本地存档、模式命令、UI和安全区准入，完成或30秒超时推进队列；不保留World引用。 */
         virtual bool Update() override
         {
             UE_LOG(LogFPSDemo, VeryVerbose, TEXT("[CALL] FEditorSaveProbeCommand::Update stage=%d"), Stage);
@@ -72,6 +77,7 @@ namespace
                 Test->TestFalse(TEXT("Fresh PIE has no checkpoint"), Saves->SlotExists(Index));
             Test->TestTrue(TEXT("Fresh PIE only unlocks pistol"), Profile->IsUnlocked(TEXT("pistol")) && !Profile->IsUnlocked(TEXT("rifle")) && Profile->GetData().Clears.IsEmpty());
             Test->TestFalse(TEXT("Fresh PIE never inherits debug unlock"), Profile->IsDebugUnlockAllForSession()); // 第二次PIE也检查，证明调试权限随GI销毁。
+            Test->TestTrue(TEXT("Fresh PIE locks both modes and clears debug mode flag"), !Profile->IsDebugUnlockAllModesForSession() && !Profile->IsHellUnlocked() && !Profile->IsEndlessUnlocked()); // 第二轮同样验证，停止试玩不能继承授权。
             if (Stage == 3)
             {
                 Test->TestTrue(TEXT("New PIE uses different run prefix"), Saves->SlotName(0) != Probe->PreviousRunSlot);
@@ -90,6 +96,7 @@ namespace
                 Snapshot->UpgradeProgress.GoldLevels = {1,0,0}; Snapshot->UpgradeProgress.SilverLevels = {0,1,1}; // 非对称价格能发现数组项错位。
                 Snapshot->UpgradeProgress.PermanentDamage = 5; // 10合计伤害中仅5永久，读档不能丢来源或重复施加。
                 Snapshot->UnlockedAmmoIds={TEXT("normal"),TEXT("fire"),TEXT("frost"),TEXT("piercing")}; Snapshot->SelectedAmmoId=TEXT("frost"); // V4值协议覆盖四种解锁，而非仅默认普通弹。
+                Snapshot->Gambling.Relics={TEXT("rescue")}; Snapshot->Gambling.EquippedRelic=TEXT("rescue"); Snapshot->Gambling.Failures={1,2,3}; Snapshot->Gambling.Serial=17; // V6非空永久研究也必须随停止PIE清理。
                 Test->TestTrue(TEXT("Store checkpoint and backup"), Saves->Store(Snapshot));
                 Test->TestTrue(TEXT("Select existing local checkpoint"), Saves->SelectSlot(Index));
                 Test->TestTrue(TEXT("Local reload keeps both currencies, prices and growth"), Saves->GetSlot(Index)->Coins == 42 + Index && Saves->GetSlot(Index)->DamageBonus == 10
@@ -102,13 +109,14 @@ namespace
             Test->TestTrue(TEXT("V4 canonical lowercase ammo IDs"),AmmoJson && AmmoJson->GetStringField(TEXT("selectedAmmoId"))==TEXT("frost") && AmmoJson->GetArrayField(TEXT("unlockedAmmoIds"))[0]->AsString()==TEXT("normal"));
             Test->TestTrue(TEXT("V4 checkpoint JSON round trip"), Saves->ImportCloud(2, AmmoJson));
             Test->TestTrue(TEXT("V4 JSON preserves ammo unlocks and selection"),Saves->GetSlot(2)->UnlockedAmmoIds.Num()==4 && Saves->GetSlot(2)->SelectedAmmoId==TEXT("frost"));
+            Test->TestTrue(TEXT("V6 JSON preserves research and independent pity"),Saves->GetSlot(2)->Version==7&&Saves->GetSlot(2)->Gambling.EquippedRelic==TEXT("rescue")&&Saves->GetSlot(2)->Gambling.Failures==TArray<int32>({1,2,3})&&Saves->GetSlot(2)->Gambling.Serial==17);
             Test->TestTrue(TEXT("V3 JSON preserves wallets, permanent source and per-attribute prices"), Saves->GetSlot(2)->SilverCoins == 71
                 && Saves->GetSlot(2)->UpgradeProgress.PermanentDamage == 5 && Saves->GetSlot(2)->UpgradeProgress.Cost(0,true) == 30
                 && Saves->GetSlot(2)->UpgradeProgress.Cost(1,true) == 20 && Saves->GetSlot(2)->UpgradeProgress.Cost(0,false) == 20
                 && Saves->GetSlot(2)->UpgradeProgress.Cost(1,false) == 30);
             UDemoRunSave* Legacy = DuplicateObject<UDemoRunSave>(Saves->GetSlot(2), GI); // 独立夹具，拒绝分支不可污染原缓存。
             Legacy->Version = 1; Legacy->PistolChallenge = 0; Legacy->Phase = EDemoPhase::Intermission; Legacy->CompletedLevel = 1; Legacy->GoldPurchases = Legacy->SilverPurchases = Legacy->SilverCoins = 0; // 历史格式不能携带V5挑战证明。
-            Test->TestTrue(TEXT("V1 arena keeps legacy stats temporarily without inventing permanent sources"), Legacy->UpgradeLegacy() && Legacy->Version == 5
+            Test->TestTrue(TEXT("V1 arena keeps legacy stats temporarily without inventing permanent sources"), Legacy->UpgradeLegacy() && Legacy->Version == 7 /* 迁移为V6空研究 */
                 && Legacy->Coins == 44 && Legacy->DamageBonus == 10 && Legacy->SilverCoins == 0 && Legacy->GoldPurchases == 0 && Legacy->SilverPurchases == 0 && Legacy->UpgradeProgress.PermanentDamage == 0);
             Legacy->Version = 2; Legacy->PistolChallenge = 0; Legacy->GoldPurchases = 3; Legacy->SilverPurchases = 1; Legacy->Purchases = 4; // 模拟V2只有币种总次数，清除前一次迁移的V5挑战状态。
             Test->TestTrue(TEXT("V2 refunds 20+30+40 gold once and preserves legacy totals temporarily"), Legacy->UpgradeLegacy() && Legacy->Coins == 134 && Legacy->DamageBonus == 10 && Legacy->Purchases == 0);
@@ -123,7 +131,7 @@ namespace
             Test->TestFalse(TEXT("Malformed per-attribute array rejected"), Legacy->Validate());
             Legacy->UpgradeProgress.GoldLevels = {0,0,0}; Legacy->UpgradeProgress.PermanentDamage = 5;
             Test->TestFalse(TEXT("Permanent source larger than total rejected"), Legacy->Validate());
-            Legacy->UpgradeProgress.PermanentDamage = 0; Legacy->Version = 6; // 当前支持V5，未来版本夹具不能再使用5。
+            Legacy->UpgradeProgress.PermanentDamage = 0; Legacy->Version = GetDefault<UDemoRunSave>()->Version+1; // 始终测试未知未来版本，避免V6升级后误把当前版本当非法。
             Test->TestFalse(TEXT("Future checkpoint version rejected"), Legacy->UpgradeLegacy());
             UDemoProfileSave* Unlock = NewObject<UDemoProfileSave>(GI); // 仅本测试的UE序列化夹具，用于验证解锁在下次PIE清空。
             Unlock->Data = Profile->GetData();
@@ -153,6 +161,28 @@ namespace
             Test->TestTrue(TEXT("All ammo permissions unlocked"), DebugAmmo && DebugAmmo->IsUnlocked(0) && DebugAmmo->IsUnlocked(1) && DebugAmmo->IsUnlocked(2) && DebugAmmo->IsUnlocked(3));
             Test->TestTrue(TEXT("Unknown ammo rejected without changing selection"), DebugAmmo && !DebugAmmo->IsUnlocked(-1) && !DebugAmmo->IsUnlocked(4) && DebugAmmo->GetSelected()==0);
             Test->TestTrue(TEXT("Debug does not mutate currency, victories or revisions"), BeforeCoins==Saves->GetSlot(0)->Coins && BeforeClears==Profile->GetData().Clears.Num() && BeforeRevision==Profile->GetData().LocalRevision);
+            // 两种解锁命令必须独立：武器全解锁不解锁模式；非法输入及编辑器World不能授予权限。
+            Test->TestTrue(TEXT("Weapon unlock leaves modes locked"), !Profile->IsHellUnlocked() && !Profile->IsEndlessUnlocked());
+            IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Demo.Debug.UnlockAllModes 1"), ConsoleOutput, GEditor->PlayWorld);
+            IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Demo.Debug.UnlockAllModes"), ConsoleOutput, GEditor->GetEditorWorldContext().World());
+            Test->TestFalse(TEXT("Invalid arguments and editor preview cannot unlock modes"), Profile->IsDebugUnlockAllModesForSession());
+            ADemoPlayerController* ModePC = Cast<ADemoPlayerController>(DebugPC); // 本PIE所属控制器，测试结束不保留引用。
+            ADemoPlayerState* ModePS = ModePC ? ModePC->GetPlayerState<ADemoPlayerState>() : nullptr; // 生产模式准入读取此PS账本。
+            UDemoPlayerProgressComponent* ModeProgress = ModePS ? ModePS->GetProgressComponent() : nullptr; // 同步测试借用，所有更改走正式Commit。
+            if (!Test->TestNotNull(TEXT("Mode unlock requires live player progress"), ModeProgress)) return true;
+            const FDemoPlayerProgressSnapshot BeforeModes = ModeProgress->GetSnapshot(); // 经济/最高纪录基线，同时作为未解锁旧检查点夹具。
+            Test->TestTrue(TEXT("Editor mode command dispatched"), IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Demo.Debug.UnlockAllModes"), ConsoleOutput, GEditor->PlayWorld));
+            Test->TestTrue(TEXT("Both modes immediately unlocked in profile and progress"), Profile->IsHellUnlocked() && Profile->IsEndlessUnlocked() && ModeProgress->GetSnapshot().bHellUnlocked && ModeProgress->GetSnapshot().bEndlessUnlocked);
+            Test->TestTrue(TEXT("Open menu snapshot immediately sees both modes"), ModePC->GetMenuSnapshot().Progress.bHellUnlocked && ModePC->GetMenuSnapshot().Progress.bEndlessUnlocked);
+            IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Demo.Debug.UnlockAllModes"), ConsoleOutput, GEditor->PlayWorld); // 重复授予不能制造经济或通关收益。
+            Test->TestTrue(TEXT("Mode unlock preserves wallets and challenge records"), BeforeModes.Coins==ModeProgress->GetSnapshot().Coins && BeforeModes.SilverCoins==ModeProgress->GetSnapshot().SilverCoins && BeforeModes.BestEndlessLevel==ModeProgress->GetSnapshot().BestEndlessLevel && BeforeModes.PistolChallenge==ModeProgress->GetSnapshot().PistolChallenge);
+            Test->TestTrue(TEXT("Mode unlock never forges profile facts or revisions"), BeforeClears==Profile->GetData().Clears.Num() && BeforeRevision==Profile->GetData().LocalRevision && Profile->GetData().CloudClearedDifficulties.IsEmpty());
+            Test->TestTrue(TEXT("Profile reload retains only session mode overlay"), Profile->SaveProfile() && Profile->ReloadFromDisk() && Profile->IsHellUnlocked() && Profile->IsEndlessUnlocked());
+            Test->TestTrue(TEXT("Restoring locked progress retains session mode unlock"), ModeProgress->Commit(BeforeModes) && ModeProgress->GetSnapshot().bHellUnlocked && ModeProgress->GetSnapshot().bEndlessUnlocked);
+            AFPSDemoGameMode* Mode = GEditor->PlayWorld->GetAuthGameMode<AFPSDemoGameMode>(); // 使用生产安全区选择函数检查服务端准入，当前仍在大厅。
+            if (!Test->TestTrue(TEXT("Mode debug fixture enters real safe hub"), Mode && Mode->StartRun())) return true;
+            Test->TestTrue(TEXT("Hell selection accepts debug permission"), Mode->SelectDifficulty(EDemoDifficulty::Hell));
+            Test->TestTrue(TEXT("Endless selection accepts debug permission"), Mode->SelectEndless());
             return true;
         }
     private:

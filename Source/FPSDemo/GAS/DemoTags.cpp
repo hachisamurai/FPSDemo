@@ -1,7 +1,10 @@
+// 职责：定义原生GAS标签；模块加载注册，运行时技能/Avatar使用同一份标签实例。
 #include "GAS/DemoTags.h"
 
 namespace DemoTags
 {
+    UE_DEFINE_GAMEPLAY_TAG(DashCue, "GameplayCue.Demo.Character.Dash"); // 原生Avatar接收，无Lyra插件路径依赖。
+    UE_DEFINE_GAMEPLAY_TAG(HealCue, "GameplayCue.Demo.Character.Heal"); // 治疗提交后的表现事件标签。
 	// 与弹药Debuff设计中的Granted Tags一致；注册标签本身不施加伤害、减速或冻结。
 	UE_DEFINE_GAMEPLAY_TAG(Burn, "Debuff.Burn");
 	UE_DEFINE_GAMEPLAY_TAG(Chill, "Debuff.Chill");

@@ -1,5 +1,7 @@
+// 职责：玩家ASC技能授予、激活与取消桥接。使用：Avatar初始化授予独立玩家GA，输入只提交类型请求而不执行伤害。
 #include "GAS/DemoAbilitySystemComponent.h"
-#include "GAS/DemoGameplayAbility.h"
+#include "GAS/Abilities/DemoPlayerAbilityTypes.h"
+#include "Weapons/Melee/DemoMeleeAbility.h" // 所有近战武器共用一项GA，具体招式来自装备DA。
 #include "Debug/DemoLog.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/DemoFPAnimInstance.h"
@@ -38,6 +40,7 @@ void UDemoAbilitySystemComponent::GrantStartupAbilities()
 	GiveAbility(FGameplayAbilitySpec(UDemoDashAbility::StaticClass(), 1));
 	GiveAbility(FGameplayAbilitySpec(UDemoHealAbility::StaticClass(), 1));
 	GiveAbility(FGameplayAbilitySpec(UDemoAimAbility::StaticClass(), 1));
+	GiveAbility(FGameplayAbilitySpec(UDemoMeleeAbility::StaticClass(), 1)); // 默认授予通用GA，组件验证开局近战配置。
 }
 
 bool UDemoAbilitySystemComponent::ActivateDemoAbility(TSubclassOf<UGameplayAbility> AbilityClass)

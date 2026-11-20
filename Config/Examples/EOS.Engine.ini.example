@@ -1,0 +1,25 @@
+; UE5.4项目的EOS账号/会话配置模板。此.example文件不会被UE自动加载。
+; 在本地将本节合并到Config/DefaultEngine.ini（保留已有NULL默认与DemoCoopNetDriver配置）。
+; Product/Sandbox/Deployment来自同一EOS产品；不同部署之间无法互相搜索。
+; 不填写后端数据库凭据，也不把实际客户端配置提交到聊天或公共仓库。
+[/Script/OnlineSubsystemEOS.EOSSettings]
+DefaultArtifactName=FPSDemoDev
+bUseEAS=true
+bUseEOSConnect=true
+bUseEOSSessions=true
+; 必需：本项目DefaultPlatformService=NULL；UE5.4非默认EOS的此路径支持无缓存时AccountPortal登录。
+bPreferPersistentAuth=true
+bEnableOverlay=false
+bEnableSocialOverlay=false
+bEnableEditorOverlay=false
+; 仅请求当前登录需要的基础权限；不启用好友、语音、Steam镜像或EOS玩家文件存储。
+!AuthScopeFlags=ClearArray
++AuthScopeFlags=BasicProfile
+!Artifacts=ClearArray
+; 空字段故意使预检失败；创建产品并设置Game Client策略与EAS应用关联后再填写。
+; ClientEncryptionKey仅为未使用EOS Player/Title Storage时的示例值；项目云存档仍由原API处理。
++Artifacts=(ArtifactName="FPSDemoDev",ClientId="",ClientSecret="",ProductId="",SandboxId="",DeploymentId="",ClientEncryptionKey="1111111111111111111111111111111111111111111111111111111111111111")
+
+[SocketSubsystemEOS]
+; 先尝试直连，失败允许EOS中继；不自建NAT穿透服务器。
+RelayControl=AllowRelays

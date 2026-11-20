@@ -1,4 +1,6 @@
+// 职责：Editor弹药购买/实体命中/元素GE回归。使用：-DemoAmmoTest创建真实CombatSession及骨骼靶，不能只改GS阶段冒充有效战斗。
 #include "Tests/DemoAmmoTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Tests/DemoProjectileFixtures.h"
 #include "Game/FPSDemoGameMode.h"
 #include "Characters/DemoCharacter.h"
@@ -21,6 +23,7 @@
 #include "UnrealClient.h"
 #include "Engine/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Misc/CommandLine.h"
 
 ADemoAmmoTest::ADemoAmmoTest(){DEMO_LOG_CALL();PrimaryActorTick.bCanEverTick=true;PrimaryActorTick.TickInterval=.02f;}
@@ -36,7 +39,16 @@ ADemoEnemy* ADemoAmmoTest::SpawnTarget(FVector Location)
     FActorSpawnParameters Params;Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn; // 空中夹具避免地形干扰真实子弹飞行。
     ADemoEnemy* Enemy=GetWorld()->SpawnActor<ADemoEnemy>(ADemoEnemy::StaticClass(),Location,FRotator::ZeroRotator,Params); // World拥有测试对象。
     FDemoEnemySpawnStats Stats;Stats.Health=1000;Stats.AttackPower=0; // 不依赖难度，比较精确理论伤害。
-    Enemy->Configure(Stats);Enemy->SetActorTickEnabled(false);return Enemy;
+    Enemy->Configure(Stats);Enemy->SetActorTickEnabled(false);
+    ADemoCharacter* Player=Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0)); // 仅当前隔离单人夹具，不用于正式业务选人。
+    USkeletalMeshComponent* Mesh=DemoHitZoneTest::Pose(Enemy,TEXT("/Game/Enemies/Breach/QA/A_Breach_Chaser_RigCheck.A_Breach_Chaser_RigCheck"),0); // 现行真实PhysicsAsset部位，旧Actor中心不保证可命中。
+    FVector BodyPoint; // 模型空间稳定机身点，保证理论基础伤害断言不误打核心/装甲。
+    const UDemoEnemyHitProfile* Profile=Player?Player->GetWeaponComponent()->GetActiveWeapon()->EnemyHitProfile.Get():nullptr; // 生产部位规则。
+    if(!Mesh||!Profile||!DemoHitZoneTest::FindRegion(Mesh,Profile,EDemoEnemyHitRegion::Body,BodyPoint)) { Enemy->Destroy(); return nullptr; }
+    const FVector Camera=Player->GetFirstPersonCameraComponent()->GetComponentLocation(); // 本测试始终面向世界+X，保持调用方后靶的横向偏移。
+    DemoHitZoneTest::Aim(Enemy,Player,BodyPoint,Location.X-Camera.X);
+    Enemy->AddActorWorldOffset(FVector(0,Location.Y-Camera.Y,0)); Mesh->RefreshBoneTransforms();
+    return Enemy;
 }
 void ADemoAmmoTest::Tick(float DeltaSeconds)
 {
@@ -51,19 +63,24 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
     auto* Ammo=Player->FindComponentByClass<UDemoAmmoComponent>(); // 当前玩家装配组件。
     auto* Weapon=Player->GetWeaponComponent()->GetActiveWeapon(); // 当前真实装备；前段为手枪，后段为终端装配的散弹枪。
     const UDemoAmmoCatalog* Config=Ammo->GetCatalog(); // 测试生产资产，不改共享默认值。
+    const int32 PurchaseBudget=Config->Entries[1].UnlockGoldCost+Config->Entries[2].UnlockGoldCost+Config->Entries[3].UnlockGoldCost+300; // 足额验证三个高价购买并保留300金币，避免旧1500夹具使后两项无法解锁。
     switch(Step)
     {
     case 0:
         if(!Check(Config->Validate()&&Saves->CreateSlot(0)&&Mode->StartRun(),TEXT("catalog and isolated save")))return;
-        Saves->ConsumePending();PC->OnRunReady();State->Coins=1500;
+        Saves->ConsumePending();PC->OnRunReady();DemoTestProgress::SetGold(State,PurchaseBudget); /* 夹具通过本人PS提交，不能写共享GS钱包。 */
         Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(100,0,0));
         Mode->GetShopTerminal()->Interact(Player);PC->OpenAmmoMenu();
         PC->InspectAmmo(1);PC->AmmoAction();PC->ConfirmAmmoPurchase(false);
-        if(!Check(State->Coins==1500&&!Ammo->IsUnlocked(1),TEXT("cancel purchase changes nothing")))return;
+        if(!Check(DemoTestProgress::Read(State).Coins==PurchaseBudget&&!Ammo->IsUnlocked(1),TEXT("cancel purchase changes nothing")))return;
         for(int32 Index=1;Index<4;++Index){PC->InspectAmmo(Index);PC->AmmoAction();PC->ConfirmAmmoPurchase(true);} // 真实UI提交三个独立价格。
         PC->ConfirmAmmoPurchase(true); // 重放旧确认必须拒绝，不能再次扣币。
-        if(!Check(State->Coins==300&&Ammo->IsUnlocked(1)&&Ammo->IsUnlocked(2)&&Ammo->IsUnlocked(3)&&Ammo->GetSelected()==0,TEXT("buy once, do not auto equip")))return;
+        if(!Check(DemoTestProgress::Read(State).Coins==300&&Ammo->IsUnlocked(1)&&Ammo->IsUnlocked(2)&&Ammo->IsUnlocked(3)&&Ammo->GetSelected()==0,TEXT("buy once, do not auto equip")))return;
         PC->InspectAmmo(1);PC->AmmoAction();
+        PC->CloseUpgradeMenu();
+        if(!Check(DemoProjectileFixtures::EquipPrimary(Player,1),TEXT("shotgun legitimately acquired before combat"))) return; // 测试也遵守安全区解锁/装配规则。
+        Player->GetWeaponComponent()->EquipSlot(2); // 前段依然用默认手枪；后段只切换已拥有的主武器，不在战斗中解锁。
+        Mode->GetShopTerminal()->Interact(Player); PC->OpenAmmoMenu(); // 恢复真实弹药页，供原交易截图与下一步关闭。
         Snapshot=DuplicateObject<UDemoRunSave>(Saves->GetSlot(0),this);
         // 新建检查点应采用当前保存类版本（现已V5）；本断言检查交易原子性，旧V4迁移由存档专项负责。
         if(!Check(Snapshot->Version==GetDefault<UDemoRunSave>()->Version&&Snapshot->Coins==300&&Snapshot->UnlockedAmmoIds.Num()==4&&Snapshot->SelectedAmmoId==TEXT("fire"),TEXT("wallet and unlocks saved atomically")))return;
@@ -72,7 +89,8 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
     case 1:
         if (!bShotPending)
         {
-            PC->CloseUpgradeMenu();State->Phase=EDemoPhase::Combat;State->LevelNumber=1;
+            PC->CloseUpgradeMenu(); Mode->StartNextLevel(); // 正式创建可撤销战斗凭据；仅改显示Phase会正确地被ShotContext拒绝。
+            if(!Check(State->Phase==EDemoPhase::Combat,TEXT("real combat session for ammo flight"))) return;
             Player->SetActorLocation(FVector(0,0,1600));Player->GetCharacterMovement()->SetMovementMode(MOVE_Flying);Player->GetCharacterMovement()->StopMovementImmediately();PC->SetControlRotation(FRotator::ZeroRotator);
             Weapon->Config.SpreadHalfAngle=0; Weapon->Config.RecoilPitch=0; Weapon->Config.MuzzleSocket=NAME_None; // 本次手枪实例使用确定性枪口，资产数值不改。
             Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
@@ -126,7 +144,8 @@ void ADemoAmmoTest::Tick(float DeltaSeconds)
         if (!DemoProjectileFixtures::FireAndWait(Player,bShotPending,ShotDeadline)) return;
         if(!Check(Behind->GetHealth()==Before,TEXT("wall blocks in-flight penetration continuation")))return;
         ShotWall->Destroy();Behind->Destroy();Target->Destroy();
-        if (!Check(DemoProjectileFixtures::EquipPrimary(Player,1),TEXT("ammo shotgun fixture is genuinely equipped"))) return;
+        Player->GetWeaponComponent()->EquipSlot(1); // 合法切换在安全区提前获取的枪，不伪造当前关卡或永久解锁事实。
+        if(!Check(Player->GetWeaponComponent()->GetPrimaryIndex()==1&&Player->GetWeaponComponent()->GetActiveSlot()==1,TEXT("ammo shotgun fixture is genuinely equipped"))) return;
         Snapshot->SelectedAmmoId=TEXT("fire");Ammo->Restore(*Snapshot);
         Target=SpawnTarget(Player->GetFirstPersonCameraComponent()->GetComponentLocation()+FVector(600,0,0));
         ADemoWeaponBase* Shotgun=Player->GetWeaponComponent()->GetActiveWeapon(); // 装备组件真实实例，Fire GA凭据不可被临时武器绕过。

@@ -1,8 +1,10 @@
+// 职责：GI拥有的本地档案、永久通关事实与Editor临时权限。使用：UI/运行时查询权限，真实通关才提交事实；依赖SaveGame和云DTO。
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/SaveGame.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Game/DemoCombatConfig.h"
+#include "Contracts/DemoGameplayContracts.h"
 #include "DemoPlayerProfile.generated.h"
 
 /** 永久通关凭据；字符串ID不随枚举顺序、蓝图路径或显示语言改变。离线记录不等同于服务器认证。 */
@@ -24,7 +26,11 @@ struct FDemoPlayerProfileData
 {
     GENERATED_BODY()
     // V3保留V2分离的服务器基线与待上传通关，并支持挑战事实；未来版本保护只读。
-    UPROPERTY() int32 SchemaVersion = 3; // V3加入hard_pistol/hell挑战凭据；旧客户端应保护未来版本。
+    UPROPERTY() int32 SchemaVersion = 4; // V4一次冻结Legacy枪权；后续通关只保模式事实，不再免费派枪。
+    UPROPERTY() FString LegacyMigrationId; // 一次冻结GUID，不按新通关重建。
+    UPROPERTY() int32 LegacySourceRevision = 0; // 冻结时本地内容修订。
+    UPROPERTY() TArray<FName> LegacyWeaponIds = {FName(TEXT("pistol"))}; // 账号旧合法权，适用于以后新槽；不含本槽付费权。
+    UPROPERTY() TArray<FString> LegacyRunIds; // 冻结时尚待确认的旧RunId，迟到新通关不得扩权。
     // 首次创建的本地GUID，不是认证账号；未来服务端需单独绑定登录身份。
     UPROPERTY() FString ProfileId;
     // 单调递增的本地内容修订号；JSON使用int32以避免JS大整数精度问题。
@@ -57,6 +63,8 @@ class FPSDEMO_API UDemoProfileSave : public USaveGame
 {
     GENERATED_BODY()
 public:
+    /** 兼容旧差分存档缺SchemaVersion tag的V3；保存显式写完整Profile4，未来CDO不重解释历史。 */
+    virtual void Serialize(FArchive& Ar) override;
     // 由存档对象拥有的值快照，UGameplayStatics负责序列化。
     UPROPERTY() FDemoPlayerProfileData Data;
 };
@@ -69,10 +77,12 @@ class FPSDEMO_API UDemoPlayerProfile : public UGameInstanceSubsystem
 public:
     /** Collection为引擎子系统容器；Editor每个GI创建独立临时档，非Editor构建才加载正式本地档。 */
     virtual void Initialize(FSubsystemCollectionBase& Collection) override;
-    /** 正式游戏退出重试保存；停止Editor试玩删除本GI档案及备份，清空武器解锁/通关记录。 */
+    /** 正式游戏退出重试保存；停止Editor试玩删除本GI档案及备份，清空武器/模式调试覆盖和通关记录。 */
     virtual void Deinitialize() override;
     /** 返回本GI拥有的只读快照；调用者不得保存跨GI引用。 */
     const FDemoPlayerProfileData& GetData() const;
+    /** 已持久冻结且本地可写时为新槽构造Legacy来源；不包含Editor调试覆盖，不写盘。 */
+    bool MakeLegacyOwnership(FDemoWeaponOwnership& Out) const;
     /** Id是稳定目录键；无效武器始终false，手枪始终解锁。 */
     bool IsUnlocked(FName Id) const;
 #if WITH_EDITOR
@@ -80,13 +90,23 @@ public:
     void DebugUnlockAllForSession();
     /** 仅编辑器弹药权限与测试读取；同GI跨地图/存档有效，无网络复制和持久化。 */
     bool IsDebugUnlockAllForSession() const;
+    /** 单人Editor控制台授予本GI地狱/无尽权限；不制造通关事实或奖励，停止试玩清空。 */
+    void DebugUnlockAllModesForSession();
+    /** 仅当前单人游戏World可读取模式覆盖；跨地图有效，不复制或写入Profile，非游戏/联机World返回false。 */
+    bool IsDebugUnlockAllModesForSession() const;
+    /** Flag=0金币/1银币/2无敌，bEnabled为明确开关；不改钱包、不持久化，生命周期为当前GI。 */
+    void SetDebugTestFlag(int32 Flag,bool bEnabled);
+    /** Flag同上，非法编号返回false；只供Editor交易/伤害/显示读取。 */
+    bool IsDebugTestFlagEnabled(int32 Flag) const;
 #endif
-    /** 账号永久挑战解锁；依据已确认云记录或待上传通关事实，不依据当前持枪。 */
+    /** 查询地狱资格：正式构建依据通关事实，单人Editor可叠加本GI模式调试权限，不依据当前持枪。 */
     bool IsHellUnlocked() const;
-    /** 地狱完整通关后解锁；Editor仍仅限本次试玩。 */
+    /** 查询无尽资格：地狱完整通关或单人Editor模式调试权限；Editor仍仅限本次试玩。 */
     bool IsEndlessUnlocked() const;
     /** RunId来自权威GameMode；只在最终Victory且对应难度时接受，保存失败仍保留内存进度。 */
     bool RecordVictory(const FString& RunId, EDemoDifficulty Difficulty);
+    /** Completion为权威结算后经拥有者Client RPC传入的完成事实；不查询World，不为服务器远程玩家授予权限。 */
+    bool RecordCompletion(const FDemoRunCompletion& Completion);
     /** Id为已成功在终端装备的主武器，保存选择偏好，不生成武器。 */
     void RememberPrimary(FName Id);
     /** 同步保存主槽并保留上次有效备份；失败返回false并提供可显示的状态。 */
@@ -108,12 +128,14 @@ public:
 private:
 #if WITH_EDITOR
     bool bDebugUnlockAllForSession = false; // 本次Editor GI的调试覆盖，不写Profile、不进入任何包体。
+    bool bDebugUnlockAllModesForSession = false; // 地狱/无尽的独立GI覆盖，默认锁定；非序列化、无复制，与枪械解锁互不联动。
+    uint8 DebugTestFlags=0; // 三位开关，默认全关；非UPROPERTY/Config/SaveGame，不复制，停止试玩销毁。
 #endif
-    /** 从通关记录重建解锁、修正失效选择，拒绝损坏ID/版本/修订字段；Data为可规范化值。 */
+    /** 验证通关事实，旧schema仅一次冻结Legacy；后续只由冻结基线重建权限缓存，拒绝未知版本/损坏值。 */
     bool Normalize(FDemoPlayerProfileData& Data) const;
     /** 内容变更时推进修订和UTC并立即尝试落盘；失败留下可重试状态。 */
     void CommitChange();
-    // 本GI内的唯一可变档案；不复制，当前实现仅支持单人本地。
+    // 本GI唯一可变本机档案；不复制，不作为Listen Server其他玩家的解锁或经济授权来源。
     FDemoPlayerProfileData Profile;
     // 真实持久化槽，备份后缀_Backup；不接受外部任意路径。
     FString SlotName;

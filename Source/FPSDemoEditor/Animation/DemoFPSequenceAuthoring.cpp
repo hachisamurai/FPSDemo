@@ -1,4 +1,6 @@
+// 职责：将离线枪械接触配置烘焙为FP序列及Montage；依赖真实原Skeleton、机械动作及同源JSON，不在游戏中求作者逻辑。
 #include "Animation/DemoFPSequenceAuthoring.h"
+#include "Animation/DemoAnatomicalArm.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimData/IAnimationDataController.h"
@@ -15,23 +17,23 @@
 
 namespace DemoFPSequence
 {
-    /** Model为四枪标识；只读Blender接触作者输出，调用者持有返回JSON至本次同步烘焙结束。 */
-    TSharedPtr<FJsonObject> LoadLeftTracks(const FString& Model)
+    /** Model为四枪标识，FileName为调用处固定作者文件名；只读JSON子对象由调用者共享持有至同步烘焙结束。 */
+    TSharedPtr<FJsonObject> LoadContactData(const FString& Model,const TCHAR* FileName)
     {
         UE_LOG(LogFPSDemo,Log,TEXT("[CALL] %hs model=%s"),__FUNCTION__,*Model);
-        const FString Path=FPaths::ProjectDir()/TEXT("Art/Player/Animations/left_hand_contact_tracks.json"); // 离线输入，不形成打包运行依赖。
+        const FString Path=FPaths::ProjectDir()/TEXT("Art/Player/Animations")/FileName; // 离线输入，不形成打包运行依赖。
         FString Text; // UTF8作者文件内容，仅本次制作使用。
         TSharedPtr<FJsonObject> Root; // JSON树共享所有权，返回子对象独立保活。
         const TSharedPtr<FJsonObject>* Weapons=nullptr; // 借用树内映射，不缓存至下次制作。
         const TSharedPtr<FJsonObject>* Result=nullptr;
         if (!FFileHelper::LoadFileToString(Text,*Path)||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),Root)
             ||!Root.IsValid()||!Root->TryGetObjectField(TEXT("weapons"),Weapons)||!(*Weapons)->TryGetObjectField(Model,Result))
-        { UE_LOG(LogFPSDemo,Error,TEXT("FP_LEFT_CONTACT_MISSING %s model=%s"),*Path,*Model); return nullptr; }
+        { UE_LOG(LogFPSDemo,Error,TEXT("FP_CONTACT_MISSING %s model=%s"),*Path,*Model); return nullptr; }
         return *Result;
     }
 
-    /** Value为一帧作者数据；Wrist/Rotation是枪局部目标，Fingers为UE原指骨局部旋转增量，坏数据拒绝保存。 */
-    bool ReadLeftFrame(const TSharedPtr<FJsonValue>& Value,FVector& Wrist,FQuat& Rotation,TMap<FName,FQuat>& Fingers)
+    /** Value为作者姿态，Side为_l/_r后缀；Wrist/Rotation是枪局部目标，Fingers为原指骨局部增量，坏数据拒绝。 */
+    bool ReadHandFrame(const TSharedPtr<FJsonValue>& Value,const TCHAR* Side,FVector& Wrist,FQuat& Rotation,TMap<FName,FQuat>& Fingers)
     {
         UE_LOG(LogFPSDemo,VeryVerbose,TEXT("[CALL] %hs"),__FUNCTION__);
         const TSharedPtr<FJsonObject>* Frame=nullptr; // 借用已解析的当前帧，输出均为值副本。
@@ -45,10 +47,10 @@ namespace DemoFPSequence
         Rotation=FQuat((*Quaternion)[0]->AsNumber(),(*Quaternion)[1]->AsNumber(),(*Quaternion)[2]->AsNumber(),(*Quaternion)[3]->AsNumber());
         if (Wrist.ContainsNaN()||Rotation.ContainsNaN()||Rotation.SizeSquared()<.99) return false;
         Rotation.Normalize(); Fingers.Reset();
-        for (const auto& Field:(*FingerData)->Values) // 增量仅允许当前左手指骨，不能覆盖枪锚点或右臂。
+        for (const auto& Field:(*FingerData)->Values) // 增量只允许对应侧指骨，不覆盖枪锚点或对侧手臂。
         {
             const TArray<TSharedPtr<FJsonValue>>* Components=nullptr; // 单指骨xyzw值，树拥有。
-            if (!Field.Key.EndsWith(TEXT("_l"))||!Field.Value->TryGetArray(Components)||Components->Num()!=4) return false;
+            if (!Field.Key.EndsWith(Side)||!Field.Value->TryGetArray(Components)||Components->Num()!=4) return false;
             FQuat Delta((*Components)[0]->AsNumber(),(*Components)[1]->AsNumber(),(*Components)[2]->AsNumber(),(*Components)[3]->AsNumber()); // 当前帧局部附加旋转，无平移或缩放。
             if (Delta.ContainsNaN()||Delta.SizeSquared()<.99) return false;
             Delta.Normalize(); Fingers.Add(FName(*Field.Key),Delta);
@@ -88,7 +90,9 @@ namespace DemoFPSequence
         FTransform A=UAnimPoseExtensions::GetBonePose(Pose,Upper,EAnimPoseSpaces::World); // IK修改的三个独立值副本。
         FTransform B=UAnimPoseExtensions::GetBonePose(Pose,Lower,EAnimPoseSpaces::World);
         FTransform C=UAnimPoseExtensions::GetBonePose(Pose,Hand,EAnimPoseSpaces::World);
-        const FVector Pole=A.GetLocation()+PoleOffset; // 左右肘分别标定：左臂避镜头，右臂向外下弯以避开有体积的枪托。
+        const FName Middle(*FString::Printf(TEXT("middle_01_%s"),Side)); // 掌纵轴语义标记，保留模板原骨名称。
+        const FVector PalmLocal=C.InverseTransformVectorNoScale(UAnimPoseExtensions::GetBonePose(Pose,Middle,EAnimPoseSpaces::World).GetLocation()-C.GetLocation());
+        const FVector Pole=DemoAnatomicalArm::ChoosePole(A,B,C,Target,Rotation,PalmLocal,A.GetLocation()+PoleOffset); // 同一合法肘圆内减少腕反折，不能靠只旋转手骨改善表象。
         AnimationCore::SolveTwoBoneIK(A,B,C,Pole,Target,false,1.f,1.f);
         C.SetRotation(Rotation);
         UAnimPoseExtensions::SetBonePose(Pose,A,Upper,EAnimPoseSpaces::World);
@@ -115,14 +119,89 @@ namespace DemoFPSequence
     }
 }
 
+bool UDemoFPSequenceAuthoring::BuildSniperBoltCycle(USkeletalMesh* Arms, USkeletalMesh* Gun, FVector RightElbowOffset)
+{
+    UE_LOG(LogFPSDemo, Log, TEXT("[CALL] %hs"), __FUNCTION__);
+    UAnimSequence* Idle = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Weapons/Animations/Arms/A_FP_Sniper_Idle")); // 已校准稳定支撑姿势。
+    UAnimSequence* Fire = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Weapons/Animations/Arms/A_FP_Sniper_Fire")); // 已有双手共同后坐。
+    UAnimSequence* Empty = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Weapons/Animations/Arms/A_FP_Sniper_Reload_Empty")); // 只采样右手拉栓段。
+    UAnimSequence* Mechanical = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Weapons/Animations/Mechanical/A_Breach_Sniper_Reload_Empty")); // 同步机械bolt源。
+    if (!Arms || !Gun || !Idle || !Fire || !Empty || !Mechanical || RightElbowOffset.ContainsNaN())
+    { UE_LOG(LogFPSDemo, Error, TEXT("FP_BOLT_AUTHOR_REJECT missing source assets")); return false; }
+    for (const bool bArms : {false, true}) // 先枪机再手臂；两个素材均60Hz、1秒且首尾完整闭锁。
+    {
+        USkeletalMesh* Mesh = bArms ? Arms : Gun; // 当前烘焙骨架，借用到本轮结束。
+        FAnimPoseEvaluationOptions Options; // 离线使用同网格参考姿势，不修改原蒙皮或骨长。
+        Options.OptionalSkeletalMesh = Mesh;
+        FAnimPose Base; // 每帧独立复制基准姿势，不累计IK误差。
+        if (bArms) UAnimPoseExtensions::GetAnimPoseAtTime(Idle, 0.f, Options, Base);
+        else UAnimPoseExtensions::GetAnimPoseAtTime(Mechanical, Mechanical->GetPlayLength(), Options, Base);
+        if (!Base.IsValid()) { UE_LOG(LogFPSDemo, Error, TEXT("FP_BOLT_AUTHOR_REJECT invalid base pose")); return false; }
+        TArray<FName> Bones; // 完整骨轨道，保留UE手臂辅助骨。
+        UAnimPoseExtensions::GetBoneNames(Base, Bones);
+        const FString Path = bArms ? TEXT("/Game/Weapons/Animations/Arms/A_FP_Sniper_BoltCycle") : TEXT("/Game/Weapons/Animations/Mechanical/A_Breach_Sniper_BoltCycle"); // 只覆盖本功能独立资产。
+        UAnimSequence* Result = DemoFPSequence::Asset<UAnimSequence>(Path); // 包拥有的可编辑序列。
+        Result->SetSkeleton(Mesh->GetSkeleton()); Result->SetPreviewMesh(Mesh);
+        IAnimationDataController& Controller = Result->GetController(); // 正式写入接口负责失效压缩数据。
+        Controller.OpenBracket(FText::FromString(TEXT("Bake sniper shot and bolt cycle")), false);
+        Controller.InitializeModel(); Controller.SetFrameRate(FFrameRate(60,1), false); Controller.SetNumberOfFrames(FFrameNumber(60), false);
+        Controller.RemoveAllBoneTracks(false);
+        TArray<TArray<FVector3f>> Positions, Scales; // 当前素材[骨][帧]临时缓存。
+        TArray<TArray<FQuat4f>> Rotations; // 归一化本地旋转，保持骨长。
+        Positions.SetNum(Bones.Num()); Scales.SetNum(Bones.Num()); Rotations.SetNum(Bones.Num());
+        for (int32 Frame = 0; Frame <= 60; ++Frame) // 首尾均包含，动作时长恰好1秒。
+        {
+            const float P = Frame / 60.f; // 归一化射击周期，0..0.12后坐，之后完成抬手/拉栓/归握。
+            const float SourcePhase = .58f + .42f * FMath::Clamp((P-.12f)/.88f, 0.f, 1.f); // 与声音重映射共用的Empty末段，避开换匣阶段。
+            FAnimPose Pose = Base; // 不继承上一帧姿势。
+            FAnimPose Source; // 当前源帧，读取后不会修改原动画。
+            UAnimPoseExtensions::GetAnimPoseAtTime(bArms ? Empty : Mechanical, SourcePhase * (bArms ? Empty : Mechanical)->GetPlayLength(), Options, Source);
+            if (bArms && P <= .12f)
+                UAnimPoseExtensions::GetAnimPoseAtTime(Fire, P/.12f*Fire->GetPlayLength(), Options, Pose);
+            else if (bArms)
+            {
+                const FTransform Anchor = UAnimPoseExtensions::GetBonePose(Base, TEXT("ik_hand_gun"), EAnimPoseSpaces::World); // 保持Idle构图，不带换弹侧倾。
+                const FTransform SourceAnchor = UAnimPoseExtensions::GetBonePose(Source, TEXT("ik_hand_gun"), EAnimPoseSpaces::World); // 从源动作剔除整枪举起偏移。
+                const FTransform SourceWrist = UAnimPoseExtensions::GetBonePose(Source, TEXT("hand_r"), EAnimPoseSpaces::World); // 保留经校准的绕机匣轨迹与转腕。
+                for (const FName Bone : Bones) // 只复用右侧本地姿势（含指骨），左手一直为Idle。
+                    if (Bone.ToString().EndsWith(TEXT("_r"))) UAnimPoseExtensions::SetBonePose(Pose, UAnimPoseExtensions::GetBonePose(Source, Bone, EAnimPoseSpaces::Local), Bone, EAnimPoseSpaces::Local);
+                const FVector Target = Anchor.TransformPosition(SourceAnchor.InverseTransformPosition(SourceWrist.GetLocation())); // 重投影后的组件空间腕点。
+                const FQuat Rotation = Anchor.GetRotation()*SourceAnchor.GetRotation().Inverse()*SourceWrist.GetRotation(); // 掌心随真实bolt旋转。
+                DemoFPSequence::ArmIK(Pose, TEXT("r"), Target, Rotation, RightElbowOffset);
+                UAnimPoseExtensions::SetBonePose(Pose, UAnimPoseExtensions::GetBonePose(Pose, TEXT("hand_r"), EAnimPoseSpaces::World), TEXT("ik_hand_r"), EAnimPoseSpaces::World);
+            }
+            else
+                UAnimPoseExtensions::SetBonePose(Pose, UAnimPoseExtensions::GetBonePose(Source, TEXT("bolt"), EAnimPoseSpaces::Local), TEXT("bolt"), EAnimPoseSpaces::Local); // 弹匣/body/root始终使用闭锁参考帧。
+            for (int32 Index = 0; Index < Bones.Num(); ++Index) // 仅序列数据，没有运行时IK作者文件依赖。
+            {
+                FTransform Local = UAnimPoseExtensions::GetBonePose(Pose, Bones[Index], EAnimPoseSpaces::Local); // 当帧局部值副本。
+                Local.NormalizeRotation();
+                Positions[Index].Add(FVector3f(Local.GetTranslation())); Rotations[Index].Add(FQuat4f(Local.GetRotation())); Scales[Index].Add(FVector3f(Local.GetScale3D()));
+            }
+        }
+        for (int32 Index = 0; Index < Bones.Num(); ++Index) // 引擎压缩由PostEditChange重新生成。
+            if (!Controller.AddBoneCurve(Bones[Index], false) || !Controller.SetBoneTrackKeys(Bones[Index], Positions[Index], Rotations[Index], Scales[Index], false))
+            { Controller.CloseBracket(false); UE_LOG(LogFPSDemo, Error, TEXT("FP_BOLT_AUTHOR_TRACK_FAILED")); return false; }
+        Controller.NotifyPopulated(); Controller.CloseBracket(false); Result->PostEditChange(); Result->MarkPackageDirty();
+        if (bArms)
+        {
+            DemoFPSequence::Montage(Result, TEXT("Sniper_BoltCycle"));
+            UAnimMontage* Montage = LoadObject<UAnimMontage>(nullptr, TEXT("/Game/Weapons/Animations/Montages/AM_FP_Sniper_BoltCycle")); // 单独调整完整周期末尾混出。
+            Montage->BlendOut.SetBlendTime(.015f); Montage->PostEditChange(); Montage->MarkPackageDirty(); // 末段已回握；不提前淡掉尚未完成的拉栓。
+        }
+        UE_LOG(LogFPSDemo, Log, TEXT("FP_BOLT_ASSET_READY %s frames=60 seconds=1"), *Path);
+    }
+    return true;
+}
+
 bool UDemoFPSequenceAuthoring::Build(const FString& Model,USkeletalMesh* Arms,USkeletalMesh* WeaponMesh,
     const TMap<FName,UAnimSequence*>& Clips,FVector SupportGrip,FVector MagazineGrip,FVector BoltGrip,
-    FVector RightGrip,FVector RightElbowOffset,float BoltReachClearance,float Duration)
+    FVector RightGrip,FVector RightElbowOffset,float BoltReachClearance,float Duration,FVector AnchorOffset)
 {
     UE_LOG(LogFPSDemo, Log, TEXT("[CALL] %hs"), __FUNCTION__);
     UAnimSequence* Template=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/FirstPersonArms/Animations/FP_Rifle_Idle.FP_Rifle_Idle")); // 只读模板姿势来源。
     if (!Arms||!WeaponMesh||!Template||Duration<=0||!Clips.Contains("Tactical")||!Clips.Contains("Empty")
-        ||RightGrip.ContainsNaN()||RightElbowOffset.ContainsNaN()||!FMath::IsFinite(BoltReachClearance)||BoltReachClearance<0.f)
+        ||RightGrip.ContainsNaN()||RightElbowOffset.ContainsNaN()||AnchorOffset.ContainsNaN()||!FMath::IsFinite(BoltReachClearance)||BoltReachClearance<0.f)
     { UE_LOG(LogFPSDemo,Error,TEXT("FP_AUTHOR_REJECT missing mesh/clip/duration")); return false; }
     FAnimPoseEvaluationOptions ArmsOptions; // 使用当前网格骨长的完整离线姿势，不提取根运动。
     ArmsOptions.OptionalSkeletalMesh=Arms;
@@ -130,11 +209,34 @@ bool UDemoFPSequenceAuthoring::Build(const FString& Model,USkeletalMesh* Arms,US
     UAnimPoseExtensions::GetAnimPoseAtTime(Template,0,ArmsOptions,Base);
     if (!Base.IsValid()||Arms->GetRefSkeleton().FindBoneIndex(TEXT("ik_hand_gun"))==INDEX_NONE) return false;
     const FTransform OldGrip=UAnimPoseExtensions::GetSocketPose(Base,TEXT("GripPoint"),EAnimPoseSpaces::World); // 已标定枪位置。
-    const FTransform BaseAnchor(FQuat::Identity,OldGrip.GetLocation()+FVector(20.f,0.f,8.f)); // 只前移枪/手腕并抬8cm，肩根保持镜头下方；给下方弹匣交接留出可见范围，枪托仍远离近裁剪。
-    const FTransform Right=UAnimPoseExtensions::GetBonePose(Base,TEXT("hand_r"),EAnimPoseSpaces::World); // 保留右手握把与指骨姿态。
-    const TSharedPtr<FJsonObject> LeftTracks=DemoFPSequence::LoadLeftTracks(Model); // 已验证真实蒙皮接触的离线轨迹，禁止退回旧固定32度托枪手型。
+    const FTransform BaseAnchor(FQuat::Identity,OldGrip.GetLocation()+AnchorOffset); // 按枪构图后移/下移，双臂重新IK；不移动整个手臂组件来掩盖枪托。
+    const TSharedPtr<FJsonObject> LeftTracks=DemoFPSequence::LoadContactData(Model,TEXT("left_hand_contact_tracks.json")); // 枪局部轨迹在构图改变后仍有效。
     if (!LeftTracks.IsValid()) return false;
-    const FVector RightLocal=RightGrip; // 由Breach真实握把与手掌联合标定；不能再套用模板枪GripPoint的相对腕点。
+    const TSharedPtr<FJsonObject> RightData=DemoFPSequence::LoadContactData(Model,TEXT("right_hand_grip_tracks.json")); // 独立的实际握把标定，缺失拒绝回退模板手型。
+    FVector RightLocal; // 当前枪握把的腕骨厘米位置，不是握把表面点。
+    FQuat RightLocalRotation; // 枪空间掌心朝向，由原模板手腕与作者增量共同生成。
+    TMap<FName,FQuat> RightFingerDeltas; // 15根右指骨的本地增量，只用于本次烘焙。
+    if (!RightData.IsValid()||!DemoFPSequence::ReadHandFrame(MakeShared<FJsonValueObject>(RightData),TEXT("_r"),RightLocal,RightLocalRotation,RightFingerDeltas)
+        ||!RightLocal.Equals(RightGrip,.001f))
+    { UE_LOG(LogFPSDemo,Error,TEXT("FP_RIGHT_GRIP_INVALID model=%s"),*Model); return false; }
+    FVector RightReloadWrist; // 避让只改食指，腕位置必须与Grip一致，防止导出配置误移整只手。
+    FQuat RightReloadRotation; // 与Grip相同的掌方向，读取后校验。
+    TMap<FName,FQuat> RightReloadFingers; // 装填期间暂时退出扳机接触的15根局部增量。
+    const TSharedPtr<FJsonObject>* ReloadContact=nullptr; // RightData持有，只在同步烘焙中借用。
+    if (!RightData->TryGetObjectField(TEXT("reload_contact"),ReloadContact)
+        ||!DemoFPSequence::ReadHandFrame(MakeShared<FJsonValueObject>(*ReloadContact),TEXT("_r"),RightReloadWrist,RightReloadRotation,RightReloadFingers)
+        ||!RightReloadWrist.Equals(RightLocal,.001f)||!RightReloadRotation.Equals(RightLocalRotation,.0001f))
+    { UE_LOG(LogFPSDemo,Error,TEXT("FP_RIGHT_RELOAD_CONTACT_INVALID model=%s"),*Model); return false; }
+    FVector RightBoltWrist=BoltGrip; // 非狙击不使用；狙击由实际拉栓接触覆盖旧机械示意点。
+    FQuat RightBoltRotation=RightLocalRotation; // bolt参考姿势下的枪空间腕方向。
+    TMap<FName,FQuat> RightBoltFingers=RightFingerDeltas; // 专用拉栓手型，避免直接恢复模板指型穿入机匣。
+    if (Model==TEXT("Sniper"))
+    {
+        const TSharedPtr<FJsonObject>* BoltContact=nullptr; // RightData持有至同步烘焙完成。
+        if (!RightData->TryGetObjectField(TEXT("bolt_contact"),BoltContact)
+            ||!DemoFPSequence::ReadHandFrame(MakeShared<FJsonValueObject>(*BoltContact),TEXT("_r"),RightBoltWrist,RightBoltRotation,RightBoltFingers))
+        { UE_LOG(LogFPSDemo,Error,TEXT("FP_RIGHT_BOLT_CONTACT_INVALID")); return false; }
+    }
     TArray<FName> Bones; // 与姿势中每一条导出轨道对应；不删除模板的辅助骨。
     UAnimPoseExtensions::GetBoneNames(Base,Bones);
     USkeleton* Skeleton=Arms->GetSkeleton(); // 共享Skeleton只增加Slot，不修改参考姿势或已有动画。
@@ -155,7 +257,7 @@ bool UDemoFPSequenceAuthoring::Build(const FString& Model,USkeletalMesh* Arms,US
         FAnimPose GunStart; // 首帧用于把设计手腕点转换到活动骨局部。
         if (Gun) UAnimPoseExtensions::GetAnimPoseAtTime(Gun,0,GunOptions,GunStart);
         const FTransform BoltStart=Gun&&Model==TEXT("Sniper")?UAnimPoseExtensions::GetBonePose(GunStart,TEXT("bolt"),EAnimPoseSpaces::World):FTransform::Identity; // 只有狙击右手需要跟随bolt，手枪没有此骨。
-        const FVector BoltOffset=BoltStart.InverseTransformPosition(BoltGrip); // 右手跟随真实枪栓旋转和往复。
+        const FVector BoltOffset=BoltStart.InverseTransformPosition(RightBoltWrist); // 标定腕点转为活动骨空间，跟随真实枪栓旋转和往复。
         const FString Suffix=Model+TEXT("_")+(bReload?TEXT("Reload_"):TEXT(""))+Kind.ToString(); // 资产稳定命名。
         UAnimSequence* Result=DemoFPSequence::Asset<UAnimSequence>(TEXT("/Game/Weapons/Animations/Arms/A_FP_")+Suffix); // 工具生成的可编辑真实动画。
         Result->SetSkeleton(Skeleton); Result->SetPreviewMesh(Arms);
@@ -178,12 +280,14 @@ bool UDemoFPSequenceAuthoring::Build(const FString& Model,USkeletalMesh* Arms,US
             FVector LeftWrist; // 枪局部左腕厘米目标，含活动弹匣朝向与外侧避让路径。
             FQuat LeftLocalRotation; // 枪局部真实转腕四元数，不是固定托枪姿态。
             TMap<FName,FQuat> FingerDeltas; // 本帧15根指骨的抓握/张开增量。
-            if (!DemoFPSequence::ReadLeftFrame((*LeftSamples)[Frame],LeftWrist,LeftLocalRotation,FingerDeltas))
+            if (!DemoFPSequence::ReadHandFrame((*LeftSamples)[Frame],TEXT("_l"),LeftWrist,LeftLocalRotation,FingerDeltas))
             { Controller.CloseBracket(false); UE_LOG(LogFPSDemo,Error,TEXT("FP_LEFT_CONTACT_INVALID %s/%s frame=%d"),*Model,*Kind.ToString(),Frame); return false; }
             const FVector LeftTarget=Anchor.TransformPosition(LeftWrist); // 组件空间目标，与本帧武器锚点同一次计算。
             FVector RightTarget=Anchor.TransformPosition(RightLocal); // 右手默认始终保持握把相对位置。
             const FQuat LeftRotation=Anchor.GetRotation()*LeftLocalRotation; // 弹匣旋转与腕旋转已同时进入作者轨迹。
-            FQuat RightRotation=Anchor.GetRotation()*Right.GetRotation();
+            FQuat RightRotation=Anchor.GetRotation()*RightLocalRotation; // 普通持枪使用按枪校准的掌心，不能只改腕位置。
+            float RightReleaseAlpha=0.f; // 狙击拉栓时平滑松开握把手型，返回握把后恢复；不参与弹药结算。
+            const float TriggerRetraction=bReload?DemoFPSequence::Ease(P,.02f,.10f)*(1.f-DemoFPSequence::Ease(P,bEmpty&&Model==TEXT("Sniper")?.53f:.88f,bEmpty&&Model==TEXT("Sniper")?.58f:.99f)):0.f; // 狙击空仓在枪栓抬手前结束侧摆，避免举手时指尖擦机匣；其他换弹归位时恢复，Idle/Fire不避让。
             if (bReload)
             {
                 FAnimPose GunPose; // 读取同phase真实机械动作，不凭另一套估计动画重建弹匣位置。
@@ -192,10 +296,12 @@ bool UDemoFPSequenceAuthoring::Build(const FString& Model,USkeletalMesh* Arms,US
                 if (bEmpty&&Model==TEXT("Sniper"))
                 {
                     const float BoltAlpha=DemoFPSequence::Ease(P,.59f,.67f)*(1.f-DemoFPSequence::Ease(P,.88f,.97f)); // 右手离握把操作枪栓，左手已回护木。
+                    RightReleaseAlpha=DemoFPSequence::Ease(BoltAlpha,.20f,.85f); // 先离开扳机护圈再转指，回握先恢复包握，避免端点附近指尖切入护圈。
                     const FTransform Bolt=UAnimPoseExtensions::GetBonePose(GunPose,TEXT("bolt"),EAnimPoseSpaces::World); // 机械动画驱动的实际拉栓点。
                     RightTarget=FMath::Lerp(RightTarget,Anchor.TransformPosition(Bolt.TransformPosition(BoltOffset)),BoltAlpha)
                         +Anchor.TransformVectorNoScale(FVector(0.f,FMath::Sin(PI*BoltAlpha)*BoltReachClearance,0.f)); // 先向外绕开机匣再抓栓，端点不偏离真实抓点。
-                    RightRotation=FQuat::Slerp(RightRotation,Anchor.GetRotation()*FRotator(-15,0,35).Quaternion()*Right.GetRotation(),BoltAlpha);
+                    const FQuat BoltDelta=Bolt.GetRotation()*BoltStart.GetRotation().Inverse(); // 枪栓抬起时接触手掌一同旋转，不能只跟随位置。
+                    RightRotation=FQuat::Slerp(RightRotation,Anchor.GetRotation()*BoltDelta*RightBoltRotation,BoltAlpha);
                 }
             }
             DemoFPSequence::ArmIK(Pose,TEXT("l"),LeftTarget,LeftRotation,FVector(30.f,-18.f,-28.f)); // 与公共主图支撑手肘平面一致。
@@ -206,6 +312,16 @@ bool UDemoFPSequenceAuthoring::Build(const FString& Model,USkeletalMesh* Arms,US
                 { Controller.CloseBracket(false); UE_LOG(LogFPSDemo,Error,TEXT("FP_LEFT_CONTACT_BONE_MISSING %s"),*Finger.Key.ToString()); return false; }
                 FTransform Local=UAnimPoseExtensions::GetBonePose(Pose,Finger.Key,EAnimPoseSpaces::Local); // 当前原模板局部值副本。
                 Local.SetRotation((Local.GetRotation()*Finger.Value).GetNormalized());
+                UAnimPoseExtensions::SetBonePose(Pose,Local,Finger.Key,EAnimPoseSpaces::Local);
+            }
+            for (const auto& Finger:RightFingerDeltas) // 右指骨同样在腕部IK之后写入；松握时只插值旋转，不缩放指节。
+            {
+                if (!Bones.Contains(Finger.Key))
+                { Controller.CloseBracket(false); UE_LOG(LogFPSDemo,Error,TEXT("FP_RIGHT_GRIP_BONE_MISSING %s"),*Finger.Key.ToString()); return false; }
+                FTransform Local=UAnimPoseExtensions::GetBonePose(Pose,Finger.Key,EAnimPoseSpaces::Local); // 原模板本地骨长保持。
+                const FQuat ReloadDelta=FQuat::Slerp(Finger.Value,RightReloadFingers.FindChecked(Finger.Key),TriggerRetraction).GetNormalized(); // 保留掌与其余握把手指，仅按作者配置退出扳机接触。
+                const FQuat Delta=FQuat::Slerp(ReloadDelta,RightBoltFingers.FindChecked(Finger.Key),RightReleaseAlpha).GetNormalized(); // 狙击拉栓优先，回握先恢复避让手型，再平滑回到扳机。
+                Local.SetRotation((Local.GetRotation()*Delta).GetNormalized());
                 UAnimPoseExtensions::SetBonePose(Pose,Local,Finger.Key,EAnimPoseSpaces::Local);
             }
             UAnimPoseExtensions::SetBonePose(Pose,Anchor,TEXT("ik_hand_gun"),EAnimPoseSpaces::World);

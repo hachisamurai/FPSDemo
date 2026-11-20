@@ -1,3 +1,4 @@
+// 职责：隔离World敌人技能与生成系统回归；命令行专项路由复用真实GAS、导航、会话和临时存档，不用于正式玩法。
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
@@ -15,6 +16,8 @@ public:
     /** DeltaSeconds为帧间秒数；各步骤在真实World等待而非手工调用技能结束回调。 */
     virtual void Tick(float DeltaSeconds) override;
 private:
+    /** -DemoEnemyRosterTest：生产数据、正反面盾、修复打断/限次、实体弹齐射去重、阶段和召唤清理。 */
+    void TickRosterTest();
     /** -DemoSpawnSystemTest：真实组件队列、区域、取消、阻挡重试、异常销毁与奖励权限边界。 */
     void TickSpawnSystemTest();
     /** 在Spawn专项的Hub夹具验证服务归属、重复就绪、终端版本/回滚与旧UI失效；不旅行。 */
@@ -35,9 +38,9 @@ private:
     float CloseBeforeHealth=0.f; // 当前场景玩家实际健康快照，用于精确一次伤害断言。
     float CloseStartTime=0.f; // 起手观察World秒，验证前摇不会提前结算。
     FVector CloseLockedDirection=FVector::ZeroVector; // 起手方向值快照，验证玩家移动后不追踪。
-    /** -DemoEnemyHitZoneTest：真PhysicsAsset瞄准与实体弹三部位伤害、护板开合及元素/穿透回归。 */
+    /** -DemoEnemyHitZoneTest：十二种头部出生/动画碰撞、实体弹三部位伤害、胸部移除弱点及元素/穿透回归。 */
     void TickHitZoneTest();
-    // 测试通过真实骨骼查询找到的稳定模型空间命中点；索引0机身、1手臂、2核心，不跨关卡保留。
+    // 测试通过真实骨骼查询找到的稳定模型空间命中点；索引0机身、1手臂、2头部弱点，不跨关卡保留。
     FVector HitZonePoints[3]={FVector::ZeroVector,FVector::ZeroVector,FVector::ZeroVector};
     float HitZoneHealth=0.f; // 当前步骤伤前生命值，供异步动画/周期效果后的结算断言。
     float HitZoneRearHealth=0.f; // 后方穿透靶伤前快照，跨飞行帧独立保留。

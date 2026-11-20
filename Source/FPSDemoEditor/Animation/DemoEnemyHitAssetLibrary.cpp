@@ -1,3 +1,4 @@
+// 职责：将 Blender 刚性零件凸体烹制为受击 PhysicsAsset；Editor 导入调用，依赖 Chaos、参考骨架和厘米制 JSON。
 #include "Animation/DemoEnemyHitAssetLibrary.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Chaos/Convex.h"
@@ -248,7 +249,8 @@ bool UDemoEnemyHitAssetLibrary::ValidateEnemyHitAsset(USkeletalMesh* Mesh)
             ++ConvexCount;
         }
     }
-    if (!Bones.Contains(TEXT("body")) || !Bones.Contains(TEXT("core")) || !Bones.Contains(TEXT("forearm_l")) || !Bones.Contains(TEXT("forearm_r")))
+    // 头部必须有真实查询体；胸部 core 仍需挡弹但已归 Body，不能删除刚体造成空洞。
+    if (!Bones.Contains(TEXT("head")) || !Bones.Contains(TEXT("body")) || !Bones.Contains(TEXT("core")) || !Bones.Contains(TEXT("forearm_l")) || !Bones.Contains(TEXT("forearm_r")))
     {
         UE_LOG(LogFPSDemo, Error, TEXT("HIT_ASSET_INVALID required damage regions absent"));
         return false;

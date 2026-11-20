@@ -1,3 +1,4 @@
+// 职责：战斗奖励账本和协作击杀通知。使用：刷怪服务去重后调用，先提交每人的经济，再发GAS TeamKill，不包含天赋ID分支。
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
@@ -16,12 +17,14 @@ public:
     void InitializeSpawner(class UDemoEnemySpawnComponent* SpawnerService);
     /** EndPlayReason为World卸载原因，精确解绑事件。 */
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-    /** RunId为当前整轮身份、Difficulty为已验证金币配置；仅真实战役清场发放一次金币，不改变玩法阶段。 */
+    /** RunId为当前整轮身份、Difficulty为已验证金币配置；只消费Flow同轮同关已裁决完成事实，不能依赖已取消刷怪器的清空标记；整轮仅发一次，不改变阶段。 */
     bool GrantVictory(const FString& RunId, const FDemoDifficultyRow& Difficulty);
     /** RunId为刚结算轮次；GameMode切到Victory后提交永久解锁，满足Profile的真实终局校验。 */
     void RecordVictoryUnlocks(const FString& RunId);
     /** RunId/Choice为当前轮和0..2能力选项；Reward阶段有效，一关只能领取一次，读档由已保存阶段去重。 */
     bool GrantAbilityChoice(const FString& RunId, int32 Choice);
+    /** Player 为选择者当前 Avatar；每人每关独立领取，不消费其他玩家资格。 */
+    bool GrantAbilityChoice(const FString& RunId, int32 Choice, class ADemoCharacter* Player);
 private:
     /** Enemy来自刷怪器移除成功的同步通知；不允许外部直接给任意Actor发击杀奖励。 */
     void HandleEnemyDefeated(class ADemoEnemy* Enemy);

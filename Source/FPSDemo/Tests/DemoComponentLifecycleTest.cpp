@@ -35,7 +35,7 @@ bool ADemoEnemyAttackTest::CheckComponentLifecycles()
     UDemoTerminalComponent* Terminals = Mode->GetTerminalSystem(); // 同步借用，下面显式改变其代数。
     PC->OnRunReady();
     Player->SetActorLocation(Terminals->GetShopTerminal()->GetActorLocation() + FVector(150, 0, 20));
-    PC->OpenUpgradeMenu(false);
+    Terminals->GetShopTerminal()->Interact(Player); // 建立真实服务器终端会话，UI打开本身不再授予交易权限。
     const uint64 OldGeneration = PC->GetMenuTerminalGeneration(); // 保存打开窗口时版本，旧交易不得复用新Actor。
     if (!Check(PC->IsUpgradeMenuOpen() && Mode->GetShopSystem()->GetTerminalBlockReason(Player).IsEmpty(), TEXT("fresh shop interaction accepted"))) return false;
     if (!Check(Terminals->CreateTerminals(Hub) && Terminals->GetGeneration() != OldGeneration
@@ -51,7 +51,7 @@ bool ADemoEnemyAttackTest::CheckComponentLifecycles()
     UE_LOG(LogFPSDemo, Display, TEXT("EXPECTED_TERMINAL_FAILURE_END"));
     if (!Check(!bCreatedBrokenPair && !Terminals->GetShopTerminal() && !Terminals->GetNextLevelTerminal()
         && Terminals->CreateTerminals(Hub), TEXT("partial terminal creation rolls back and permits clean retry"))) return false;
-    PC->OpenUpgradeMenu(false);
+    Terminals->GetShopTerminal()->Interact(Player); // 终端代数变化后必须重新交互，不能复用旧授权。
     if (!Check(PC->IsUpgradeMenuOpen() && Mode->GetShopSystem()->GetTerminalBlockReason(Player).IsEmpty(), TEXT("new terminal session accepted after retry"))) return false;
     PC->CloseUpgradeMenu();
     // 独立远方锚点验证空间旋转与卸载，不改变安全区地形。区号2只在本专项使用。

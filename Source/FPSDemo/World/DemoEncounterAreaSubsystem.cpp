@@ -1,8 +1,25 @@
+// 职责：为旧三战区和已激活流送房间提供统一值快照；准备新房间时直接查询Rooms候选，避免读取旧区同编号位置。
 #include "World/DemoEncounterAreaSubsystem.h"
+#include "World/Rooms/DemoRoomStreamingSubsystem.h"
+#include "World/DemoRuntimeArenaGeometry.h"
 #include "Debug/DemoLog.h"
+#include "Debug/DemoStaticLog.h"
 #include "Engine/StaticMeshActor.h"
 #include "EngineUtils.h"
 #include "Components/StaticMeshComponent.h"
+
+FVector FDemoAreaSnapshot::GetCombatLandingPoint(int32 MemberIndex) const
+{
+    DEMO_LOG_STATIC_TICK(nullptr);
+    // 保持已有战斗出生布局：第二至第四个队员沿世界Y各错开120cm，独立于房间根的朝向。
+    return CombatStart + FVector(0, 120.f * MemberIndex, 0);
+}
+
+FVector2D UDemoEncounterAreaSubsystem::GetDefaultHubFloorSizeCm()
+{
+    DEMO_LOG_STATIC_CALL(nullptr);
+    return FVector2D(5600.,5600.); // R03作者地板56m；边界内面位于地板边缘，原出生/终端仍按原Hub框解析。
+}
 
 bool UDemoEncounterAreaSubsystem::DoesSupportWorldType(EWorldType::Type WorldType) const
 { DEMO_LOG_CALL(); return WorldType == EWorldType::Game || WorldType == EWorldType::PIE; }
@@ -75,17 +92,21 @@ bool UDemoEncounterAreaSubsystem::PrepareAreas()
 	for (int32 Area = -1; AuthoredAreaCount == 0 && Area < 3; ++Area)
 	{
 		const FVector Center = GetAreaCenter(Area);
+		const bool bHubArea = Area == -1; // 只有安全区扩容；0..2战斗区保留原34m地板和边界，避免改变战斗布局。
+		const FVector2D FloorSizeCm = bHubArea ? GetDefaultHubFloorSizeCm() : FVector2D(3400.,3400.); // 完整地板尺寸，不含边界厚度。
+		const FVector2D BoundaryCenterCm = bHubArea ? FloorSizeCm * .5 + FVector2D(50.,50.) : FVector2D(1700.,1700.); // Hub墙厚100cm且内面恰在±2800；旧战区仍沿原位置。
+		const FVector2D BoundaryLengthCm = bHubArea ? FloorSizeCm + FVector2D(200.,200.) : FVector2D(3500.,3500.); // 相邻墙端完整相接，尺寸不依赖新商店DA是否启用。
 		// Piece=0 地板，1..4 四面墙；变换用厘米/基础 Cube 100cm 换算。
 		for (int32 Piece = 0; Piece < 5; ++Piece)
 		{
 			FVector Offset(0,0,-50);
-			FVector Scale(34,34,1);
-			if (Piece == 1) { Offset = FVector(1700,0,250); Scale = FVector(1,35,5); }
-			if (Piece == 2) { Offset = FVector(-1700,0,250); Scale = FVector(1,35,5); }
-			if (Piece == 3) { Offset = FVector(0,1700,250); Scale = FVector(35,1,5); }
-			if (Piece == 4) { Offset = FVector(0,-1700,250); Scale = FVector(35,1,5); }
+			FVector Scale(FloorSizeCm.X / 100.,FloorSizeCm.Y / 100.,1);
+			if (Piece == 1) { Offset = FVector(BoundaryCenterCm.X,0,250); Scale = FVector(1,BoundaryLengthCm.Y / 100.,5); }
+			if (Piece == 2) { Offset = FVector(-BoundaryCenterCm.X,0,250); Scale = FVector(1,BoundaryLengthCm.Y / 100.,5); }
+			if (Piece == 3) { Offset = FVector(0,BoundaryCenterCm.Y,250); Scale = FVector(BoundaryLengthCm.X / 100.,1,5); }
+			if (Piece == 4) { Offset = FVector(0,-BoundaryCenterCm.Y,250); Scale = FVector(BoundaryLengthCm.X / 100.,1,5); }
 			// 动态组件先设为 Movable 再赋网格，避免 BeginPlay 后设置 Static 网格被引擎拒绝。
-			AStaticMeshActor* Geometry = GetWorld()->SpawnActor<AStaticMeshActor>(Center + Offset, FRotator::ZeroRotator);
+			AStaticMeshActor* Geometry = GetWorld()->SpawnActor<ADemoRuntimeArenaGeometry>(Center + Offset, FRotator::ZeroRotator); // 回退地形也必须在客户端存在，否则人物会预测掉出服务器平台。
 			if (Geometry) GeneratedGeometry.Add(Geometry);
             if (!Geometry || !Cube) { UE_LOG(LogFPSDemo, Error, TEXT("Area geometry spawn failed")); ClearGeneratedGeometry(); return false; }
 			Geometry->SetMobility(EComponentMobility::Movable);
@@ -104,6 +125,14 @@ bool UDemoEncounterAreaSubsystem::ResolveArea(int32 Index, FDemoAreaSnapshot& Ou
     UE_LOG(LogFPSDemo, Log, TEXT("[CALL] %hs arena=%d"), __FUNCTION__, Index);
     if (Index < -1 || Index > 2 || (FallbackCenter && FallbackCenter->ContainsNaN()))
     { Error = TEXT("刷怪区域World/编号/回退中心非法"); UE_LOG(LogFPSDemo, Warning, TEXT("SPAWN_AREA %s"), *Error); return false; }
+    OutArea = FDemoAreaSnapshot(); // 输出复用时先清房间目标数组，旧区域不能继承上次流送快照。
+    Error.Reset();
+    if (Index >= 0)
+        if (const UDemoRoomStreamingSubsystem* Rooms = GetWorld()->GetSubsystem<UDemoRoomStreamingSubsystem>())
+        {
+            if (Rooms->GetActiveArea(Index, OutArea, Error)) return true; // 清关终端、复活、敌人辅助逻辑沿用本场已提交坐标。
+            if (!Error.IsEmpty()) return false; // 当前房间异常消失必须显式失败，不回退同编号旧白模并生成远处终端。
+        }
     const ADemoEnemySpawnArea* Found = nullptr; // 仅同步解析借用，不把场景Actor跨关卡保存在计划中。
     for (const TWeakObjectPtr<ADemoEnemySpawnArea>& Entry : Areas) // 只遍历已注册锚点，销毁后弱引用无效。
         if (const ADemoEnemySpawnArea* Candidate = Entry.Get())

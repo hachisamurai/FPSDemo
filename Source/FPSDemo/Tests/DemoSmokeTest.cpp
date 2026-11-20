@@ -1,4 +1,6 @@
+// 职责：DemoSmokeTest模块的独立实现/声明。使用：由同名类型公开接口调用，玩家技能类型从DemoPlayerAbilityTypes聚合头引用，具体GA行为各自维护。
 #include "Tests/DemoSmokeTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Tests/DemoProjectileFixtures.h"
 #include "Characters/DemoCharacter.h"
 #include "Weapons/DemoWeaponBase.h"
@@ -11,7 +13,7 @@
 #include "Game/FPSDemoGameMode.h"
 #include "GAS/DemoAbilitySystemComponent.h"
 #include "GAS/DemoAttributeSet.h"
-#include "GAS/DemoGameplayAbility.h"
+#include "GAS/Abilities/DemoPlayerAbilityTypes.h"
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoTags.h"
 #include "Camera/CameraComponent.h"
@@ -81,10 +83,10 @@ void ADemoSmokeTest::ClearCurrentLevel()
 		if (!It->IsAlive()) continue;
 		DemoEffects::Apply(Player->GetDemoASC(), It->GetAbilitySystemComponent(), UDemoHealthEffect::StaticClass(), -10000.f);
 		// 故意重复上报死亡，确认服务器集合确实阻止重复计奖。
-		const int32 SilverAfterDeath = State->SilverCoins; // 捕获真实击杀钱包，重复回调不能增加银币。
-		const int32 GoldAfterDeath = State->Coins; // 击杀本身不能发清关金币，清关在下一帧结算。
+		const int32 SilverAfterDeath = DemoTestProgress::Read(State).SilverCoins; // 捕获真实击杀钱包，重复回调不能增加银币。
+		const int32 GoldAfterDeath = DemoTestProgress::Read(State).Coins; // 击杀本身不能发清关金币，清关在下一帧结算。
 		Mode->NotifyEnemyKilled(*It);
-		if (!Check(State->SilverCoins == SilverAfterDeath && State->Coins == GoldAfterDeath,TEXT("duplicate kill does not award either currency"))) return;
+		if (!Check(DemoTestProgress::Read(State).SilverCoins == SilverAfterDeath && DemoTestProgress::Read(State).Coins == GoldAfterDeath,TEXT("duplicate kill does not award either currency"))) return;
 	}
 }
 void ADemoSmokeTest::Tick(float DeltaSeconds)
@@ -112,8 +114,8 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		{
 			// 实际死亡的两个重载直达安全区；系统错误回大厅，胜利先验证Hub再由测试显式旅行准备独立夹具。
 			const bool bDeathReturn = SmokeRun == 2 || SmokeRun == 4;
-			if (!Check(State->Phase == (bDeathReturn ? EDemoPhase::Hub : EDemoPhase::Lobby) && State->LevelNumber == 0 && State->Coins == 0 && State->SilverCoins == 0 && State->TotalKills == 0
-				&& State->Purchases == 0 && Attributes->GetHealth() == 100.f && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage,.01f)
+			if (!Check(State->Phase == (bDeathReturn ? EDemoPhase::Hub : EDemoPhase::Lobby) && State->LevelNumber == 0 && DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 0 && DemoTestProgress::Read(State).Kills == 0
+				&& (DemoTestProgress::Read(State).UpgradeProgress.Total(true)+DemoTestProgress::Read(State).UpgradeProgress.Total(false)) == 0 && Attributes->GetHealth() == 100.f && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage,.01f)
 				&& Weapon->GetAmmo() == 12.f && Weapon->GetCapacity() == 12.f && Attributes->GetMaxHealth() == 100.f
 				&& Player->GetHealAmount() == 35.f && !ASC->HasMatchingGameplayTag(DemoTags::Dead),TEXT("OpenLevel clears growth/silver/death tag but preserves earned gold"))) return;
 			if (bDeathReturn && !Check(State->Difficulty == EDemoDifficulty::Hard && !PC->IsMoveInputIgnored() && !PC->bShowMouseCursor
@@ -151,13 +153,13 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		}
 		if (SmokeRun == 1 && Step == 2)
 		{
-			if (!Check(State->Phase == EDemoPhase::Reward && State->Coins == 0, TEXT("first-level clear earns silver but no gold"))) return;
+			if (!Check(State->Phase == EDemoPhase::Reward && DemoTestProgress::Read(State).Coins == 0, TEXT("first-level clear earns silver but no gold"))) return;
 			PC->SelectUpgrade(1); // 免费奖励改变 Pawn 的治疗升级，验证它不会跨死亡保留。
 			Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
 			Mode->GetShopTerminal()->Interact(Player);
 			PC->SelectUpgrade(0); // 真实购买改变GAS伤害，留下30银币供死亡清空验证。
 			PC->CloseUpgradeMenu();
-			if (!Check(State->Coins == 0 && State->SilverCoins == 30 && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage+5.f,.01f) && Player->GetHealAmount() == 55.f, TEXT("death-reset setup has coins and both GAS/Pawn upgrades"))) return;
+			if (!Check(DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 30 && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage+5.f,.01f) && Player->GetHealAmount() == 55.f, TEXT("death-reset setup has coins and both GAS/Pawn upgrades"))) return;
 			Mode->StartNextLevel();
 			// 真实 Tick/GE 杀死第二关玩家；各怪分散，避免相互遮挡近战视线。
 			int32 EnemyIndex = 0; // 活怪环形槽位。
@@ -171,7 +173,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 			return;
 		}
 		if (State->Phase != EDemoPhase::Defeat) { NextStepTime = GetWorld()->GetTimeSeconds()+0.5f; return; }
-		if (!Check(State->Coins == 0 && State->SilverCoins == 0 && !Mode->GetShopTerminal() && !Mode->GetNextLevelTerminal()
+		if (!Check(DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 0 && !Mode->GetShopTerminal() && !Mode->GetNextLevelTerminal()
 			&& !ASC->ActivateDemoAbility(UDemoFireAbility::StaticClass()) && State->bReturnToHubOnRestart == (SmokeRun != 2),TEXT("defeat blocks skills/terminals and distinguishes actual death"))) return;
 		++SmokeRun;
 		Mode->RestartDemo();
@@ -201,7 +203,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		// 截图必须留出独立帧，避免请求安全区截图后同帧已传送进战斗区。
 		Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
 		Mode->GetShopTerminal()->Interact(Player);
-		if (!Check(PC->IsUpgradeMenuOpen() && !Mode->PurchaseUpgrade(0,Player) && State->Coins == 0,TEXT("terminal opens UI; insufficient coins rejected"))) return;
+		if (!Check(PC->IsUpgradeMenuOpen() && !Mode->PurchaseUpgrade(0,Player) && DemoTestProgress::Read(State).Coins == 0,TEXT("terminal opens UI; insufficient coins rejected"))) return;
 		PC->CloseUpgradeMenu();
 		Mode->StartNextLevel();
 		if (!Check(State->EnemiesRemaining == 5,TEXT("sector one contains five minions"))) return;
@@ -272,7 +274,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		Advance(4,0.3f);
 		break;
 	case 4:
-		if (!Check(State->Phase == EDemoPhase::Reward && State->Coins == 0 && PC->IsRewardMenu(),TEXT("first clear awards no gold and one reward menu"))) return;
+		if (!Check(State->Phase == EDemoPhase::Reward && DemoTestProgress::Read(State).Coins == 0 && PC->IsRewardMenu(),TEXT("first clear awards no gold and one reward menu"))) return;
 		Capture(TEXT("03-Reward"));
 		Advance(5,0.3f);
 		break;
@@ -287,12 +289,12 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 	case 6:
 		// 移出有效距离，即便菜单仍打开且钱足够也不能购买。
 		Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-1000,0,100)); // 仍在本关范围内，只离开终端购买距离。
-		if (!Check(!Mode->PurchaseUpgrade(0,Player) && State->Coins == 0,TEXT("shop enforces distance at transaction time"))) return;
+		if (!Check(!Mode->PurchaseUpgrade(0,Player) && DemoTestProgress::Read(State).Coins == 0,TEXT("shop enforces distance at transaction time"))) return;
 		Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
 		PC->GetHUD<ADemoHUD>()->NotifyHitBoxClick(TEXT("Upgrade0"));
-		if (!Check(State->Coins == 0 && State->SilverCoins == 30 && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage+5.f,.01f),TEXT("first shop purchase costs 20 and adds 5 damage"))) return;
+		if (!Check(DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 30 && FMath::IsNearlyEqual(Weapon->GetDamagePerPellet(),AuthoredDamage+5.f,.01f),TEXT("first shop purchase costs 20 and adds 5 damage"))) return;
 		PC->SelectUpgrade(2);
-		if (!Check(State->Coins == 0 && State->SilverCoins == 10 && Weapon->GetCapacity() == 16.f && !Mode->PurchaseUpgrade(1,Player),TEXT("different attribute still costs 20, capacity increases, overspend rejected"))) return;
+		if (!Check(DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 10 && Weapon->GetCapacity() == 16.f && !Mode->PurchaseUpgrade(1,Player),TEXT("different attribute still costs 20, capacity increases, overspend rejected"))) return;
 		PC->CloseUpgradeMenu();
 		Mode->StartNextLevel();
 		if (!Check(State->LevelNumber == 2 && State->EnemiesRemaining == 6,TEXT("level two has six level-2 minions"))) return;
@@ -300,7 +302,7 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		Advance(7,0.3f);
 		break;
 	case 7:
-		if (!Check(State->Phase == EDemoPhase::Reward && State->Coins == 0 && State->SilverCoins == 82,TEXT("second clear grants six times level-2 coin reward"))) return;
+		if (!Check(State->Phase == EDemoPhase::Reward && DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 82,TEXT("second clear grants six times level-2 coin reward"))) return;
 		PC->SelectUpgrade(2);
 		Mode->StartNextLevel();
 		Advance(14,0.3f);
@@ -335,14 +337,14 @@ void ADemoSmokeTest::Tick(float DeltaSeconds)
 		break;
 	case 10:
 		// 金币仅整轮通关按难度配置发放；第10关唯一Boss计入总数，银币与临时成长在最终胜利清空。
-		if (!Check(State->Phase == EDemoPhase::Victory && State->TotalKills == ExpectedCampaignKills && State->Coins == ExpectedVictoryGold && State->SilverCoins == 0 && !Mode->HasRunUpgrades(),TEXT("ten levels: configured victory gold, single final Boss and exact kill count"))) return;
+		if (!Check(State->Phase == EDemoPhase::Victory && DemoTestProgress::Read(State).Kills == ExpectedCampaignKills && DemoTestProgress::Read(State).Coins == ExpectedVictoryGold && DemoTestProgress::Read(State).SilverCoins == 0 && !Mode->HasRunUpgrades(),TEXT("ten levels: configured victory gold, single final Boss and exact kill count"))) return;
 		if (!Check(!ASC->ActivateDemoAbility(UDemoFireAbility::StaticClass()),TEXT("victory blocks combat"))) return;
 		Capture(TEXT("06-Victory"));
 		Advance(11,0.3f);
 		break;
 	case 11:
 		Mode->RestartDemo();
-		if (!Check(State->Phase==EDemoPhase::Hub && State->Coins==ExpectedVictoryGold && State->SilverCoins==0 && State->TotalKills==ExpectedCampaignKills && !PC->IsMoveInputIgnored(),TEXT("victory continues in safe hub without losing economy"))) return;
+		if (!Check(State->Phase==EDemoPhase::Hub && DemoTestProgress::Read(State).Coins==ExpectedVictoryGold && DemoTestProgress::Read(State).SilverCoins==0 && DemoTestProgress::Read(State).Kills==ExpectedCampaignKills && !PC->IsMoveInputIgnored(),TEXT("victory continues in safe hub without losing economy"))) return;
 		++SmokeRun;
 		Mode->TravelToRun(false); // 后续死亡用例需要独立默认角色，显式回大厅建立测试夹具，不再依赖旧胜利重载行为。
 		SetActorTickEnabled(false);

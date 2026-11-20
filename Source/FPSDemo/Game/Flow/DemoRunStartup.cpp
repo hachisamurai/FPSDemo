@@ -1,4 +1,12 @@
+// 职责：显式服务初始化、就绪门禁与幂等退出。依赖同GM目标/生成服务，不靠BeginPlay先后隐式开战。
 #include "Game/Flow/DemoRunFlowComponent.h"
+#include "Game/Preparation/DemoEncounterPreparationComponent.h"
+#include "Game/Objectives/DemoObjectiveCoordinatorComponent.h"
+#include "Game/Content/DemoCampaignDefinition.h"
+#include "TimerManager.h"
+#include "Game/Flow/DemoCombatSession.h"
+#include "Game/FPSDemoGameMode.h"
+#include "Player/Coop/DemoCoopSessionSubsystem.h"
 #include "Weapons/Projectiles/DemoProjectileBase.h"
 #include "Spawning/DemoEnemySpawnComponent.h"
 #include "Economy/DemoRewardComponent.h"
@@ -27,11 +35,17 @@ void UDemoRunFlowComponent::InitializeServices(UDataTable* Enemies, UDataTable* 
     { UE_LOG(LogFPSDemo, Error, TEXT("FLOW_INIT missing/foreign dependencies")); return; }
     EnemyTable = Enemies; DifficultyTable = Difficulties; LevelTable = Levels; EndlessTable = Endless;
     SpawnSystem = Spawn; RewardSystem = Reward; ShopSystem = Shop; TerminalSystem = Terminal; ChallengeSystem = Challenge;
+    ObjectiveSystem=GetOwner()->FindComponentByClass<UDemoObjectiveCoordinatorComponent>();
+    // 作者配置只在新轮显式加载；恢复已有轮次直接使用冻结快照，避免当前资产缺失或改动阻止旧档恢复。
+    if(!ObjectiveSystem) { UE_LOG(LogFPSDemo,Error,TEXT("FLOW_INIT no objective service")); return; }
+    ObjectiveSystem->OnSnapshotChanged.AddUObject(this,&UDemoRunFlowComponent::HandleObjectiveSnapshot);
+    ObjectiveSystem->OnCompletionCandidate.AddUObject(this,&UDemoRunFlowComponent::HandleObjectiveCompleted);
+    ObjectiveSystem->OnSystemError.AddUObject(this,&UDemoRunFlowComponent::HandleObjectiveError);
     Areas = GetWorld()->GetSubsystem<UDemoEncounterAreaSubsystem>();
     if (!Areas.IsValid()) { UE_LOG(LogFPSDemo, Error, TEXT("FLOW_INIT no World area service")); return; }
     // 同游戏线程UObject委托；先安装完整事件图，再开放StartEncounter，结束时精确解绑。
     SpawnSystem->OnRemainingChanged.AddUObject(this, &UDemoRunFlowComponent::HandleSpawnRemaining);
-    SpawnSystem->OnCleared.AddUObject(this, &UDemoRunFlowComponent::FinishLevel);
+    SpawnSystem->OnCleared.AddUObject(this, &UDemoRunFlowComponent::HandleSpawnerCleared);
     SpawnSystem->OnFailed.AddUObject(this, &UDemoRunFlowComponent::FailRun);
     Reward->InitializeSpawner(Spawn);
     Shop->InitializeServices(Terminal, FDemoSaveCheckpointRequest::CreateUObject(this, &UDemoRunFlowComponent::SaveCheckpoint));
@@ -47,7 +61,7 @@ void UDemoRunFlowComponent::BeginStartup(const FString& Options)
     bStartInHub = UGameplayStatics::HasOption(Options, TEXT("ReturnToHub"));
     const int32 DifficultyIndex = UGameplayStatics::GetIntOption(Options, TEXT("RetryDifficulty"), static_cast<int32>(EDemoDifficulty::Normal)); // URL四档范围0..3。
     RetryDifficulty = DifficultyIndex >= 0 && DifficultyIndex <= 3 ? static_cast<EDemoDifficulty>(DifficultyIndex) : EDemoDifficulty::Normal;
-    RetryGold = FMath::Clamp(UGameplayStatics::GetIntOption(Options, TEXT("RetryGold"), 0), 0, 100000000);
+    RetryGold = FMath::Clamp(UGameplayStatics::GetIntOption(Options, TEXT("RetryGold"), 0), 0, MAX_int32);
     if (UGameplayStatics::HasOption(Options, TEXT("ResumeRun")))
         if (UDemoRunSaves* Saves = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()) // GI持有值快照，等待期间复制到本组件。
             if (const UDemoRunSave* Pending = Saves->ConsumePending()) PendingCheckpoint = DuplicateObject<UDemoRunSave>(Pending, this);
@@ -82,6 +96,9 @@ bool UDemoRunFlowComponent::TryCompleteStartup()
     if (bStartupComplete || bStopping) return true;
     if (!bStartupRequested || !IsPlayerReady()) return false;
     bStartupComplete = true; // 先消费启动意图，恢复中的属性/菜单同步回调不得再次恢复。
+    // 房主就绪后先登记本地权限与稳定键，再恢复装备；PC握手晚到会幂等复用这一身份。
+    CastChecked<AFPSDemoGameMode>(GetOwner())->RegisterCoopPlayer(CastChecked<ADemoPlayerController>(Avatar->GetController()),
+        GetWorld()->GetGameInstance()->GetSubsystem<UDemoCoopSessionSubsystem>()->GetLocalPlayerKey());
     bool bSuccess = true; // 大厅无需开启战斗，只有恢复/重开需要创建区域和终端。
     if (PendingCheckpoint) { bSuccess = RestoreCheckpoint(*PendingCheckpoint); PendingCheckpoint = nullptr; }
     else if (bStartInHub)
@@ -116,7 +133,7 @@ bool UDemoRunFlowComponent::SpawnTerminals(int32 AreaIndex)
 {
     DEMO_LOG_CALL();
     FDemoAreaSnapshot Area; FString Error; // 场景快照与错误只在本次创建期间借用。
-    return !bStopping && Areas.IsValid() && Areas->ResolveArea(AreaIndex, Area, Error) && TerminalSystem->CreateTerminals(Area);
+    return !bStopping && Areas.IsValid() && Areas->ResolveArea(AreaIndex, Area, Error) && TerminalSystem->CreateTerminals(Area, AreaIndex == INDEX_NONE); // 读档也按物理Hub选外观，此时逻辑阶段可能仍为关间。
 }
 void UDemoRunFlowComponent::ClearTerminals() { DEMO_LOG_CALL(); if (TerminalSystem) TerminalSystem->ClearTerminals(); }
 FVector UDemoRunFlowComponent::GetAreaCenter(int32 Index) const { DEMO_LOG_TICK(); return Areas.IsValid() ? Areas->GetAreaCenter(Index) : FVector::ZeroVector; }
@@ -126,7 +143,16 @@ void UDemoRunFlowComponent::Shutdown()
     DEMO_LOG_CALL();
     if (bStopping) return;
     bStopping = true; PendingCheckpoint = nullptr;
-    ADemoProjectileBase::CancelAll(GetWorld()); // 旅行窗口先作废所有待发/在飞弹，防止旧World再扣血。
+    CastChecked<AFPSDemoGameMode>(GetOwner())->GetPreparationSystem()->Cancel(TEXT("已停止当前战局的资源准备")); // 旅行先撤销加载等待，再清其他服务；不会由旧ACK重入开战。
+    GetWorld()->GetTimerManager().ClearTimer(OutcomeTimer); bObjectiveCandidate=false;
+    GetWorld()->GetTimerManager().ClearTimer(TerminalRetryTimer);
+    if(ObjectiveSystem)
+    {
+        ObjectiveSystem->OnSnapshotChanged.RemoveAll(this); ObjectiveSystem->OnCompletionCandidate.RemoveAll(this); ObjectiveSystem->OnSystemError.RemoveAll(this);
+        ObjectiveSystem->CancelObjective();
+    }
+    if (CombatSession) CombatSession->Invalidate(); // 旅行撤销先于子弹Destroy与Timer清理，旧伤害回调同步失效。
+    // 已注册的武器、敌人和弹丸由会话统一撤销；World卸载负责最终Actor释放。
     if (StartupTicker.IsValid()) { FTSTicker::GetCoreTicker().RemoveTicker(StartupTicker); StartupTicker.Reset(); }
     if (Avatar.IsValid()) Avatar->OnDemoAvatarReady.Remove(AvatarReadyHandle);
     Avatar.Reset(); AvatarReadyHandle.Reset();
@@ -139,5 +165,12 @@ void UDemoRunFlowComponent::Shutdown()
     }
     if (TerminalSystem) TerminalSystem->Shutdown(); // 停止后不能通过旧服务引用重新创建终端。
     Areas.Reset();
+}
+bool UDemoRunFlowComponent::CanAcceptConnections() const
+{
+    DEMO_LOG_TICK();
+    const ADemoGameState* State=GetWorld()?GetWorld()->GetGameState<ADemoGameState>():nullptr; // 阶段只是条件之一，不能在旧World提交旅行后仍允许登录。
+    return bStartupComplete && bInitialized && !bStopping && !bRestoringCheckpoint && State && State->Phase==EDemoPhase::Hub
+        && !CastChecked<AFPSDemoGameMode>(GetOwner())->GetPreparationSystem()->IsPending(); // 开始冻结入场名单后暂时关闭加入，避免人数倍率与落点不一致。
 }
 void UDemoRunFlowComponent::EndPlay(const EEndPlayReason::Type EndPlayReason) { DEMO_LOG_CALL(); Shutdown(); Super::EndPlay(EndPlayReason); }

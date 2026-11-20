@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Engine/NetSerialization.h"
 #include "DemoCloseCombat.generated.h"
 
 /** 两类纯近身敌人的配置；攻击力仍从GAS读取，不引入第二份健康/伤害真值。 */
@@ -28,6 +29,17 @@ struct FPSDEMO_API FDemoCloseCombatSettings
 UENUM()
 enum class EDemoClosePhase : uint8 { Idle, MeleeWindup, ChargeWindup, Charging, Recovery };
 
+/** 客户端仅接收可见预警，不驱动近战阶段或Sweep伤害。 */
+USTRUCT()
+struct FDemoCloseTelegraphSnapshot
+{
+    GENERATED_BODY()
+    UPROPERTY() EDemoClosePhase Phase=EDemoClosePhase::Idle; // 同一属性原子传输，方向/起点先后到达不会画错方向。
+    UPROPERTY() FVector_NetQuantize Origin=FVector::ZeroVector; // 服务器锁定的世界起跑点，厘米。
+    UPROPERTY() FVector_NetQuantizeNormal Direction=FVector::ForwardVector; // 固定冲刺方向，客户端不能追踪玩家重算。
+    UPROPERTY() float Distance=1400.f; // 厘米；只用于地面带长度，没有客户端碰撞。
+};
+
 UCLASS(ClassGroup=(Demo))
 class FPSDEMO_API UDemoCloseCombat : public UActorComponent
 {
@@ -35,6 +47,8 @@ class FPSDEMO_API UDemoCloseCombat : public UActorComponent
 public:
     /** 禁独立Tick，创建配置默认值，实际配置来自出生快照。 */
     UDemoCloseCombat();
+    /** OutLifetimeProps注册预警值快照，独立于服务器攻击执行状态。 */
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     /** Settings为值快照；bEnabled/bCharger由解析角色决定；MeleeInterval为已难度缩放秒数、OpeningDelay为首发错峰秒。 */
     void Configure(const FDemoCloseCombatSettings& Settings,bool bEnabled,bool bCharger,float MeleeInterval,float OpeningDelay);
     /** Player为本帧目标；Speed已经乘GAS导航速度，DeltaSeconds为World秒；返回true表示接管纯近身行为。 */
@@ -48,6 +62,9 @@ public:
     bool HasLockedFacing() const;
     FVector GetLockedDirection() const;
 private:
+    /** 复制回调按快照创建/更新本机纯表现组件，不激活攻击或计时器。 */
+    UFUNCTION() void OnRep_Telegraph();
+    UPROPERTY(ReplicatedUsing=OnRep_Telegraph) FDemoCloseTelegraphSnapshot ReplicatedTelegraph; // 迟加入可恢复正在显示的蓄力壳/冲刺带。
     /** Next为阶段，记录World时刻并同步预警；每次攻击只由一次阶段转换触发结算。 */
     void SetPhase(EDemoClosePhase Next);
     /** Player为当前目标，bCharge选择伤害倍率；通过GE造成一次伤害，不在碰撞多回调里重复应用。 */

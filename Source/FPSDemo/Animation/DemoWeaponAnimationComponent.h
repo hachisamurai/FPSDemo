@@ -1,3 +1,4 @@
+// 职责：协调FP主图、枪械机械动作和声音，共用动作相位；由Pawn拥有，GAS负责玩法及弹药。
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
@@ -33,7 +34,7 @@ struct FPSDEMO_API FDemoReloadPhaseAudit
     UPROPERTY(BlueprintReadOnly, Category="Phase Audit") float MaximumErrorSeconds = 0.f;
 };
 
-/** Pawn拥有的单人第一人称表现协调器；没有弹药/伤害/技能权限，取消由现有GAS处理。 */
+/** Pawn拥有的第一人称表现协调器；只驱动本地拥有者，权威GAS与客户端复制展示均不由动画补弹。 */
 UCLASS(ClassGroup=(Demo), meta=(BlueprintSpawnableComponent))
 class FPSDEMO_API UDemoWeaponAnimationComponent : public UActorComponent
 {
@@ -46,15 +47,23 @@ public:
     /** DeltaTime秒、TickType/TickFunction为引擎当前Tick；游戏线程按单一phase更新枪械和声音。 */
     virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* TickFunction) override;
     /** 创建/恢复固定主实例并显式刷新ASC的Mesh1P上下文；不会在每次切枪重建它。 */
-    bool InitializeArms();
+    bool InitializeArms(bool bRefreshTransform=false); // 外观更换完整组件变换后传true重取轻摆基线；普通切枪保持false。
     /** Weapon为待装备库存，Error为失败原因；纯预检，失败必须保留原装备。 */
     bool ValidateWeapon(const ADemoWeaponBase* Weapon, FString& Error) const;
     /** Weapon为已通过预检的目标；真实链接失败内部恢复旧层，调用者再回滚当前装备。 */
     bool EquipWeapon(ADemoWeaponBase* Weapon);
-    /** Weapon必须为当前实例；只播放配置中的FPAction开火动作，不改变弹药。 */
+    /** Weapon必须为当前实例；普通枪播FPAction短后坐，逐发武器从成功射击时钟启动配对拉栓，不改变弹药。 */
     void PlayFire(ADemoWeaponBase* Weapon);
-    /** Weapon/Ability为本次锁定武器及GAS技能；Sequence/Duration/Empty由玩法开始时冻结，不允许共享CDO存储。 */
+    /** Weapon为当前装备；从复制的成功射击时钟开始/续播逐发拉栓，迟到事件跳过已经过去的声音。 */
+    void SyncBoltCycle(ADemoWeaponBase* Weapon);
+    /** 停止当前拉栓和机械声；仅清表现，切枪/死亡不能清除武器自身射击截止时间。 */
+    void ClearBoltCycle();
+    /** 专项回归读取实际双网格时钟样本，完成后仍保留最近一次结果。 */
+    FDemoReloadPhaseAudit GetBoltCycleAudit() const;
+    /** Weapon/Ability为锁定武器及服务器GA；仅客户端复制表现允许Ability为空，Sequence/Duration/bEmpty由权威冻结。 */
     bool BeginReloadPresentation(ADemoWeaponBase* Weapon, UGameplayAbility* Ability, int32 Sequence, float Duration, bool bEmpty);
+    /** Weapon是服务器复制的当前装备；仅拥有者客户端重建本地层/换弹，不激活GA、不补弹。 */
+    void SyncReplicatedWeapon(ADemoWeaponBase* Weapon);
     /** Weapon和Sequence必须仍匹配；bCompleted决定是否推进到末帧再复位，不在这里补弹。 */
     void EndReloadPresentation(ADemoWeaponBase* Weapon, int32 Sequence, bool bCompleted);
     /** Weapon为调用方；只为当前装备重建左右手和枪械零件状态。 */
@@ -73,21 +82,47 @@ public:
     UFUNCTION(BlueprintPure, Category="Animation") bool IsEmptyReload() const;
     /** 当前或最近一次表现序号；需同时匹配武器，不能作为全局唯一动作ID。 */
     UFUNCTION(BlueprintPure, Category="Animation") int32 GetReloadSequence() const;
-    /** Main必须是本次绑定主实例、DeltaSeconds是引擎本次动画秒数；只在PreUpdate游戏线程边界调用。 */
+    /** Main必须是本次绑定主实例、DeltaSeconds是引擎本次动画秒数；PreUpdate同步互斥的换弹/逐发拉栓时钟。 */
     void PrepareReloadAnimationUpdate(UDemoFPAnimInstance* Main, float DeltaSeconds);
-    /** Main为刚完成引擎Montage推进的绑定实例；读取真实双时钟位置，不能从工作线程调用。 */
+    /** Main为刚完成引擎Montage推进的绑定实例；分别审计换弹/逐发拉栓实际位置，不能从工作线程调用。 */
     void SampleReloadAnimationPhase(UDemoFPAnimInstance* Main);
     /** 返回本次/最近一次动作审计副本，纯值无对象所有权；样本为0表示尚未测量。 */
     UFUNCTION(BlueprintPure, Category="Animation") FDemoReloadPhaseAudit GetReloadPhaseAudit() const;
     // 固定主AnimBP软类，仅初始化时解析；资产导入器与Cook规则需同时保持此路径。
     UPROPERTY(EditDefaultsOnly, Category="Animation") TSoftClassPtr<UDemoFPAnimInstance> MainAnimClass;
 private:
+    /** Main为FP主实例；在Montage推进之后按其真实位置取样短机械动作，换弹/切枪优先中断。 */
+    void SampleFireMechanical(UDemoFPAnimInstance* Main);
+    // 当前短开火机械资源由组件保活；空表示无短动作，切枪/换弹时立即清除。
+    UPROPERTY(Transient) TObjectPtr<UAnimSequence> ActiveFireMechanical;
+    // 主实例的具体Montage ID；同一枪连发也不能错读上一次已淡出的实例。
+    int32 FireMontageID=INDEX_NONE;
+    /** 在主图PreUpdate设置本帧共同phase，Main仅同步借用；DeltaSeconds为动画更新秒数。 */
+    void PrepareBoltCycle(UDemoFPAnimInstance* Main, float DeltaSeconds);
+    /** NativeUpdate内读取引擎推进后的实际Montage/枪位置；Main不跨线程持有。 */
+    void SampleBoltCycle(UDemoFPAnimInstance* Main);
+    // 正在拉栓的库存实例弱引用；切枪/销毁不保活武器。
+    TWeakObjectPtr<ADemoWeaponBase> BoltWeapon;
+    // 当前动作资源强引用；与换弹互斥，但不冒充Reload技能或触发补弹。
+    UPROPERTY(Transient) FDemoReloadAnimationPair BoltPair;
+    // 已播放的短机械声由协调器持有，结束/中断统一销毁。
+    UPROPERTY(Transient) TArray<TObjectPtr<UAudioComponent>> BoltAudio;
+    // 当前引擎Montage实例ID，避免重新播放相同资源后误操作旧实例。
+    int32 BoltMontageID = INDEX_NONE;
+    // 单调声音游标，网络迟到/暂停恢复不重放历史事件。
+    int32 BoltSoundIndex = 0;
+    // 服务器截止映射成本地World秒数，开始时冻结；不以逐帧dt积分计时。
+    float BoltLocalStart = 0.f;
+    // 本枪该次60/RPM秒数，与权威冷却一致。
+    float BoltDuration = 0.f;
+    // 实际播放位置审计，清理保留以便测试结束后读取。
+    FDemoReloadPhaseAudit BoltAudit;
     /** 主线程重新借用Owner；不用跨帧裸角色指针，不延长Pawn生命周期。 */
     ADemoCharacter* GetCharacter() const;
     /** Progress为[0,1]，bEmitSounds控制阶段跨越播放；可重建零件姿势而不重播声音。 */
     void UpdateReloadPhase(float Progress, bool bEmitSounds);
-    /** 同步统一清理，先设保护标志再停止Montage，避免停止回调重入取消新动作。 */
-    void ClearReloadPresentation();
+    /** 同步清理并防止停止回调重入；bBlendToIdle仅在已完成回握时允许0.06秒缓冲，取消/换枪默认同帧硬退出以匹配枪械复位。 */
+    void ClearReloadPresentation(bool bBlendToIdle = false);
     /** Montage/bInterrupted来自引擎；ExpectedSequence/ExpectedInstanceID是绑定时冻结的值，迟到同资源回调不能取消新动作。 */
     void OnReloadMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted, int32 ExpectedSequence, int32 ExpectedInstanceID);
     /** bShow按当前换弹阶段决定左手临时弹匣与枪内骨显隐，无物理和Gameplay所有权。 */
@@ -128,7 +163,7 @@ private:
     bool bClearing = false;
     // 当前弹匣显示缓存，避免每帧重复HideBone/日志；开始和取消均显式重建。
     bool bMagazineInHand = false;
-    // Mesh1P首次初始化时的相对相机位置；肩部不随持枪锚点前移，轻摆以此为基线。
+    // Mesh1P未缩作者相对相机位置（厘米）；输出时连同轻摆整体乘本人RenderScale，禁止缓存已压缩输出造成累乘。
     FVector BaseArmsLocation = FVector::ZeroVector;
     // 最近一次成功装备的World游戏秒数，用于C++4cm举枪偏移恢复。
     float EquipStartTime = 0.f;

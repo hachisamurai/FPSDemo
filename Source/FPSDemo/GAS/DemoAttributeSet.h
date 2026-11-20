@@ -1,3 +1,4 @@
+// 职责：GAS可复制属性与健康结算门禁。使用：伤害/治疗/移动通过GE聚合，Pre/PostExecute拒绝非法状态，不直接发奖励。
 #pragma once
 
 #include "CoreMinimal.h"
@@ -5,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "Debug/DemoLog.h"
 #include "UObject/UnrealType.h"
+#include "Combat/Feedback/Player/DemoPlayerDamageTypes.h"
 #include "DemoAttributeSet.generated.h"
 
 // Class/Property 为生成属性反射访问器的类型和成员；读取同样保留高频日志。
@@ -22,6 +24,10 @@ class FPSDEMO_API UDemoAttributeSet : public UAttributeSet
 public:
 	/** 默认健康与零武器加成；敌人生成后覆盖AttackPower，弹药由各武器实例持有。 */
 	UDemoAttributeSet();
+    // 射速乘数基础1、有限且>=1，按天赋等级由GE聚合复制；不写成长基础值，读档从等级重建。
+    UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_FireRateMultiplier, Category="Demo|Attributes")
+    FGameplayAttributeData FireRateMultiplier;
+    DEMO_ATTRIBUTE_ACCESSORS(UDemoAttributeSet, FireRateMultiplier)
 	// 临时移动倍率 [0.1,1]，基础值1；减速GE到期由GAS自动恢复，复制通知驱动角色步速。
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_MoveSpeedMultiplier, Category="Demo|Attributes")
 	FGameplayAttributeData MoveSpeedMultiplier;
@@ -54,9 +60,27 @@ public:
 	virtual void PreAttributeBaseChange(const FGameplayAttribute& Attribute, float& NewValue) const override;
 	/** Data为即将执行的瞬时/周期GE修改器；无敌时在扣血前拒绝负向Health变化，避免触发死亡后补血。 */
 	virtual bool PreGameplayEffectExecute(FGameplayEffectModCallbackData& Data) override;
+	/** 当次真实写入的Old/New，早于死亡委托；只冻结执行帧，不在这里发事件或派生GE。 */
+	virtual void PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue) override;
 	/** Data 为本次 GE 结算上下文；确保生命不超过上限并记录属性变化。 */
 	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+    friend class FDemoPlayerDamageContractTest; // Editor纯合同专项可检查帧快照；不新增游戏/蓝图写入接口。
+#endif
+    struct FHealthExecuteFrame // 同步栈内快照；弱引用不能延长已阵亡Avatar/PC/敌人生命周期，不复制/保存。
+    {
+        FDemoPlayerDamageCue Cue; // 本次写入冻结的值，Post之后不再持有GE/Spec指针。
+        TWeakObjectPtr<class ADemoCharacter> Player; // Pre时的原Avatar，不在Post重新绑定当前Avatar。
+        TWeakObjectPtr<class ADemoEnemy> Enemy; // B07原来源过滤，不参与HUD猜测方向。
+        TWeakObjectPtr<class UDemoPlayerDamageFeedbackComponent> Feedback; // 原PC的受击发送组件。
+        float Before=0.f; // Pre生命，限制实际损失不含过量伤害。
+        bool bDamage=false; // 只给会降低Health的权威玩家GE采集，不采集读档/治疗。
+        bool bCaptured=false; // 第一次匹配Health写入即消费，之后同步治疗不可覆盖事实。
+    };
+    TArray<FHealthExecuteFrame,TInlineAllocator<4>> HealthExecuteStack; // 每个获准Health修改器一帧，Post先弹再发布，兼容嵌套GE。
+    /** OldValue为复制前射速；通知GAS聚合监听，不改武器CDO或已经开始的冷却。 */
+    UFUNCTION() void OnRep_FireRateMultiplier(const FGameplayAttributeData& OldValue);
 	/** OldValue 为复制前的移动倍率；交给 GAS 广播属性委托，驱动移动组件。 */
 	UFUNCTION() void OnRep_MoveSpeedMultiplier(const FGameplayAttributeData& OldValue);
 	/** Attribute 指定字段；NewValue 按合法范围就地修正。 */

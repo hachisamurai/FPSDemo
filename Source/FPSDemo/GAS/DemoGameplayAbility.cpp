@@ -1,217 +1,44 @@
+// 职责：玩家GA公共门禁实现。使用：各派生类调用公共CanActivate/End逻辑，动作实现分文件维护。
 #include "GAS/DemoGameplayAbility.h"
-#include "Animation/DemoWeaponAnimationComponent.h"
 #include "GAS/DemoAttributeSet.h"
-#include "GAS/DemoEffects.h"
 #include "GAS/DemoTags.h"
 #include "Characters/DemoCharacter.h"
 #include "Weapons/DemoWeaponComponent.h"
 #include "Weapons/DemoWeaponBase.h"
-#include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 
 UDemoGameplayAbility::UDemoGameplayAbility()
 {
-	DEMO_LOG_CALL();
-	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
-	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly;
-	ActivationBlockedTags.AddTag(DemoTags::Dead);
+    DEMO_LOG_CALL();
+    InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+    NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::ServerOnly;
+    ActivationBlockedTags.AddTag(DemoTags::Dead);
 }
-UDemoFireAbility::UDemoFireAbility()
-{
-	DEMO_LOG_CALL();
-	Action = EDemoAbilityAction::Fire;
-	// 通过自定义GAS成本/冷却接口访问武器实例，避免四把枪共享一个弹匣。
-	ActivationBlockedTags.AddTag(DemoTags::Reloading);
-}
-UDemoReloadAbility::UDemoReloadAbility()
-{
-	DEMO_LOG_CALL();
-	Action = EDemoAbilityAction::Reload;
-	ActivationOwnedTags.AddTag(DemoTags::Reloading);
-}
-UDemoDashAbility::UDemoDashAbility()
-{
-	DEMO_LOG_CALL();
-	Action = EDemoAbilityAction::Dash;
-	CooldownGameplayEffectClass = UDemoDashCooldownEffect::StaticClass();
-}
-UDemoHealAbility::UDemoHealAbility()
-{
-	DEMO_LOG_CALL();
-	Action = EDemoAbilityAction::Heal;
-	CooldownGameplayEffectClass = UDemoHealCooldownEffect::StaticClass();
-}
-
-UDemoAimAbility::UDemoAimAbility()
-{
-	DEMO_LOG_CALL();
-	Action = EDemoAbilityAction::Aim;
-	ActivationOwnedTags.AddTag(DemoTags::Aiming);
-	ActivationBlockedTags.AddTag(DemoTags::Reloading);
-}
-
 bool UDemoGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
+    const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
 {
-	DEMO_LOG_CALL();
-	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags) || !ActorInfo) return false;
-	// Pawn 与属性只在当前同步检查期间借用，不跨任务保存裸指针。
-	const ADemoCharacter* Character = Cast<ADemoCharacter>(ActorInfo->AvatarActor.Get());
-	const UDemoAttributeSet* Attributes = Character ? Character->GetDemoAttributes() : nullptr;
-	if (!Attributes || Attributes->GetHealth() <= 0.f) { UE_LOG(LogFPSDemo, Log, TEXT("Ability rejected: missing Avatar/attributes or dead")); return false; }
-	// 放行战斗外移动/恢复技能，保持武器的战斗阶段边界；不能简单扩大所有GA的权限。
-	const bool bPlayerSkill = Action == EDemoAbilityAction::Dash || Action == EDemoAbilityAction::Heal; // 本次动作分类，无跨帧状态。
-	if (!(bPlayerSkill ? Character->CanUsePlayerSkills() : Character->CanUseCombatAbilities()))
-	{ UE_LOG(LogFPSDemo, Log, TEXT("Ability rejected: action=%d phase/menu/paused"), static_cast<int32>(Action)); return false; }
-	// 武器仅当前调用借用；装填/开镜使用同一装备实例，不从玩家AttributeSet读取弹药。
-	const ADemoWeaponBase* Weapon = Character->GetWeaponComponent()->GetActiveWeapon();
-	if (Action == EDemoAbilityAction::Reload) return Weapon && Weapon->CanReload();
-	if (Action == EDemoAbilityAction::Aim) return Weapon && Weapon->Config.bSupportsScope && !Weapon->IsReloading();
-	if (Action == EDemoAbilityAction::Heal) return Attributes->GetHealth() < Attributes->GetMaxHealth();
-	return true;
+    DEMO_LOG_CALL();
+    if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags) || !ActorInfo) return false;
+    const ADemoCharacter* Character = Cast<ADemoCharacter>(ActorInfo->AvatarActor.Get()); // 仅本次借用所属Avatar，无GetPlayer0/共享GI玩家状态。
+    const UDemoAttributeSet* Attributes = Character ? Character->GetDemoAttributes() : nullptr; // 当前玩家PS ASC的属性，不缓存旧Avatar。
+    if (!Attributes || Attributes->GetHealth() <= 0.f)
+    { UE_LOG(LogFPSDemo, Log, TEXT("Ability rejected: missing Avatar/attributes or dead")); return false; }
+    if (!(bAllowSafeAreaSkills ? Character->CanUsePlayerSkills()
+        : bAllowIntermissionFirearmActions ? Character->CanUseFirearmActions() : Character->CanUseCombatAbilities()))
+    { UE_LOG(LogFPSDemo, Log, TEXT("Ability rejected: class=%s phase/action gate"), *GetClass()->GetName()); return false; }
+    return true;
 }
-
 void UDemoGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
-{
-	DEMO_LOG_CALL();
-	// ActorInfo 来自 GAS；角色失效或提交失败必须结束，避免技能永久处于激活状态。
-	ADemoCharacter* Character = ActorInfo ? Cast<ADemoCharacter>(ActorInfo->AvatarActor.Get()) : nullptr;
-	if (!Character || !CommitAbility(Handle, ActorInfo, ActivationInfo))
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-		return;
-	}
-	switch (Action)
-	{
-	case EDemoAbilityAction::Fire: Character->PerformShot(); break;
-	case EDemoAbilityAction::Dash: Character->PerformDash(); break;
-	case EDemoAbilityAction::Heal:
-		DemoEffects::Apply(GetAbilitySystemComponentFromActorInfo(), GetAbilitySystemComponentFromActorInfo(), UDemoHealthEffect::StaticClass(), Character->GetHealAmount());
-		break;
-	case EDemoAbilityAction::Reload:
-		{
-			// 从R或空弹射击进入相同GA；即使直接激活GA也停止连射/退出镜头。
-			Character->GetWeaponComponent()->StopFire();
-			Character->GetWeaponComponent()->StopAim();
-			ReloadWeapon = Character->GetWeaponComponent()->GetActiveWeapon();
-			if (!ReloadWeapon.IsValid() || !ReloadWeapon->BeginReload()) { EndAbility(Handle,ActorInfo,ActivationInfo,true,true); return; }
-			ReloadSequence = ReloadWeapon->GetReloadSequence();
-			// 动画可降级但不拥有补弹：本次类型/时长/序号均从BeginReload的冻结快照读取。
-			if (Character->GetWeaponAnimationComponent() && ReloadWeapon->Config.WeaponAnimLayerClass)
-				Character->GetWeaponAnimationComponent()->BeginReloadPresentation(ReloadWeapon.Get(), this, ReloadSequence, ReloadWeapon->GetReloadDuration(), ReloadWeapon->IsEmptyReload());
-			// UObject 任务归技能所有，AddDynamic 弱绑定 this，取消/卸载时由 GAS 自动结束任务。
-			UAbilityTask_WaitDelay* DelayTask = UAbilityTask_WaitDelay::WaitDelay(this, ReloadWeapon->GetReloadDuration());
-			if (!DelayTask) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
-			DelayTask->OnFinish.AddDynamic(this, &UDemoGameplayAbility::OnReloadFinished);
-			DelayTask->ReadyForActivation();
-			return;
-		}
-	case EDemoAbilityAction::Aim:
-		if (Character->GetWeaponComponent()->BeginAim()) return; // 保持GA和OwnedTag直到主动退镜/取消。
-		EndAbility(Handle,ActorInfo,ActivationInfo,true,true);
-		return;
-	}
-	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
-}
-
-void UDemoGameplayAbility::OnReloadFinished()
-{
-	DEMO_LOG_CALL();
-	// 回调时重新取得 Avatar，避免装填期间角色切换导致访问旧 Pawn。
-	ADemoCharacter* Character = Cast<ADemoCharacter>(GetAvatarActorFromActorInfo());
-	const UDemoAttributeSet* Attributes = Character ? Character->GetDemoAttributes() : nullptr;
-	if (Attributes && Attributes->GetHealth() > 0.f && Character->CanUseCombatAbilities()
-		&& ReloadWeapon.IsValid() && ReloadWeapon->GetReloadSequence() == ReloadSequence && Character->GetWeaponComponent()->IsEquipped(ReloadWeapon.Get()))
-	{
-		ReloadWeapon->CompleteReload();
-	}
-	else UE_LOG(LogFPSDemo, Log, TEXT("Reload callback ignored: stale weapon/avatar/phase"));
-	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
-}
-
-void UDemoGameplayAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
-{
-	DEMO_LOG_CALL();
-	UE_LOG(LogFPSDemo, Log, TEXT("Ability ended action=%d cancelled=%d"), static_cast<int32>(Action), bWasCancelled);
-	if (Action == EDemoAbilityAction::Reload)
-	{
-		if (ReloadWeapon.IsValid() && ReloadWeapon->GetReloadSequence() == ReloadSequence) ReloadWeapon->CancelReload();
-		ReloadWeapon.Reset();
-		ReloadSequence = 0;
-	}
-	if (Action == EDemoAbilityAction::Aim)
-		if (ADemoCharacter* Character = ActorInfo ? Cast<ADemoCharacter>(ActorInfo->AvatarActor.Get()) : nullptr) Character->GetWeaponComponent()->EndAim();
-	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
-}
-
-namespace
-{
-	/** ActorInfo只在本次GAS调用期间借用，返回当前装备；不跨异步任务持有裸指针。 */
-	ADemoWeaponBase* GetAbilityWeapon(const FGameplayAbilityActorInfo* ActorInfo)
-	{
-		UE_LOG(LogFPSDemo, VeryVerbose, TEXT("%hs"), __FUNCTION__);
-		const ADemoCharacter* Character = ActorInfo ? Cast<ADemoCharacter>(ActorInfo->AvatarActor.Get()) : nullptr;
-		return Character ? Character->GetWeaponComponent()->GetActiveWeapon() : nullptr;
-	}
-}
-bool UDemoFireAbility::CheckCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, FGameplayTagContainer* OptionalRelevantTags) const
-{
-	DEMO_LOG_CALL();
-    const ADemoWeaponBase* Weapon = bPreparingFire ? CommitWeapon.Get() : GetAbilityWeapon(ActorInfo); // 激活内固定凭据，外部预检才查询当前装备。
-	return Super::CheckCost(Handle,ActorInfo,OptionalRelevantTags) && Weapon && Weapon->CanPayShotCost();
-}
-void UDemoFireAbility::ApplyCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
-{
-	DEMO_LOG_CALL();
-	Super::ApplyCost(Handle,ActorInfo,ActivationInfo);
-    if (ADemoWeaponBase* Weapon = CommitWeapon.Get()) Weapon->PayShotCost(); // 只扣准备武器，绝不转移到新装备。
-}
-bool UDemoFireAbility::CheckCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, FGameplayTagContainer* OptionalRelevantTags) const
-{
-	DEMO_LOG_CALL();
-    const ADemoWeaponBase* Weapon = bPreparingFire ? CommitWeapon.Get() : GetAbilityWeapon(ActorInfo); // 每武器World时间戳，提交内不重新选择。
-	return Super::CheckCooldown(Handle,ActorInfo,OptionalRelevantTags) && Weapon && Weapon->GetFireCooldownRemaining() <= KINDA_SMALL_NUMBER;
-}
-void UDemoFireAbility::ApplyCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
-{
-	DEMO_LOG_CALL();
-	Super::ApplyCooldown(Handle,ActorInfo,ActivationInfo);
-    if (ADemoWeaponBase* Weapon = CommitWeapon.Get()) Weapon->CommitFireCooldown(); // 与扣弹共享同一准备实例。
-}
-
-void UDemoFireAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
     const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
     DEMO_LOG_CALL();
-    // 不调用会立即Commit的通用Activate；完整准备成功后才允许GAS进入成本/冷却提交。
-    const uint64 ActivationGeneration = ++FireGeneration; // 本次同步激活的身份，不用于网络预测或存档。
-    bPreparingFire = true;
-    CommitWeapon = GetAbilityWeapon(ActorInfo);
-    const TWeakObjectPtr<ADemoWeaponBase> PreparingWeapon = CommitWeapon; // 跨构造/提交回调仍固定本实例，弱引用不延长武器生命。
-    const bool bPrepared = PreparingWeapon.IsValid() && PreparingWeapon->PrepareShot(); // Actor构造可同步取消甚至再激活技能。
-    if (FireGeneration != ActivationGeneration) return; // 旧End已经撤销旧凭据，不能干扰后继激活。
-    if (!bPrepared || !IsActive() || !PreparingWeapon.IsValid() || !PreparingWeapon->IsPreparedShotValid())
-    {
-        UE_LOG(LogFPSDemo, Log, TEXT("FIRE_ABILITY_REJECT preparation failed"));
-        EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-        return;
-    }
-    const bool bCommitted = CommitAbility(Handle, ActorInfo, ActivationInfo); // GAS提交也会同步广播外部委托，返回后重查代数。
-    if (FireGeneration != ActivationGeneration) return;
-    if (!bCommitted || !IsActive())
-    { UE_LOG(LogFPSDemo, Log, TEXT("FIRE_ABILITY_REJECT GAS commit failed")); EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
-    if (PreparingWeapon.IsValid()) PreparingWeapon->ExecuteCommittedShot();
-    if (FireGeneration == ActivationGeneration) EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+    // 抽象公共类不实现具体动作；遗漏派生实现时拒绝，而非误触发其他技能。
+    UE_LOG(LogFPSDemo, Warning, TEXT("Ability rejected: concrete activation required class=%s"), *GetClass()->GetName());
+    EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 }
-void UDemoFireAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+void UDemoGameplayAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
     const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
     DEMO_LOG_CALL();
-    ++FireGeneration; // 先作废旧栈，再销毁待发Actor/广播GAS结束。
-    const TWeakObjectPtr<ADemoWeaponBase> EndingWeapon = CommitWeapon; // 先清引用，再撤销；销毁子弹可同步回调技能结束。
-    CommitWeapon.Reset();
-    bPreparingFire = false;
-    if (EndingWeapon.IsValid()) EndingWeapon->CancelPreparedShot();
+    UE_LOG(LogFPSDemo, Log, TEXT("Ability ended class=%s cancelled=%d"), *GetClass()->GetName(), bWasCancelled);
     Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

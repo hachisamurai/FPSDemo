@@ -1,4 +1,5 @@
 #include "Tests/DemoCampaignTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Game/FPSDemoGameMode.h"
 #include "Characters/DemoCharacter.h"
 #include "Player/DemoPlayerController.h"
@@ -91,7 +92,7 @@ void ADemoCampaignTest::Tick(float DeltaSeconds)
 	NextTime = GetWorld()->GetTimeSeconds() + 0.3f;
 	if (Step == 0)
 	{
-		if (!Check(State->Phase == EDemoPhase::Lobby && State->Coins == 0 && !Mode->GetShopTerminal(), TEXT("lobby has no enemies, wallet or shop"))) return;
+		if (!Check(State->Phase == EDemoPhase::Lobby && DemoTestProgress::Read(State).Coins == 0 && !Mode->GetShopTerminal(), TEXT("lobby has no enemies, wallet or shop"))) return;
 		if (!Check(!Mode->SelectDifficulty(static_cast<EDemoDifficulty>(255)), TEXT("invalid difficulty rejected"))) return;
 		if (CampaignRun == 0 && !ValidateBadTables()) return;
         // 战役数值专项直接建立隔离新局；存档/设置UI由Session测试覆盖。
@@ -159,16 +160,16 @@ void ADemoCampaignTest::Tick(float DeltaSeconds)
 		{
 			if (!It->IsAlive()) continue;
 			DemoEffects::Apply(Player->GetDemoASC(), It->GetAbilitySystemComponent(), UDemoHealthEffect::StaticClass(), -It->GetMaxHealth());
-			const int32 AfterDeath = State->SilverCoins; // 去重基准，不能再发一次等级奖励。
+			const int32 AfterDeath = DemoTestProgress::Read(State).SilverCoins; // 去重基准，不能再发一次等级奖励。
 			Mode->NotifyEnemyKilled(*It);
-			if (!Check(State->SilverCoins == AfterDeath, TEXT("duplicate death grants no additional level coins"))) return;
+			if (!Check(DemoTestProgress::Read(State).SilverCoins == AfterDeath, TEXT("duplicate death grants no additional level coins"))) return;
 		}
 		Step = 4;
 		return;
 	}
 	if (Step == 4)
 	{
-		if (!Check(State->Coins == ExpectedCoins && State->SilverCoins == (State->LevelNumber == 10 ? 0 : ExpectedSilver) && State->TotalKills == ExpectedKills && State->EnemiesRemaining == 0, TEXT("level payout exact and no stale enemies"))) return;
+		if (!Check(DemoTestProgress::Read(State).Coins == ExpectedCoins && DemoTestProgress::Read(State).SilverCoins == (State->LevelNumber == 10 ? 0 : ExpectedSilver) && DemoTestProgress::Read(State).Kills == ExpectedKills && State->EnemiesRemaining == 0, TEXT("level payout exact and no stale enemies"))) return;
 		if (State->LevelNumber < DemoCombatConfig::LevelCount)
 		{
 			if (!Check(State->Phase == EDemoPhase::Reward, TEXT("first nine levels offer reward"))) return;
@@ -207,7 +208,7 @@ void ADemoCampaignTest::Tick(float DeltaSeconds)
 			PC->CancelNextLevelConfirmation();
 			PC->ConfirmNextLevel(); // 残留热区点击不等于新的确认。
 			if (!Check(!PC->IsNextLevelConfirmationOpen() && !PC->bShowMouseCursor && !PC->IsMoveInputIgnored() && !PC->IsLookInputIgnored()
-				&& State->LevelNumber == CompletedLevel && State->Coins == ExpectedCoins && IsValid(Portal)
+				&& State->LevelNumber == CompletedLevel && DemoTestProgress::Read(State).Coins == ExpectedCoins && IsValid(Portal)
 				&& Player->GetActorLocation().Equals(ConfirmationPosition), TEXT("No keeps location, coins, progress and terminals and restores input"))) return;
 			Portal->Interact(Player);
 			Player->SetActorLocation(Portal->GetActorLocation() + FVector(-1000,0,20)); // 模拟外部传送，确认时必须重新验证距离。
@@ -227,7 +228,7 @@ void ADemoCampaignTest::Tick(float DeltaSeconds)
 			if (++CampaignRun < 3)
 			{
 				Mode->RestartDemo();
-				if (!Check(State->Phase==EDemoPhase::Hub && State->LevelNumber==0 && State->Coins==ExpectedCoins,TEXT("victory returns playable hub preserving campaign earnings"))) return;
+				if (!Check(State->Phase==EDemoPhase::Hub && State->LevelNumber==0 && DemoTestProgress::Read(State).Coins==ExpectedCoins,TEXT("victory returns playable hub preserving campaign earnings"))) return;
 				Mode->TravelToRun(false); // 各难度数值探针使用独立零成长夹具；生产续玩保留数据另由Session专项验证。
 			}
 			else

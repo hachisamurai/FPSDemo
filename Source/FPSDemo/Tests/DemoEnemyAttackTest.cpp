@@ -1,3 +1,5 @@
+// 职责：隔离World中的敌人攻击回归及专项路由；使用-DemoEnemyAttackTest运行，不向普通游戏注入状态。
+// 依赖真实GameMode阶段、GAS健康/冲刺、碰撞和Timer；终局后单独设置低血量探针，避免把清成长时的正常补给误认为迟到技能。
 #include "Tests/DemoEnemyAttackTest.h"
 #include "AI/DemoEnemy.h"
 #include "AI/DemoEnemyProjectile.h"
@@ -6,7 +8,7 @@
 #include "GAS/DemoAbilitySystemComponent.h"
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoEffects.h"
-#include "GAS/DemoGameplayAbility.h"
+#include "GAS/Abilities/DemoPlayerAbilityTypes.h"
 #include "GAS/DemoTags.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -60,6 +62,7 @@ void ADemoEnemyAttackTest::Tick(float DeltaSeconds)
     DEMO_LOG_TICK();
     Super::Tick(DeltaSeconds);
     // 复用已隔离的EnemyAttack测试入口；专项不同时驱动原攻击状态机。
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoEnemyRosterTest"))) { TickRosterTest(); return; } // 新敌人测试也只使用Editor临时档与本地GAS。
     if (FParse::Param(FCommandLine::Get(),TEXT("DemoSpawnSystemTest"))) { TickSpawnSystemTest(); return; } // 框架回归复用本地临时档/禁云入口。
     if (FParse::Param(FCommandLine::Get(),TEXT("DemoCloseCombatTest"))) { TickCloseCombatTest(); return; } // 复用存档/禁云隔离，不向正常游戏注入测试Actor。
     if (FParse::Param(FCommandLine::Get(),TEXT("DemoEnemyHitZoneTest"))) { TickHitZoneTest(); return; } // 复用隔离试玩档和禁云上下文。
@@ -217,9 +220,11 @@ void ADemoEnemyAttackTest::Tick(float DeltaSeconds)
     case 17:
         if (!Check(Boss.IsValid() && Boss->TryStartGlobalAttack() && Boss->TryFireProjectile(Player) == false, TEXT("global windup blocks concurrent projectile"))) return;
         DemoEffects::ApplySlow(Boss->GetAbilitySystemComponent(), ASC, .5f, 3.f);
-        Mode->NotifyPlayerDied(); // 仅测试触发正式终局入口以检查同帧撤销；不更改健康用于检测残留伤害。
+        Mode->NotifyPlayerDied(); // 测试触发正式终局入口，同帧撤销施法；当前成长清理会正常补给至永久生命基线。
         if (!Check(State->Phase == EDemoPhase::Defeat && !Boss->IsGlobalAttackWindingUp() && !ASC->HasMatchingGameplayTag(DemoTags::Slowed)
             && FMath::IsNearlyEqual(Player->GetCharacterMovement()->MaxWalkSpeed,650.f), TEXT("leaving combat immediately clears cast and slow"))) return;
+        // 清理已完成后再设15HP探针：既能检测迟到扣血，也能检测错误的躲避回血，不能在满血处漏掉后者。
+        ASC->SetNumericAttributeBase(UDemoAttributeSet::GetHealthAttribute(),15.f);
         Advance(2.2f);
         break;
     case 18:

@@ -1,3 +1,4 @@
+// 职责：弹药专项的阶段状态。使用：Editor启动参数驱动真实UI/战斗凭据/骨骼靶，字段只存当前隔离World夹具。
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
@@ -18,7 +19,7 @@ private:
     bool Check(bool Condition,const TCHAR* Message);
     /** Delay为等待World秒，推进到下一测试步骤。 */
     void Advance(float Delay);
-    /** Location为世界厘米；生成未注册GM的测试敌人，不影响自然清关。 */
+    /** Location为预期世界厘米；用现行骨骼机身点对齐前向距离/横向偏移，未注册GM所以不影响自然清关。 */
     class ADemoEnemy* SpawnTarget(FVector Location);
     int32 Step=0; // 当前步骤，不复制，正常游戏不创建此Actor。
     float Next=1.f; // 下个步骤的World秒，保证ASC/UI已初始化。

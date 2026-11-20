@@ -1,7 +1,9 @@
+// 职责：权威服务组合根，安装刷怪/目标/奖励/流程；数据各归领域组件。
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "Game/DemoGameState.h"
+#include "Player/DemoPlayerCommands.h"
 #include "FPSDemoGameMode.generated.h"
 
 class ADemoCharacter;
@@ -15,9 +17,25 @@ class FPSDEMO_API AFPSDemoGameMode : public AGameModeBase
 	GENERATED_BODY()
 
 public:
+	/** Player 是 RPC 所属控制器；只接受白名单业务意图，不信任客户端数值或身份。 */
+	FDemoCommandResult ExecutePlayerCommand(class ADemoPlayerController* Player, const FDemoGameplayCommandRequest& Request);
+	/** Player 为拥有者；只投影本人钱包及终端报价，不暴露队友私有数据。 */
+	FDemoPlayerMenuSnapshot BuildPlayerMenuSnapshot(class ADemoPlayerController* Player) const;
+	/** Player/PlayerKey 为拥有者握手；固定队伍只在 Hub 加入，最多四人。 */
+	bool RegisterCoopPlayer(class ADemoPlayerController* Player, const FString& PlayerKey);
+	/** Options/Address/UniqueId 来自引擎连接；在登录生成 Pawn 前拒绝战斗中加入和超员。 */
+	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
+	/** Exiting为离线控制器；运行中撤销个人会话并检查存活玩家，拆World时只调用Super；Editor诊断记录两条路径的进入/返回。 */
+	virtual void Logout(AController* Exiting) override;
+	/** 只读服务器队伍服务，客户端不能取得 GameMode。 */
+	class UDemoCoopRosterComponent* GetCoopRoster() const;
+	/** Source为当前真正提交开火者；Combat/Intermission均更新本人的整轮手枪资格，不授予伤害权限，不影响队友。 */
+	bool RegisterWeaponShot(FName WeaponId, ADemoCharacter* Source);
+	/** Player 为死亡者；有人存活时只观战，全员阵亡才结束战役。 */
+	void NotifyPlayerDied(ADemoCharacter* Player);
 	/** 创建六个系统子组件、默认类和四张配置资产引用，无需新建蓝图。 */
 	AFPSDemoGameMode();
-	/** MapName/Options 是引擎 URL，ErrorMessage 返回初始化错误；覆盖旧蓝图存储的默认类。 */
+	/** MapName/Options为引擎URL，ErrorMessage返回初始化错误；保留合法DemoCharacter子类，缺失/旧非GAS Pawn回退，其余服务类保持原启动契约。 */
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
 	/** 加载配置并显示大厅；死亡重开 URL 会恢复难度并直接初始化安全区，其余入口等待开始游戏。 */
 	virtual void StartPlay() override;
@@ -85,12 +103,23 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> EnemyTableAsset;
 	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> DifficultyTableAsset;
 	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> LevelTableAsset;
-	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> EndlessTableAsset; // /Game/Data/DT_Endless的Default行。
+	UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TSoftObjectPtr<UDataTable> EndlessTableAsset;
+    UPROPERTY(EditDefaultsOnly, Category="Demo|Config") TObjectPtr<class UDemoCampaignDefinition> DemoCampaign; // 优先使用GM显式作者资产；空时读取Project Settings配置资产，不回退原生CDO。
     /** 返回同World的终端/流程/挑战服务，仅借用，不跨地图缓存。 */
     class UDemoTerminalComponent* GetTerminalSystem() const;
     class UDemoRunFlowComponent* GetRunFlow() const;
     class UDemoChallengeComponent* GetChallengeSystem() const;
+    /** 当前World的准备服务，Flow/交易显式失效，客户端只读GS公开快照。 */
+    class UDemoTeamReadyComponent* GetTeamReadySystem() const;
+    /** 当前World入场资源握手屏障；Flow传送前使用，PC回执只报告本连接代数。 */
+    class UDemoEncounterPreparationComponent* GetPreparationSystem() const;
 private:
+    UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoEncounterPreparationComponent> PreparationSystem; // GM拥有的短期加载协调，不持有地图/玩家永久数据。
+    /** 网关内执行一次请求；公开包装器在成功交易后统一撤销本人准备，失败请求保持原状态。 */
+    FDemoCommandResult ExecutePlayerCommandInternal(ADemoPlayerController* Player, const FDemoGameplayCommandRequest& Request);
+    UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoTeamReadyComponent> TeamReadySystem; // 权威准备意图，不跨地图持有。
+    UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoObjectiveCoordinatorComponent> ObjectiveSystem; // 仅权威World持有，Flow显式编排。
+	UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoCoopRosterComponent> CoopRoster; // 房主固定队伍目录与检查点值协调，不复制整队私有数据。
     UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoEnemySpawnComponent> SpawnSystem; // 权威生成执行器。
     UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoRewardComponent> RewardSystem; // 权威收益结算。
     UPROPERTY(VisibleAnywhere, Category="Demo|Systems") TObjectPtr<class UDemoShopComponent> ShopSystem; // 属性/弹药交易。

@@ -1,3 +1,4 @@
+// 职责：验证FP资源闭包并向动画图发布纯值快照；图求值不跨线程访问Actor、GAS或World。
 #include "Animation/DemoFPAnimInstance.h"
 #include "Animation/DemoWeaponAnimationComponent.h"
 #include "Animation/AnimMontage.h"
@@ -19,10 +20,11 @@ bool FDemoWeaponAnimationSet::Validate(const USkeletalMesh* ArmsMesh, const USke
         || MagazineHandOffset.ContainsNaN() || MagazineHandOffset.GetScale3D().GetMin() <= 0.f || SupportHandGrip.ContainsNaN()
         || !FMath::IsFinite(SupportHandIKAlpha) || SupportHandIKAlpha < 0.f || SupportHandIKAlpha > 1.f)
         Error = TEXT("Invalid blend/sway/magazine offset");
-    // Pair只在同步预检借用，始终检查两种动作，不能等到空仓后才发现缺失资源。
-    for (const FDemoReloadAnimationPair* Pair : { &TacticalReload, &EmptyReload })
+    // Pair同步借用；两种换弹必需，选配拉栓一旦配置必须完整，武器开关另由装备预检约束。
+    for (const FDemoReloadAnimationPair* Pair : { &TacticalReload, &EmptyReload, &BoltCycle })
     {
         if (!Error.IsEmpty()) break;
+        if (Pair == &BoltCycle && !Pair->ArmsMontage && !Pair->WeaponSequence) continue;
         if (!Pair->ArmsMontage || !Pair->WeaponSequence || Pair->ArmsMontage->GetSkeleton() != ArmsMesh->GetSkeleton()
             || Pair->WeaponSequence->GetSkeleton() != WeaponMesh->GetSkeleton() || Pair->ArmsMontage->GetPlayLength() <= 0.f
             || Pair->WeaponSequence->GetPlayLength() <= 0.f)
@@ -44,6 +46,9 @@ bool FDemoWeaponAnimationSet::Validate(const USkeletalMesh* ArmsMesh, const USke
     }
     if (FireMontage && ArmsMesh && (FireMontage->GetSkeleton() != ArmsMesh->GetSkeleton() || FireMontage->SlotAnimTracks.Num() != 1
         || FireMontage->SlotAnimTracks[0].SlotName != TEXT("FPAction"))) Error = TEXT("Fire montage must use shared arms skeleton and FPAction");
+    for (const UAnimSequence* Mechanical : {WeaponIdlePose.Get(),WeaponEmptyPose.Get(),FireWeaponSequence.Get(),LastShotWeaponSequence.Get()}) // 选配短动作同枪骨架且时长有效。
+        if (Mechanical && (!WeaponMesh || Mechanical->GetSkeleton()!=WeaponMesh->GetSkeleton() || Mechanical->GetPlayLength()<=0.f)) Error=TEXT("Fire/idle mechanical sequence skeleton or length invalid");
+    if ((FireWeaponSequence || LastShotWeaponSequence) && !FireMontage) Error=TEXT("Mechanical fire requires paired arms montage");
     if (!Error.IsEmpty()) UE_LOG(LogFPSDemo, Error, TEXT("WEAPON_ANIM_CONFIG_REJECT %s"), *Error);
     return Error.IsEmpty();
 }
@@ -56,6 +61,8 @@ void UDemoFPAnimInstance::NativeInitializeAnimation()
     IdlePose = nullptr;
     SupportHandGrip = FVector::ZeroVector;
     SupportHandIKAlpha = 0.f;
+    HandAimInput=FDemoFPHandAimInput(); bLoggedHandAimActive=false; // FP-HANDAIM：重建实例不携带旧枪瞄准输入，等表现组件下一帧重新发布。
+    MovementPose=nullptr; PreviousMovementPose=nullptr; MovementTime=0.f; PreviousMovementTime=0.f; MovementBlendAlpha=1.f; MovementWeight=0.f; MovementWeaponId=NAME_None; MovementBlendSeconds=.1f; // 重建不携带旧枪步态。
 }
 
 void UDemoFPAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -69,10 +76,24 @@ void UDemoFPAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
     Snapshot = Animation ? Animation->GetSnapshot() : FDemoFPAnimationSnapshot();
     const FDemoWeaponAnimationSet* Set = Animation ? Animation->GetAnimationSet() : nullptr; // 类CDO只读配置，本次采样后不持有裸地址。
     IdlePose = Set ? Set->IdlePose : nullptr;
+    UpdateMovement(DeltaSeconds); // 持枪基底之后、FPAction Slot之前的独立移动层。
     SupportHandGrip = Set ? Set->SupportHandGrip : FVector::ZeroVector;
     const UDemoWeaponComponent* Equipment = Owner ? Owner->FindComponentByClass<UDemoWeaponComponent>() : nullptr; // 本帧只读装备，不在图查询。
     const ADemoWeaponBase* Weapon = Equipment ? Equipment->GetActiveWeapon() : nullptr; // 预览或初始化允许无武器。
-    SupportHandIKAlpha = Set && Weapon && !Snapshot.bReloading && !Weapon->Config.bHideSupportArm ? Set->SupportHandIKAlpha : 0.f;
+    float ReloadPoseWeight = 0.f; // 含已停止但尚在淡出的换弹Montage；Gameplay结束不等于Slot已退出。
+    if (Set)
+    {
+        for (const FAnimMontageInstance* MontageInstance : MontageInstances) // 引擎拥有，仅NativeUpdate游戏线程同步借用，不交给并行动画图。
+        {
+            if (MontageInstance && (MontageInstance->Montage == Set->TacticalReload.ArmsMontage || MontageInstance->Montage == Set->EmptyReload.ArmsMontage))
+                ReloadPoseWeight += MontageInstance->GetWeight(); // 包含取消后的BlendOut实例；不依赖GetActiveInstanceForMontage排除掉淡出状态。
+        }
+    }
+    const float PreviousIKAlpha = SupportHandIKAlpha; // 只用于交接边界日志，不形成逐帧平滑反馈。
+    SupportHandIKAlpha = Set && Weapon && !Snapshot.bReloading && !Weapon->Config.bHideSupportArm
+        ? Set->SupportHandIKAlpha * (1.f-FMath::Clamp(ReloadPoseWeight,0.f,1.f)) : 0.f; // 按实际Slot淡出权重交接，取消/正常完成共用，避免单帧0→1。
+    if ((PreviousIKAlpha<=KINDA_SMALL_NUMBER)!=(SupportHandIKAlpha<=KINDA_SMALL_NUMBER))
+        UE_LOG(LogFPSDemo,Verbose,TEXT("FP_SUPPORT_IK_HANDOFF old=%.4f new=%.4f reloadWeight=%.4f gameplayReload=%d"),PreviousIKAlpha,SupportHandIKAlpha,ReloadPoseWeight,Snapshot.bReloading);
 }
 
 void UDemoFPAnimInstance::PreUpdateAnimation(float DeltaSeconds)

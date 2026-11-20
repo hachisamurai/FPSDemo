@@ -1,10 +1,43 @@
+// 职责：创建独立GE Spec与冻结受击来源；现有伤害/治疗语义不变，元数据仅供实际损血后的私人反馈读取。
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoTags.h"
+#include "AbilitySystemComponent.h" // 权威ASC/独立Spec API显式依赖，不依赖Unity包含顺序。
+#include "GameFramework/Actor.h" // 只借用当次Avatar位置，方向元数据冻结在本栈。
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
+
+namespace DemoPlayerDamageTags
+{
+    UE_DEFINE_GAMEPLAY_TAG(Root,"Demo.Damage.Feedback");
+    UE_DEFINE_GAMEPLAY_TAG(Unknown,"Demo.Damage.Feedback.Kind.Unknown");
+    UE_DEFINE_GAMEPLAY_TAG(Projectile,"Demo.Damage.Feedback.Kind.Projectile");
+    UE_DEFINE_GAMEPLAY_TAG(Melee,"Demo.Damage.Feedback.Kind.Melee");
+    UE_DEFINE_GAMEPLAY_TAG(Charge,"Demo.Damage.Feedback.Kind.Charge");
+    UE_DEFINE_GAMEPLAY_TAG(Area,"Demo.Damage.Feedback.Kind.Area");
+    UE_DEFINE_GAMEPLAY_TAG(Global,"Demo.Damage.Feedback.Kind.Global");
+    UE_DEFINE_GAMEPLAY_TAG(Periodic,"Demo.Damage.Feedback.Kind.Periodic");
+    UE_DEFINE_GAMEPLAY_TAG(Environment,"Demo.Damage.Feedback.Kind.Environment");
+    UE_DEFINE_GAMEPLAY_TAG(Omni,"Demo.Damage.Feedback.Omni");
+}
 
 namespace
 {
+    /** 将可信服务器分类映射为原生稳定Tag；未知枚举降级Unknown，不影响Health提交。 */
+    FGameplayTag DamageKindTag(EDemoPlayerDamageKind Kind)
+    {
+        UE_LOG(LogFPSDemo,VeryVerbose,TEXT("[CALL] DamageKindTag"));
+        switch(Kind)
+        {
+            case EDemoPlayerDamageKind::Projectile: return DemoPlayerDamageTags::Projectile;
+            case EDemoPlayerDamageKind::Melee: return DemoPlayerDamageTags::Melee;
+            case EDemoPlayerDamageKind::Charge: return DemoPlayerDamageTags::Charge;
+            case EDemoPlayerDamageKind::Area: return DemoPlayerDamageTags::Area;
+            case EDemoPlayerDamageKind::Global: return DemoPlayerDamageTags::Global;
+            case EDemoPlayerDamageKind::Periodic: return DemoPlayerDamageTags::Periodic;
+            case EDemoPlayerDamageKind::Environment: return DemoPlayerDamageTags::Environment;
+            default: return DemoPlayerDamageTags::Unknown;
+        }
+    }
 	/** Effect 是构造中的 CDO，Attribute 指定加法属性；只在类构造期间配置。 */
 	void ConfigureDelta(UGameplayEffect& Effect, const FGameplayAttribute& Attribute)
 	{
@@ -115,4 +148,29 @@ bool DemoEffects::Apply(UAbilitySystemComponent* Source, UAbilitySystemComponent
 	Spec.Data->SetSetByCallerMagnitude(DemoTags::Magnitude, Magnitude);
 	Source->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), Target);
 	return true;
+}
+
+bool DemoEffects::ApplyDamage(UAbilitySystemComponent* Source,UAbilitySystemComponent* Target,float Damage,
+    EDemoPlayerDamageKind Kind,const FVector& Origin,const FVector& IncomingDirection,const FHitResult* Hit)
+{
+    UE_LOG(LogFPSDemo,Log,TEXT("[CALL] %hs source=%s target=%s damage=%.2f kind=%d"),__FUNCTION__,*GetNameSafe(Source),*GetNameSafe(Target),Damage,static_cast<int32>(Kind));
+    if(!Source||!Target||!Source->IsOwnerActorAuthoritative()||!FMath::IsFinite(Damage)||Damage<0.f)
+    { UE_LOG(LogFPSDemo,Warning,TEXT("PLAYER_DAMAGE_SPEC_REJECT invalid authority/ASC/nonnegative finite damage")); return false; }
+    FGameplayEffectContextHandle Context=Source->MakeEffectContext(); // 保持原来源Owner/Avatar，用标准Context携带位置，不创建自定义网络Context。
+    const bool bOmni=Kind==EDemoPlayerDamageKind::Global||Kind==EDemoPlayerDamageKind::Periodic||Kind==EDemoPlayerDamageKind::Environment; // 明确无方位类型不伪造施法者箭头。
+    FVector FrozenOrigin=Origin; // 本栈值快照，后续死亡/移动不能改变已经发生的来向。
+    const AActor* Victim=Target->GetAvatarActor(); // 只借用目标当次Avatar，不能回退Player0。
+    if(!bOmni&&!IncomingDirection.ContainsNaN()&&!IncomingDirection.IsNearlyZero()&&Victim&&!Victim->GetActorLocation().ContainsNaN())
+        FrozenOrigin=Victim->GetActorLocation()+IncomingDirection.GetSafeNormal()*100.f; // 等价方向锚点，单位cm；取飞弹停止前反速度而非来源当前位置。
+    if(!FrozenOrigin.ContainsNaN()) Context.AddOrigin(FrozenOrigin);
+    else UE_LOG(LogFPSDemo,Warning,TEXT("PLAYER_DAMAGE_METADATA_DEGRADED invalid origin; gameplay damage retained"));
+    if(Hit&&Hit->bBlockingHit&&!Hit->ImpactPoint.ContainsNaN()&&!Hit->ImpactNormal.ContainsNaN()) Context.AddHitResult(*Hit,true); // Hit只复制到独立Context，不跨栈借用。
+    FGameplayEffectSpecHandle Spec=Source->MakeOutgoingSpec(UDemoHealthEffect::StaticClass(),1.f,Context); // 与旧Apply相同的瞬时Health GE。
+    if(!Spec.IsValid()) { UE_LOG(LogFPSDemo,Warning,TEXT("PLAYER_DAMAGE_SPEC_REJECT invalid outgoing Health spec")); return false; }
+    Spec.Data->AddDynamicAssetTag(DemoPlayerDamageTags::Root); // UE5.4公开API，不直接写已弃用字段，升级引擎时保留受支持的捕获行为。
+    Spec.Data->AddDynamicAssetTag(DamageKindTag(Kind));
+    if(bOmni) Spec.Data->AddDynamicAssetTag(DemoPlayerDamageTags::Omni);
+    Spec.Data->SetSetByCallerMagnitude(DemoTags::Magnitude,-Damage); // 只此处转换符号，数值与原调用完全一致。
+    Source->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(),Target);
+    return true;
 }

@@ -1,4 +1,7 @@
+// 职责：大厅/暂停/难度等本地页面意图；多人档位与出发分离，权威规则经PC命令执行。
 #include "UI/Flow/DemoMenuFlowComponent.h"
+#include "UI/Flow/DemoSettingsFlow.h"
+#include "Player/Coop/DemoRoomSubsystem.h"
 #include "Interaction/DemoTerminalComponent.h"
 #include "Characters/DemoCharacter.h"
 #include "Components/InputComponent.h"
@@ -23,8 +26,9 @@ void UDemoMenuFlowComponent::ShowLobby()
 	DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     MenuTerminal.Reset(); MenuTerminalGeneration = 0; NextTerminalGeneration = 0;
+    ResetGamblePresentation(); // 返回大厅不重播已保存的抽取，也不接受迟到展示回执。
 	// 大厅切换清理本地待确认引用；不携带上一局入口或进度。
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 新大厅不携带武器页或详情窗口状态。
+	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; PendingGamblePrice=INDEX_NONE; // 页面变化撤销旧赌博确认。 // 新大厅不携带武器页或详情窗口状态。
 	InspectedWeapon = INDEX_NONE;
 	bNextLevelConfirmationOpen = false;
 	PendingNextLevelTerminal.Reset();
@@ -38,7 +42,8 @@ void UDemoMenuFlowComponent::ShowLobby()
 	if (ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetController()->GetPawn()))
 	{
 		DemoPawn->StopFiring();
-		DemoPawn->GetCharacterMovement()->DisableMovement();
+        const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 远端加入时可能已经是Hub，不能在客户端把复制角色永久改成MOVE_None。
+        if (DemoPawn->HasAuthority() && State && State->Phase==EDemoPhase::Lobby) DemoPawn->GetCharacterMovement()->DisableMovement();
 	}
 	SetMenuInput(true);
 }
@@ -47,9 +52,10 @@ void UDemoMenuFlowComponent::StartGamePressed()
     DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 只显示选择页，不直接开始World。
-    if (!State || State->Phase != EDemoPhase::Lobby || HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Start menu rejected: phase/overlay")); return; }
+    if (!State || State->Phase != EDemoPhase::Lobby || HasBlockingOverlay() || !GetController()->HasAuthority()) { UE_LOG(LogFPSDemo, Log, TEXT("Start menu rejected: phase/overlay")); return; }
     GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->RefreshSlots();
     MenuPage = EDemoMenuPage::Saves;
+    bChoosingHostSave = false; // 单机开始入口不能继承取消过的开房意图。
     MenuMessage.Empty();
     RefreshMenuInput();
 }
@@ -59,7 +65,12 @@ void UDemoMenuFlowComponent::DifficultyPressed(EDemoDifficulty Difficulty)
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 难度只来自安全区出发弹窗。
     if (!State || State->Phase != EDemoPhase::Hub || !bNextLevelConfirmationOpen || HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Difficulty input rejected: phase/departure/overlay")); return; }
-    if (GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SelectDifficulty(Difficulty)) { bDifficultyChosen = true; ConfirmNextLevel(); }
+    if(!GetController()->GetMenuSnapshot().bCanLeadSession) { MenuMessage=TEXT("只有房主可以选择难度"); return; }
+    FDemoGameplayCommandRequest Request; // 多人先设置档位，随后全员明确准备；单人仍点击难度直接出发。
+    Request.Command=State->TeamReady.bRequired?EDemoGameplayCommand::SelectDeparture:EDemoGameplayCommand::StartLevel; Request.Difficulty=Difficulty;
+    Request.ReadyRevision=State->TeamReady.Revision; Request.ExpectedLevel=State->LevelNumber;
+    Request.Terminal=PendingNextLevelTerminal.Get(); Request.TerminalGeneration=NextTerminalGeneration;
+    GetController()->SubmitGameplayCommand(Request);
 }
 void UDemoMenuFlowComponent::EndlessPressed()
 {
@@ -68,7 +79,12 @@ void UDemoMenuFlowComponent::EndlessPressed()
     const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 只接受安全区当前终端弹窗。
     if (!State || State->Phase!=EDemoPhase::Hub || !bNextLevelConfirmationOpen || HasBlockingOverlay())
     { UE_LOG(LogFPSDemo,Warning,TEXT("Endless input rejected: phase/menu")); return; }
-    if (GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SelectEndless()) { bDifficultyChosen=true; ConfirmNextLevel(); }
+    if(!GetController()->GetMenuSnapshot().bCanLeadSession) { MenuMessage=TEXT("只有房主可以选择模式"); return; }
+    FDemoGameplayCommandRequest Request; // 无尽解锁由本人服务器PS复核，多人只改档位，不立即出发。
+    Request.Command=State->TeamReady.bRequired?EDemoGameplayCommand::SelectDeparture:EDemoGameplayCommand::StartLevel; Request.bEndless=true;
+    Request.ReadyRevision=State->TeamReady.Revision; Request.ExpectedLevel=State->LevelNumber;
+    Request.Terminal=PendingNextLevelTerminal.Get(); Request.TerminalGeneration=NextTerminalGeneration;
+    GetController()->SubmitGameplayCommand(Request);
 }
 void UDemoMenuFlowComponent::ShowEndlessUnlockTip()
 {
@@ -97,11 +113,14 @@ void UDemoMenuFlowComponent::RefreshMenuInput()
 void UDemoMenuFlowComponent::EscapePressed()
 {
     DEMO_LOG_CALL();
+    if(IsCasinoBetInputOpen()) { CloseCasinoBetInput(); return; } // 编辑金额时Esc仅取消本次输入。
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     if (HasBlockingOverlay()) { CloseOverlay(); return; }
+    if(bNextLevelConfirmationOpen) CancelNextLevelConfirmation(); // 打开暂停前可靠地结束本人终端会话，撤销Ready；返回后需重新与终端交互。
     const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 大厅不必暂停，局内任意阶段保留下层UI。
-    if (!State || State->Phase == EDemoPhase::Lobby) { UE_LOG(LogFPSDemo, Log, TEXT("Pause ignored outside run")); return; }
-    if (!GetController()->SetPause(true)) { UE_LOG(LogFPSDemo, Warning, TEXT("Pause rejected by engine")); return; }
+    const bool bUnregisteredClient=GetWorld()->GetNetMode()==NM_Client && !GetController()->IsCoopRegistered(); // 失败连接即使没有GS也必须可重新打开离开菜单。
+    if ((!State || State->Phase == EDemoPhase::Lobby) && !bUnregisteredClient) { UE_LOG(LogFPSDemo, Log, TEXT("Pause ignored outside run")); return; }
+    if (!GetController()->SetLocalMenuPaused(true)) { UE_LOG(LogFPSDemo, Warning, TEXT("Pause rejected by engine")); return; }
     bPauseMenuActive = true;
     MenuPage = EDemoMenuPage::Pause;
     RefreshMenuInput();
@@ -110,16 +129,27 @@ void UDemoMenuFlowComponent::CloseOverlay()
 {
     DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
+    if(MenuPage==EDemoMenuPage::FirstRunGuide) { CloseFirstRunGuide(); return; } // 明确关闭才写已读；显示/旅行/阶段变化不伪造用户确认。
     // Esc只取消退出意图；恢复原页面及暂停所有权，不让保存页穿透到游戏。
     if (MenuPage == EDemoMenuPage::QuitSaving) { CancelQuitSave(); return; }
-    if (DisplayConfirmDeadline > 0) { ConfirmDisplaySettings(false); return; }
+    if (bChoosingHostSave && GetWorld()->GetGameInstance()->GetSubsystem<UDemoRoomSubsystem>()->IsBusy())
+    { GetWorld()->GetGameInstance()->GetSubsystem<UDemoRoomSubsystem>()->Leave(); return; } // 开房旅行尚未完成时取消必须撤销GI连接意图。
+    if (MenuPage == EDemoMenuPage::Multiplayer)
+    {
+        UDemoRoomSubsystem* Rooms = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRoomSubsystem>(); // 关闭查询时撤销委托；连接中明确离开，避免隐藏窗口后迟到旅行。
+        if (Rooms->IsBusy() && Rooms->GetState() != EDemoRoomState::Searching) { Rooms->Leave(); return; }
+        Rooms->CancelSearch(); MenuPage = EDemoMenuPage::None; RefreshMenuInput(); return;
+    }
+    if (MenuPage == EDemoMenuPage::Saves && bChoosingHostSave)
+    { bChoosingHostSave = false; MenuPage = EDemoMenuPage::Multiplayer; RefreshMenuInput(); return; }
+    if (SettingsFlow->HasPendingDisplay()) { ConfirmDisplaySettings(false); return; }
     if (MenuPage == EDemoMenuPage::Settings) MenuPage = SettingsBackPage;
     else if (MenuPage == EDemoMenuPage::ReturnHub) MenuPage = EDemoMenuPage::Pause;
     else if (MenuPage == EDemoMenuPage::CreateSave) { PendingSaveSlot = INDEX_NONE; MenuPage = EDemoMenuPage::Saves; }
     else
     {
         MenuPage = EDemoMenuPage::None;
-        if (bPauseMenuActive) { GetController()->SetPause(false); bPauseMenuActive = false; }
+        if (bPauseMenuActive) { GetController()->SetLocalMenuPaused(false); bPauseMenuActive = false; }
     }
     RefreshMenuInput();
 }
@@ -130,8 +160,14 @@ void UDemoMenuFlowComponent::SelectSaveSlot(int32 Index)
     if (MenuPage != EDemoMenuPage::Saves || Index < 0 || Index > 2) { UE_LOG(LogFPSDemo, Warning, TEXT("SelectSaveSlot rejected: page/index")); return; }
     UDemoRunSaves* Saves = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>(); // GI持有的文件缓存，不在HUD里读盘。
     if (!Saves->SlotExists(Index)) { PendingSaveSlot = Index; MenuPage = EDemoMenuPage::CreateSave; RefreshMenuInput(); return; }
-    if (Saves->SelectSlot(Index)) GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->TravelToRun(true);
-    else MenuMessage = Saves->GetStatus();
+    if (bChoosingHostSave)
+    {
+        UDemoRoomSubsystem* Rooms = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRoomSubsystem>(); // 开房只接受安全区槽，失败仍停留选槽界面。
+        Rooms->HostSlot(Index, false); MenuMessage = Rooms->GetStatus(); return;
+    }
+    FDemoGameplayCommandRequest Request; // 仅房主在自己的持久槽上执行选择及旅行，UI缓存不承担写盘。
+    Request.Command=EDemoGameplayCommand::SelectSaveSlot; Request.Choice=Index;
+    GetController()->SubmitGameplayCommand(Request);
 }
 void UDemoMenuFlowComponent::ConfirmCreateSave(bool Confirm)
 {
@@ -139,14 +175,20 @@ void UDemoMenuFlowComponent::ConfirmCreateSave(bool Confirm)
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     if (MenuPage != EDemoMenuPage::CreateSave) { UE_LOG(LogFPSDemo, Warning, TEXT("Create confirmation rejected: wrong page")); return; }
     if (!Confirm) { CloseOverlay(); return; }
-    UDemoRunSaves* Saves = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>(); // 同步保存成功才旅行。
-    if (Saves->CreateSlot(PendingSaveSlot)) GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->TravelToRun(true);
-    else MenuMessage = Saves->GetStatus();
+    if (bChoosingHostSave)
+    {
+        UDemoRoomSubsystem* Rooms = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRoomSubsystem>(); // 用户已明确确认创建空栏，服务先落盘再启动Listen旅行。
+        Rooms->HostSlot(PendingSaveSlot, true); MenuMessage = Rooms->GetStatus(); return;
+    }
+    FDemoGameplayCommandRequest Request; // 主机创建槽并持久化成功后才旅行；远端客户端不能选择房主磁盘槽。
+    Request.Command=EDemoGameplayCommand::CreateSave; Request.Choice=PendingSaveSlot;
+    GetController()->SubmitGameplayCommand(Request);
 }
 void UDemoMenuFlowComponent::OnRunReady()
 {
     DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
+    if (bPauseMenuActive) GetController()->SetLocalMenuPaused(false); // 同World返回安全区也释放Standalone暂停；联机只是本机页面清理。
     MenuTerminal.Reset(); MenuTerminalGeneration = 0; NextTerminalGeneration = 0;
     MenuPage = EDemoMenuPage::None; bPauseMenuActive = false; PendingSaveSlot = INDEX_NONE;
     bMenuOpen = bRewardMenu = bNextLevelConfirmationOpen = false;
@@ -168,10 +210,12 @@ void UDemoMenuFlowComponent::ReturnHubPressed()
         CloseOverlay();
         return;
     }
-    AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 非Hub才执行权威成长检测/返回流程；胜利仍走统一续玩入口。
-    if (State && State->Phase == EDemoPhase::Victory) { Mode->ContinueAfterVictory(); return; }
-    if (Mode->HasRunUpgrades()) { MenuPage = EDemoMenuPage::ReturnHub; RefreshMenuInput(); }
-    else if (!Mode->ReturnToSafeHub(false)) MenuMessage = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->GetStatus();
+    const FDemoPlayerMenuSnapshot& View=GetController()->GetMenuSnapshot(); // 房主权限和临时成长提示来自服务器快照。
+    if (!View.bCanLeadSession) { MenuMessage=TEXT("只有房主可以带全队返回安全区"); return; }
+    if (View.bHasRunUpgrades && State && State->Phase!=EDemoPhase::Victory) { MenuPage=EDemoMenuPage::ReturnHub; RefreshMenuInput(); return; }
+    FDemoGameplayCommandRequest Request; // 最终状态、全队成长及确认需求仍由服务器复核。
+    Request.Command=EDemoGameplayCommand::ReturnHub; GetController()->SubmitGameplayCommand(Request);
+
 }
 void UDemoMenuFlowComponent::ConfirmReturnHub(bool Confirm)
 {
@@ -179,16 +223,18 @@ void UDemoMenuFlowComponent::ConfirmReturnHub(bool Confirm)
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     if (MenuPage != EDemoMenuPage::ReturnHub) { UE_LOG(LogFPSDemo, Warning, TEXT("Return hub confirmation rejected: wrong page")); return; }
     if (!Confirm) { CloseOverlay(); return; }
-    if (!GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->ReturnToSafeHub(true)) MenuMessage = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->GetStatus();
+    FDemoGameplayCommandRequest Request; // 确认仅表达清空临时成长意图，不提供客户端计算结果。
+    Request.Command=EDemoGameplayCommand::ReturnHub; Request.bConfirmed=true; GetController()->SubmitGameplayCommand(Request);
 }
 void UDemoMenuFlowComponent::ReturnLobbyPressed()
 {
     DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     if (MenuPage != EDemoMenuPage::Pause) { UE_LOG(LogFPSDemo, Warning, TEXT("Return lobby rejected: not pause menu")); return; }
-    AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 安全阶段保存当前改动，Combat保留进入前快照。
-    if (!Mode->SaveCheckpoint()) { MenuMessage = GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->GetStatus(); return; }
-    Mode->TravelToRun(false);
+    if (GetWorld()->GetNetMode()==NM_Client) { GetController()->LeaveCoopToLobby(); return; } // 远端退出只断开本人，房主战局继续。
+    FDemoGameplayCommandRequest Request; // 主机保存全队检查点成功后执行全队旅行。
+    Request.Command=EDemoGameplayCommand::ReturnLobby; GetController()->SubmitGameplayCommand(Request);
+
 }
 void UDemoMenuFlowComponent::SettingsPressed()
 {
@@ -204,70 +250,26 @@ void UDemoMenuFlowComponent::SettingsPressed()
 bool UDemoMenuFlowComponent::IsSettingsOpen() const
 { DEMO_LOG_TICK(); return MenuPage == EDemoMenuPage::Settings; }
 void UDemoMenuFlowComponent::BeginSettings()
+{ DEMO_LOG_CALL(); SettingsFlow->Begin(); MenuMessage=SettingsFlow->GetMessage(); }
+void UDemoMenuFlowComponent::CycleSetting(int32 Setting,int32 Direction)
 {
     DEMO_LOG_CALL();
-    if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
-    UDemoGameUserSettings* Settings = Cast<UDemoGameUserSettings>(UGameUserSettings::GetGameUserSettings()); // Engine拥有的本地设置。
-    if (!Settings) { UE_LOG(LogFPSDemo, Error, TEXT("DemoGameUserSettings class missing in config")); return; }
-    Resolutions = { FIntPoint(1024,768), FIntPoint(1280,720), FIntPoint(1600,900), FIntPoint(1920,1080), FIntPoint(2560,1440), FIntPoint(3840,2160) };
-    Resolutions.AddUnique(Settings->GetScreenResolution());
-    ResolutionChoice = Resolutions.IndexOfByKey(Settings->GetScreenResolution());
-    QualityChoice = Settings->GetOverallScalabilityLevel();
-    WindowChoice = static_cast<int32>(Settings->GetFullscreenMode());
-    SensitivityChoice = Settings->GetMouseSensitivity();
-    MenuMessage.Empty();
-}
-void UDemoMenuFlowComponent::CycleSetting(int32 Setting, int32 Direction)
-{
-    DEMO_LOG_CALL();
-    if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
-    if (!IsSettingsOpen() || DisplayConfirmDeadline > 0 || (Direction != 1 && Direction != -1)) { UE_LOG(LogFPSDemo, Warning, TEXT("Setting edit rejected: page/confirmation/direction")); return; }
-    if (Setting == 0 && !Resolutions.IsEmpty()) ResolutionChoice = (ResolutionChoice + Direction + Resolutions.Num()) % Resolutions.Num();
-    else if (Setting == 1) QualityChoice = (FMath::Max(0, QualityChoice) + Direction + 4) % 4;
-    else if (Setting == 2) SensitivityChoice = FMath::Clamp(SensitivityChoice + Direction*.1f, .1f, 3.f);
-    else if (Setting == 3) WindowChoice = (WindowChoice + Direction + 3) % 3;
-    else UE_LOG(LogFPSDemo, Warning, TEXT("Setting edit rejected: unknown setting %d"), Setting);
+    if(bStopped||!GetController()->IsLocalController()||!IsSettingsOpen()){UE_LOG(LogFPSDemo,Log,TEXT("SETTINGS_EDIT rejected page/lifecycle"));return;}
+    SettingsFlow->Cycle(Setting,Direction);
 }
 FString UDemoMenuFlowComponent::GetSettingText(int32 Setting) const
-{
-    DEMO_LOG_TICK();
-    if (Setting == 0 && Resolutions.IsValidIndex(ResolutionChoice)) return FString::Printf(TEXT("%d × %d"), Resolutions[ResolutionChoice].X, Resolutions[ResolutionChoice].Y);
-    if (Setting == 1) return QualityChoice == 0 ? TEXT("低") : QualityChoice == 1 ? TEXT("中") : QualityChoice == 2 ? TEXT("高") : QualityChoice == 3 ? TEXT("极高") : TEXT("自定义");
-    if (Setting == 2) return FString::Printf(TEXT("%.1f ×"), SensitivityChoice);
-    if (Setting == 3) return WindowChoice == 0 ? TEXT("全屏") : WindowChoice == 1 ? TEXT("无边框全屏") : TEXT("窗口化");
-    return TEXT("不可用");
-}
+{ DEMO_LOG_TICK(); return SettingsFlow->GetText(Setting); }
 void UDemoMenuFlowComponent::ApplyUserSettings()
 {
     DEMO_LOG_CALL();
-    if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
-    if (!IsSettingsOpen() || DisplayConfirmDeadline > 0 || !Resolutions.IsValidIndex(ResolutionChoice)) { UE_LOG(LogFPSDemo, Warning, TEXT("Apply settings rejected: page/pending display/invalid resolution")); return; }
-    UDemoGameUserSettings* Settings = Cast<UDemoGameUserSettings>(UGameUserSettings::GetGameUserSettings()); // 单次提交到Engine配置对象。
-    if (!Settings) { UE_LOG(LogFPSDemo, Error, TEXT("Apply settings failed: missing configured settings class")); return; }
-    PreviousResolution = Settings->GetScreenResolution();
-    PreviousWindowMode = static_cast<int32>(Settings->GetFullscreenMode());
-    Settings->SetScreenResolution(Resolutions[ResolutionChoice]);
-    Settings->SetFullscreenMode(static_cast<EWindowMode::Type>(WindowChoice));
-    if (QualityChoice >= 0) Settings->SetOverallScalabilityLevel(QualityChoice);
-    Settings->SetMouseSensitivity(SensitivityChoice);
-    Settings->ApplySettings(false);
-    if (PreviousResolution != Resolutions[ResolutionChoice] || PreviousWindowMode != WindowChoice) DisplayConfirmDeadline = FPlatformTime::Seconds() + 15.0;
-    else { Settings->ConfirmVideoMode(); Settings->SaveSettings(); }
-    MenuMessage = TEXT("设置已应用");
-    UE_LOG(LogFPSDemo, Log, TEXT("SETTINGS_APPLIED resolution=%dx%d mode=%d quality=%d sensitivity=%.1f pending=%d"), Resolutions[ResolutionChoice].X, Resolutions[ResolutionChoice].Y, WindowChoice, QualityChoice, SensitivityChoice, DisplayConfirmDeadline > 0);
+    if(bStopped||!GetController()->IsLocalController()||!IsSettingsOpen()){UE_LOG(LogFPSDemo,Log,TEXT("SETTINGS_APPLY rejected page/lifecycle"));return;}
+    SettingsFlow->Apply(); MenuMessage=SettingsFlow->GetMessage();
 }
 void UDemoMenuFlowComponent::ConfirmDisplaySettings(bool Confirm)
 {
     DEMO_LOG_CALL();
-    if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
-    if (DisplayConfirmDeadline <= 0) { UE_LOG(LogFPSDemo, Log, TEXT("Display confirmation ignored: no pending change")); return; }
-    DisplayConfirmDeadline = 0;
-    UGameUserSettings* Settings = UGameUserSettings::GetGameUserSettings(); // 显示回退只影响显示，已应用画质/鼠标仍保留。
-    if (!Confirm) { Settings->SetScreenResolution(PreviousResolution); Settings->SetFullscreenMode(static_cast<EWindowMode::Type>(PreviousWindowMode)); Settings->ApplySettings(false); }
-    Settings->ConfirmVideoMode(); Settings->SaveSettings();
-    BeginSettings();
-    MenuMessage = Confirm ? TEXT("显示模式已保存") : TEXT("显示模式已恢复");
-    UE_LOG(LogFPSDemo, Log, TEXT("DISPLAY_CONFIRM keep=%d"), Confirm);
+    if(bStopped||!GetController()->IsLocalController())return;
+    SettingsFlow->Confirm(Confirm); MenuMessage=SettingsFlow->GetMessage();
 }
 float UDemoMenuFlowComponent::GetDisplayConfirmSeconds() const
-{ DEMO_LOG_TICK(); return DisplayConfirmDeadline > 0 ? FMath::Max(.001f, static_cast<float>(DisplayConfirmDeadline-FPlatformTime::Seconds())) : 0.f; }
+{ DEMO_LOG_TICK(); return SettingsFlow->GetRemainingSeconds(); }

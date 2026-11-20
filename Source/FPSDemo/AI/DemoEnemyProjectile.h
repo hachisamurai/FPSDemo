@@ -17,6 +17,8 @@ class FPSDEMO_API ADemoEnemyProjectile : public AActor
 public:
     /** 创建可见球体和无重力ProjectileMovement，Actor寿命6秒。 */
     ADemoEnemyProjectile();
+    /** 客户端关闭本地碰撞与运动模拟，仅展示服务器复制位置；服务器继续真实扫掠。 */
+    virtual void BeginPlay() override;
     /** Source为存活敌人，Direction为单位发射方向，Speed单位cm/s；发射时冻结GAS攻击点数/关卡。 */
     void Initialize(ADemoEnemy* Source, const FVector& Direction, float Speed);
     /** DeltaSeconds为帧间秒数；来源死亡/换关/终局立即撤销，禁止飞行物进入安全区伤人。 */
@@ -27,6 +29,8 @@ private:
         FVector NormalImpulse, const FHitResult& Hit);
     /** 同步判断来源/关卡/Combat有效性；每次碰撞重新确认，不能只依赖Tick的前帧检查。 */
     bool IsAttackValid() const;
+    /** 会话撤销先关闭碰撞并消费飞弹，再销毁Actor，幂等且不触发命中奖励。 */
+    void CancelForSession();
     // 根碰撞半径12cm；ProjectileMovement扫掠该组件，避免高速弹穿过薄墙。
     UPROPERTY() TObjectPtr<USphereComponent> Collision;
     // World持有Actor，Actor持有外观/运动组件；外观不参与额外碰撞。

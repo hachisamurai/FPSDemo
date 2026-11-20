@@ -1,3 +1,4 @@
+// 职责：战役/难度/敌人数据契约；DT解析为出生快照，依赖AI参数与DataTable，运行期不修改共享行。
 #pragma once
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
@@ -5,7 +6,10 @@
 #include "AI/DemoEnemyTactics.h"
 #include "AI/DemoBossDiveSettings.h"
 #include "AI/DemoCloseCombat.h"
+#include "AI/DemoEnemyRosterSettings.h"
 #include "DemoCombatConfig.generated.h"
+
+class UDemoEnemyDefinition;
 
 /** 难度枚举稳定映射 Easy/Normal/Hard/Hell 行名；不以 UI 显示文本作为配置键。 */
 UENUM(BlueprintType)
@@ -16,6 +20,8 @@ USTRUCT(BlueprintType)
 struct FPSDEMO_API FDemoEnemyRow : public FTableRowBase
 {
 	GENERATED_BODY()
+	// 可选外观/体型定义；None保留旧模板和BP路径，数值仍由本表管理。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy") TObjectPtr<UDemoEnemyDefinition> Definition;
 	// 生命点数，合法范围 [1,100000]；生成时写入 GAS MaxHealth/Health。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy", meta=(ClampMin="1")) float BaseHealth = 60.f;
 	// 单次攻击基础点数 [0,10000]，倍率计算后写入 GAS AttackPower。
@@ -32,6 +38,8 @@ struct FPSDEMO_API FDemoEnemyRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy") FDemoBossDiveSettings DiveSlam;
 	// Melee/Charger共用前摇与冲刺参数，只有对应Tactics角色使用。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy") FDemoCloseCombatSettings CloseCombat;
+    // 特殊兵种及双Boss执行参数；None保留原攻击，出生后冻结。
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Enemy") FDemoEnemyRosterSettings Roster;
 };
 
 /** 全局难度倍率表，四个固定行名 Easy、Normal、Hard、Hell。 */
@@ -39,6 +47,8 @@ USTRUCT(BlueprintType)
 struct FPSDEMO_API FDemoDifficultyRow : public FTableRowBase
 {
 	GENERATED_BODY()
+	// 小怪数量倍率[1,5]；入场与任务/人数系数合并后四舍五入，Boss数量不变，旧资产缺字段按1读取。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Difficulty", meta=(ClampMin="1", ClampMax="5")) float EnemyCountMultiplier = 1.f;
 	// 攻击欲望倍率[0.25,4]；间隔除以此值，预警/技能持续时间不缩短，旧三档默认1。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Difficulty", meta=(ClampMin="0.25", ClampMax="4")) float AttackFrequencyMultiplier = 1.f;
 	// 无量纲血量倍率，范围 [0.1,10]；普通默认为 1。
@@ -76,6 +86,10 @@ struct FPSDEMO_API FDemoLevelRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Level") int32 EnemyCount = 5;
 	// 十关战役只允许Level10配置Boss模板，其他行必须None；无尽每十关复用此模板。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Level") FName BossRow = NAME_None;
+    // 有Boss关可配置候选行；RunId+关号稳定抽选一个，空数组沿用BossRow，不追加第二只Boss。
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Level") TArray<FName> BossPool;
+    // 有限特殊小怪替换槽，最多7项且每种满足2/2/1/2上限；不增加EnemyCount。
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Level") TArray<FName> SpecialRows;
 	// 本关基础生命成长倍率 [0.1,10]；与选择的难度相乘，小怪/Boss 共用。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Level") float HealthMultiplier = 1.f;
 	// 本关基础攻击成长倍率 [0.1,10]，不改攻击频率。
@@ -89,7 +103,9 @@ struct FPSDEMO_API FDemoLevelRow : public FTableRowBase
 /** 生成前冻结的值对象，不持有 DataTable 行指针；怪物活着期间不会受换难度影响。 */
 struct FPSDEMO_API FDemoEnemySpawnStats
 {
-	FDemoCloseCombatSettings CloseCombat; // 生产Resolve冻结冲刺冷却难度修正值，其余前摇不缩短。
+	TObjectPtr<UDemoEnemyDefinition> Definition=nullptr; // 表持有的只读引用；Build/Prepare同步转交，运行计划和实例另以UPROPERTY保活。
+	FDemoCloseCombatSettings CloseCombat; // 冻结近战/冲刺参数，前摇不缩短。
+    FDemoEnemyRosterSettings Roster; // 特殊角色参数，耐久/冷却在Resolve中完成倍率计算。
 	FDemoBossDiveSettings DiveSlam; // 新技能配置值快照，不持有表引用。
 	bool bUseDive=false; // 生产Resolve按Boss模板开启；旧直接生成测试不自动获得新技能。
 	FDemoEnemyTacticsSettings Tactics; // 模板战术值快照，不保存DataTable引用。

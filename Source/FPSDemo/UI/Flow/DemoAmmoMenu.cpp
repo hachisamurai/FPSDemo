@@ -1,4 +1,4 @@
-#include "UI/Flow/DemoMenuFlowComponent.h"
+﻿#include "UI/Flow/DemoMenuFlowComponent.h"
 #include "Interaction/DemoTerminalComponent.h"
 #include "Characters/DemoCharacter.h"
 #include "Components/InputComponent.h"
@@ -27,13 +27,14 @@ int32 UDemoMenuFlowComponent::GetPendingAmmoPrice() const
 void UDemoMenuFlowComponent::OpenAmmoMenu()
 {
     DEMO_LOG_CALL();
+    if(bGambleWaiting||!GambleReel.Cards.IsEmpty()) { UE_LOG(LogFPSDemo,Log,TEXT("GAMBLE_REEL ammo tab rejected during reveal")); return; } // 直接入口与白名单热区共享动画输入限制。
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     const auto* State=GetWorld()->GetGameState<ADemoGameState>(); // UI权威状态，不接受关间终端入口。
-    auto* Mode=GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 单人权限入口。
-    if(HasBlockingOverlay()||!State||State->Phase!=EDemoPhase::Hub||!Mode||InspectedWeapon!=INDEX_NONE||!Mode->GetTerminalBlockReason(Cast<ADemoCharacter>(GetController()->GetPawn())).IsEmpty())
+    if(HasBlockingOverlay()||!State||State->Phase!=EDemoPhase::Hub||InspectedWeapon!=INDEX_NONE||!GetController()->GetMenuSnapshot().TerminalBlockReason.IsEmpty())
     {UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_MENU_REJECT phase/terminal/modal"));return;}
+
     TerminalPage=EDemoTerminalPage::Ammo; PendingAmmoPrice=INDEX_NONE;
-    InspectedAmmo=GetController()->GetPawn()->FindComponentByClass<UDemoAmmoComponent>()->GetSelected(); MenuMessage.Empty();
+    InspectedAmmo=0; MenuMessage.Empty(); // 查看项与装配状态分开，默认普通弹，不读取客户端交易组件。
 }
 void UDemoMenuFlowComponent::InspectAmmo(int32 Index)
 {
@@ -47,14 +48,20 @@ void UDemoMenuFlowComponent::AmmoAction()
     DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     if(!IsAmmoMenuOpen()||HasBlockingOverlay()||PendingAmmoPrice!=INDEX_NONE||!GetController()->GetPawn()){UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_ACTION_REJECT modal"));return;}
-    UDemoAmmoComponent* Ammo=GetController()->GetPawn()->FindComponentByClass<UDemoAmmoComponent>(); // Pawn拥有，点击时重新验证。
-    MenuMessage=Ammo->GetBlockReason();
-    // 普通弹不依赖特殊效果参数；损坏配置仍允许显式撤销特殊类型。
-    if(!MenuMessage.IsEmpty()||(InspectedAmmo!=0&&!Ammo->GetCatalog()->Validate())){if(MenuMessage.IsEmpty())MenuMessage=TEXT("弹药配置无效，请检查目录");UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_ACTION_REJECT config/permission"));return;}
-    if(Ammo->IsUnlocked(InspectedAmmo)){Ammo->Equip(InspectedAmmo,MenuMessage);return;}
-    const int32 Cost=Ammo->GetCatalog()->Entries[InspectedAmmo].UnlockGoldCost; // 购买确认快照，与下一次提交报价对比。
-    if(GetWorld()->GetGameState<ADemoGameState>()->Coins<Cost){MenuMessage=TEXT("金币不足");UE_LOG(LogFPSDemo,Log,TEXT("AMMO_ACTION_REJECT gold"));return;}
-    PendingAmmoPrice=Cost;
+    const FDemoPlayerMenuSnapshot& View=GetController()->GetMenuSnapshot(); // 价格、解锁、拒绝原因均来自服务器投影。
+    if (!View.AmmoOffers.IsValidIndex(InspectedAmmo)) { MenuMessage=TEXT("等待服务器弹药目录"); return; }
+    const FDemoShopOfferSnapshot& Offer=View.AmmoOffers[InspectedAmmo]; // 借用当前已验证行，不跨回执保留引用。
+    MenuMessage=Offer.BlockReason;
+    if (!MenuMessage.IsEmpty()) return;
+    if (Offer.bUnlocked)
+    {
+        FDemoGameplayCommandRequest Request; // 免费装配仍要通过本人服务器会话校验。
+        Request.Command=EDemoGameplayCommand::EquipAmmo; Request.Choice=InspectedAmmo;
+        Request.Terminal=MenuTerminal.Get(); Request.TerminalGeneration=MenuTerminalGeneration;
+        GetController()->SubmitGameplayCommand(Request); return;
+    }
+    PendingAmmoPrice=Offer.Cost; // 只展示服务器报价；确认时服务器再次核对，不能客户端直接扣币。
+
 }
 void UDemoMenuFlowComponent::ConfirmAmmoPurchase(bool Confirm)
 {
@@ -64,5 +71,8 @@ void UDemoMenuFlowComponent::ConfirmAmmoPurchase(bool Confirm)
     const int32 Quote=PendingAmmoPrice; // 先消费意图，抵御重复点击。
     PendingAmmoPrice=INDEX_NONE;
     if(!Confirm){MenuMessage=TEXT("已取消，未扣除金币");return;}
-    GetController()->GetPawn()->FindComponentByClass<UDemoAmmoComponent>()->Purchase(InspectedAmmo,Quote,MenuMessage);
+    FDemoGameplayCommandRequest Request; // 明确确认的报价，服务器原子提交并返回保存状态。
+    Request.Command=EDemoGameplayCommand::PurchaseAmmo; Request.Choice=InspectedAmmo; Request.ExpectedPrice=Quote;
+    Request.Terminal=MenuTerminal.Get(); Request.TerminalGeneration=MenuTerminalGeneration;
+    GetController()->SubmitGameplayCommand(Request);
 }

@@ -1,9 +1,11 @@
 #include "Economy/DemoShopComponent.h"
+#include "Debug/DemoEditorCheats.h" // 只在WITH_EDITOR分支调整实际扣款，正常报价/权限/次数不改变。
+#include "Economy/DemoUpgradeCatalog.h"
 #include "Interaction/DemoTerminalComponent.h"
 #include "Game/DemoGameState.h"
 #include "Characters/DemoCharacter.h"
-#include "Player/DemoPlayerController.h"
-#include "Interaction/DemoInteractable.h"
+#include "Player/DemoPlayerState.h"
+#include "Player/DemoPlayerProgressComponent.h"
 #include "Weapons/DemoWeaponComponent.h"
 #include "Weapons/Ammo/DemoAmmoComponent.h"
 #include "Weapons/Ammo/DemoAmmoCatalog.h"
@@ -12,130 +14,160 @@
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoAbilitySystemComponent.h"
 #include "Engine/GameInstance.h"
+#include "Kismet/GameplayStatics.h"
 #include "Debug/DemoLog.h"
-
 namespace
 {
-    /** Reason为当前同步查询的拒绝文本；高频HUD查询仍记录原因，使用VeryVerbose避免默认显示刷屏。 */
-    FString ShopRejection(const FString& Reason)
+    /** Player 为同步借用 Avatar；容器归本人 PlayerState，不能借用房主钱包。 */
+    UDemoPlayerProgressComponent* PersonalProgress(const ADemoCharacter* Player)
     {
-        UE_LOG(LogFPSDemo, VeryVerbose, TEXT("[CALL] ShopRejection: %s"), *Reason);
-        return Reason;
+        UE_LOG(LogFPSDemo, VeryVerbose, TEXT("[CALL] %hs"), __FUNCTION__);
+        const ADemoPlayerState* State = Player ? Player->GetPlayerState<ADemoPlayerState>() : nullptr; // 重生时 PS 可以先于 Pawn 保留。
+        return State ? State->GetProgressComponent() : nullptr;
     }
 }
-
 UDemoShopComponent::UDemoShopComponent() { DEMO_LOG_CALL(); PrimaryComponentTick.bCanEverTick = false; }
 void UDemoShopComponent::InitializeServices(UDemoTerminalComponent* Terminal, FDemoSaveCheckpointRequest SaveRequest)
 {
     DEMO_LOG_CALL();
-    if (bStopped || !Terminal || Terminal->GetOwner() != GetOwner() || !SaveRequest.IsBound()) { UE_LOG(LogFPSDemo, Error, TEXT("SHOP_INIT invalid dependencies")); return; }
+    if (bStopped || !Terminal || Terminal->GetOwner() != GetOwner() || !SaveRequest.IsBound())
+    { UE_LOG(LogFPSDemo, Error, TEXT("SHOP_INIT invalid dependencies")); return; }
     Terminals = Terminal; SaveCheckpointRequest = MoveTemp(SaveRequest);
 }
-void UDemoShopComponent::Shutdown() { DEMO_LOG_CALL(); bStopped = true; SaveCheckpointRequest.Unbind(); Terminals.Reset(); }
+void UDemoShopComponent::Shutdown() { DEMO_LOG_CALL(); bStopped = true; SaveCheckpointRequest.Unbind(); Terminals.Reset(); DeviceLeases.Reset(); }
 void UDemoShopComponent::EndPlay(const EEndPlayReason::Type EndPlayReason) { DEMO_LOG_CALL(); Shutdown(); Super::EndPlay(EndPlayReason); }
-
 int32 UDemoShopComponent::GetUpgradeCost(int32 Choice) const
 {
-	DEMO_LOG_TICK();
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 当前World账本，只读查询币种与独立价格。
-	// 只涨当前币种的当前属性；查询非法索引不会访问数组或默认为另一属性。
-	return State ? State->UpgradeProgress.Cost(Choice, State->Phase == EDemoPhase::Hub) : INDEX_NONE;
+    DEMO_LOG_TICK();
+    // 旧单人调用适配；联网 UI 必须传本人，不能把 Player0 的报价用作其他玩家的授权。
+    return GetPlayerUpgradeCost(Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this, 0)), Choice);
 }
-
-bool UDemoShopComponent::PurchaseUpgrade(int32 Choice, ADemoCharacter* Purchaser)
+int32 UDemoShopComponent::GetPlayerUpgradeCost(const ADemoCharacter* Player, int32 Choice) const
 {
-	DEMO_LOG_CALL();
-	// State 借用当前 World；Cost 在效果应用前快照，购买成功后才累计涨价次数。
-	ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>();
-	const int32 Cost = GetUpgradeCost(Choice);
-	// 与 UI 共用可用性读取，但每次交易仍重新执行，避免使用上一帧按钮状态授权。
-	const FString BlockReason = GetPurchaseBlockReason(Purchaser, Choice);
-	if (!BlockReason.IsEmpty() || Choice < 0 || Choice > 2)
-	{
-		UE_LOG(LogFPSDemo, Log, TEXT("Purchase rejected: choice=%d reason=%s"), Choice, *BlockReason);
-		return false;
-	}
-	TGuardValue<bool> TransactionGuard(bTransactionInProgress, true); // 本同步栈退出自动释放重入门控，不捕获Pawn。
-	// 属性修改成功后才扣费；加生命上限后补足 25 点生命，弹匣升级后补足 4 发。
-	TSubclassOf<UGameplayEffect> EffectClass = Choice == 0 ? UDemoPowerEffect::StaticClass() : Choice == 1 ? UDemoMaxHealthEffect::StaticClass() : UDemoMagazineEffect::StaticClass();
-	if (!DemoEffects::Apply(Purchaser->GetDemoASC(), Purchaser->GetDemoASC(), EffectClass, Choice == 0 ? 5.f : Choice == 1 ? 25.f : 4.f)) return false;
-	// 区域由权威Phase决定，UI不能传币种参数绕过；购买总数仍保留统计用途。
-	if (State->Phase == EDemoPhase::Hub)
-	{
-		State->Coins -= Cost; ++State->GoldPurchases; ++State->UpgradeProgress.GoldLevels[Choice];
-		// 记录本次实际授予的永久增量；不能从合计GAS值或购买总数反推来源。
-		if (Choice == 0) State->UpgradeProgress.PermanentDamage += 5.f;
-		else if (Choice == 1) State->UpgradeProgress.PermanentHealth += 25.f;
-		else State->UpgradeProgress.PermanentMagazine += 4.f;
-	}
-	else { State->SilverCoins -= Cost; ++State->SilverPurchases; ++State->UpgradeProgress.SilverLevels[Choice]; }
-	++State->Purchases;
-	if (Choice == 1) DemoEffects::Apply(Purchaser->GetDemoASC(), Purchaser->GetDemoASC(), UDemoHealthEffect::StaticClass(), 25.f);
-	if (Choice == 2) Purchaser->GetWeaponComponent()->AddAmmoToAll(4); // 全局容量GE先生效，再给每把已持有武器补新增4发。
-	if (!SaveCheckpointRequest.Execute()) UE_LOG(LogFPSDemo, Warning, TEXT("SHOP_ATTRIBUTE save pending; in-memory purchase retained")); // 延续既有属性购买语义：保存失败保留内存成长，由保存状态UI提示并在后续检查点重试。
-	// 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
-	UE_LOG(LogFPSDemo, Display, TEXT("PURCHASE choice=%d cost=%d currency=%s gold=%d silver=%d"), Choice, Cost, State->Phase == EDemoPhase::Hub ? TEXT("gold") : TEXT("silver"), State->Coins, State->SilverCoins);
-	return true;
+    DEMO_LOG_TICK();
+    const UDemoPlayerProgressComponent* Progress = PersonalProgress(Player); // 只读本人账本。
+    const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 公共阶段仅决定币种。
+    return Progress && State ? Progress->GetSnapshot().UpgradeProgress.Cost(Choice, State->Phase == EDemoPhase::Hub) : INDEX_NONE;
 }
-
-FString UDemoShopComponent::GetPurchaseBlockReason(ADemoCharacter* Purchaser, int32 Choice) const
-{
-	DEMO_LOG_TICK();
-	const FString Reason = GetTerminalBlockReason(Purchaser); // 先执行所有终端操作共用的权威检查，再判断商店余额。
-	if (!Reason.IsEmpty()) return Reason;
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 共用验证已保证存在，只在本次查询借用。
-	const ADemoPlayerController* PC = Cast<ADemoPlayerController>(Purchaser->GetController()); // 当前拥有者的页面决定购买入口。
-	if (PC->IsWeaponMenuOpen() || PC->IsAmmoMenuOpen()) return ShopRejection(TEXT("请切换至属性升级页购买"));
-	const bool bGold = State->Phase == EDemoPhase::Hub; // 当前注册终端所属区域，钱包余额与显示币种共用这一判定。
-	const int32 Balance = bGold ? State->Coins : State->SilverCoins; // 本次同步只读余额，不用另一币种自动补足。
-	const int32 Cost = GetUpgradeCost(Choice); // 每项分别判断不足，其他便宜属性仍能购买。
-	if (Cost == INDEX_NONE) return ShopRejection(TEXT("升级项目无效"));
-	if (State->Purchases >= 100000) return ShopRejection(TEXT("升级次数已达上限")); // 永久次数计入总上限，避免生成无法保存的快照。
-	const UDemoAttributeSet* Attributes = Purchaser->GetDemoAttributes(); // 交易前检查合计属性上限，拒绝不能持久化的增量。
-	if (!Attributes || (Choice == 0 && Attributes->GetWeaponDamageBonus() > 9995.f)
-		|| (Choice == 1 && Attributes->GetMaxHealth() > 9999975.f) || (Choice == 2 && Attributes->GetMagazineBonus() > 9996.f)) return ShopRejection(TEXT("该属性已达升级上限"));
-	if (Balance < Cost) return ShopRejection(FString::Printf(TEXT("%s不足，还需 %d %s"), bGold ? TEXT("金币") : TEXT("银币"), Cost - Balance, bGold ? TEXT("金币") : TEXT("银币")));
-	return FString();
-}
-
 FString UDemoShopComponent::GetTerminalBlockReason(ADemoCharacter* Player) const
 {
     DEMO_LOG_TICK();
-    const ADemoPlayerController* PC = Player ? Cast<ADemoPlayerController>(Player->GetController()) : nullptr; // 菜单只提供会话，服务重新校验World/范围/生命。
-    if (bStopped || bTransactionInProgress || !Terminals.IsValid() || !SaveCheckpointRequest.IsBound() || !PC
-        || PC->HasBlockingOverlay() || !PC->IsUpgradeMenuOpen() || PC->IsRewardMenu() || PC->IsNextLevelConfirmationOpen())
-        return ShopRejection(TEXT("请在备战阶段与升级终端交互"));
-    if (PC->GetMenuTerminal() != Terminals->GetShopTerminal() || PC->GetMenuTerminalGeneration() == 0)
-        return ShopRejection(TEXT("终端交互已过期，请重新交互"));
-    return Terminals->ValidateInteraction(Player, PC->GetMenuTerminal(), PC->GetMenuTerminalGeneration());
+    if (bStopped || bTransactionInProgress || !GetOwner()->HasAuthority() || !Terminals.IsValid() || !SaveCheckpointRequest.IsBound() || !PersonalProgress(Player))
+    { UE_LOG(LogFPSDemo, VeryVerbose, TEXT("SHOP_REJECT unavailable authority/session/player")); return TEXT("交易服务或玩家尚未就绪"); }
+    return Terminals->ValidateSession(Player, true);
 }
-
+FString UDemoShopComponent::GetPurchaseBlockReason(ADemoCharacter* Purchaser, int32 Choice) const
+{
+    DEMO_LOG_TICK();
+    const FString Reason = GetTerminalBlockReason(Purchaser); // 每次提交重验会话、位置、生命与阶段。
+    if (!Reason.IsEmpty()) return Reason;
+    const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 前述验证保证存在。
+    const FDemoPlayerProgressSnapshot& Data = PersonalProgress(Purchaser)->GetSnapshot(); // 同步只读，不保存引用到下一帧。
+    const int32 Cost = GetPlayerUpgradeCost(Purchaser, Choice); // 此人的此项价格。
+    if (Cost < 0) return TEXT("升级项目无效");
+    if (Data.UpgradeProgress.Total(true) + Data.UpgradeProgress.Total(false) >= 100000) return TEXT("升级次数已达上限");
+    const UDemoAttributeSet* Attributes = Purchaser->GetDemoAttributes(); // GAS 合计上限与存档格式保持一致。
+    const UDemoUpgradeCatalog* Catalog = UDemoUpgradeCatalog::Get(); // 缺失配置禁止交易，不能显示一个价格却应用另一组默认增量。
+    const FDemoUpgradeDefinition* Item = Catalog ? Catalog->Find(false,Choice) : nullptr; // 校验的业务索引只映射稳定商品ID。
+    const float Current = Attributes ? (Choice==0?Attributes->GetWeaponDamageBonus():Choice==1?Attributes->GetMaxHealth():Attributes->GetMagazineBonus()) : 0.f; // 购买前实际合计值。
+    if (!Attributes || !Item || Current > Item->Cap-Item->Increment) return TEXT("该属性已达上限或升级配置不可用");
+    int32 RequiredCost=Cost; // 只用于余额校验，保持原商品价格和后续涨价规则。
+#if WITH_EDITOR
+    RequiredCost=DemoEditorCheats::Debit(Purchaser,State->Phase==EDemoPhase::Hub,Cost);
+#endif
+    if ((State->Phase == EDemoPhase::Hub ? Data.Coins : Data.SilverCoins) < RequiredCost) return TEXT("个人货币余额不足");
+    return FString();
+}
+bool UDemoShopComponent::PurchaseUpgrade(int32 Choice, ADemoCharacter* Purchaser)
+{ DEMO_LOG_CALL(); return PurchaseUpgradeResult(Choice, Purchaser).IsApplied(); }
+FDemoCommandResult UDemoShopComponent::PurchaseUpgradeResult(int32 Choice, ADemoCharacter* Purchaser)
+{
+    DEMO_LOG_CALL();
+    const FString Reason = GetPurchaseBlockReason(Purchaser, Choice); // UI 报价不是扣款依据。
+    if (!Reason.IsEmpty()) return FDemoCommandResult::Reject(TEXT("PurchaseRejected"), Reason);
+    TGuardValue<bool> Guard(bTransactionInProgress, true); // 同步 GAS 回调不能递归进入第二笔购买。
+    UDemoPlayerProgressComponent* Progress = PersonalProgress(Purchaser); // 当前 PS 唯一账本。
+    FDemoPlayerProgressSnapshot Next = Progress->GetSnapshot(); // 先准备整笔钱包/价格变更。
+    const bool bGold = GetWorld()->GetGameState<ADemoGameState>()->Phase == EDemoPhase::Hub; // 服务器决定币种。
+    int32 Cost = Next.UpgradeProgress.Cost(Choice, bGold); // 同栈冻结实际扣款；Editor无限币只免扣，不伪造钱包或重置涨价。
+#if WITH_EDITOR
+    Cost=DemoEditorCheats::Debit(Purchaser,bGold,Cost);
+#endif
+    const FDemoUpgradeDefinition& Item = *UDemoUpgradeCatalog::Get()->Find(false,Choice); // 前述完整校验保证存在；本次同步事务冻结配置。
+    const TSubclassOf<UGameplayEffect> Effect = Choice == 0 ? UDemoPowerEffect::StaticClass() : Choice == 1 ? UDemoMaxHealthEffect::StaticClass() : UDemoMagazineEffect::StaticClass(); // 策略白名单，数值来自目录。
+    const FDemoPlayerProgressSnapshot Before = Next; // 先提交合法账本，再应用效果；失败可回滚，不能免费获得升级。
+    if (bGold)
+    {
+        Next.Coins -= Cost; ++Next.UpgradeProgress.GoldLevels[Choice];
+        if (Choice == 0) Next.UpgradeProgress.PermanentDamage += Item.Increment;
+        else if (Choice == 1) Next.UpgradeProgress.PermanentHealth += Item.Increment;
+        else Next.UpgradeProgress.PermanentMagazine += Item.Increment;
+    }
+    else { Next.SilverCoins -= Cost; ++Next.UpgradeProgress.SilverLevels[Choice]; }
+    if (!Progress->Commit(Next)) return FDemoCommandResult::Reject(TEXT("LedgerRejected"), TEXT("成长账本提交失败"));
+    if (!DemoEffects::Apply(Purchaser->GetDemoASC(), Purchaser->GetDemoASC(), Effect, Item.Increment))
+    { Progress->Commit(Before); return FDemoCommandResult::Reject(TEXT("EffectRejected"), TEXT("升级效果未能应用，账本已还原")); }
+    if (Choice == 1) DemoEffects::Apply(Purchaser->GetDemoASC(), Purchaser->GetDemoASC(), UDemoHealthEffect::StaticClass(), Item.Increment);
+    if (Choice == 2) Purchaser->GetWeaponComponent()->AddAmmoToAll(FMath::RoundToInt(Item.Increment)); // 目录要求整数发数。
+    const bool bSaved = SaveCheckpointRequest.Execute(); // 属性已经应用，保存失败保留内存，明示等待重试。
+    UE_LOG(LogFPSDemo, Display, TEXT("PURCHASE player=%s choice=%d cost=%d saved=%d"), *GetNameSafe(Purchaser), Choice, Cost, bSaved);
+    // 与新增赌博页并存后，普通升级回执也明确本次币种/金额，不能让玩家混淆永久与当轮消费。
+    const FString Payment=FString::Printf(TEXT("已消耗 %d %s"),Cost,bGold?TEXT("金币"):TEXT("银币")); // 权威实际扣款，UI不自行推算。
+    return FDemoCommandResult::Applied(bSaved, Payment+(bSaved?TEXT("，升级成功，检查点已保存"):TEXT("，升级已生效，房主检查点保存失败，请重试")));
+}
 FString UDemoShopComponent::GetAmmoBlockReason(ADemoCharacter* Player) const
 {
     DEMO_LOG_TICK();
-    const auto* PC=Player?Cast<ADemoPlayerController>(Player->GetController()):nullptr; // UI入口仍需权威校验。
-    const auto* State=GetWorld()->GetGameState<ADemoGameState>(); // 当前钱包/阶段。
-    if(!Player||!Player->HasAuthority()||!PC||!PC->IsAmmoMenuOpen()||PC->HasBlockingOverlay()||!State||State->Phase!=EDemoPhase::Hub)return ShopRejection(TEXT("仅可在安全区弹药终端操作"));
-    if(GetWorld()->IsPaused())return ShopRejection(TEXT("暂停期间不能装配或购买"));
-    if(GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->GetActiveSlot()==INDEX_NONE)return ShopRejection(TEXT("请先选择存档"));
-    return GetTerminalBlockReason(Player); // 共享范围/生命/阶段门控，避免弹药页另写权限。
+    const FString Reason = GetTerminalBlockReason(Player); // 无 UI 页面权限依赖，网络请求必须已交互。
+    if (!Reason.IsEmpty()) return Reason;
+    const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 弹药解锁只在安全区。
+    if (State->Phase != EDemoPhase::Hub) return TEXT("仅可在安全区操作弹药终端");
+    if (GetWorld()->GetGameInstance()->GetSubsystem<UDemoRunSaves>()->GetActiveSlot() == INDEX_NONE) return TEXT("房主尚未选择存档");
+    return FString();
 }
-
 bool UDemoShopComponent::PurchaseAmmo(ADemoCharacter* Player, int32 Index, int32 QuotedCost, FString& OutMessage)
 {
     DEMO_LOG_CALL();
-    OutMessage=GetAmmoBlockReason(Player);
-    UDemoAmmoComponent* Ammo = Player ? Player->FindComponentByClass<UDemoAmmoComponent>() : nullptr; // 库存唯一属于Pawn，商店只在同步提交期间借用。
-    if (!Ammo) { OutMessage=TEXT("弹药库存不可用"); UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_PURCHASE_REJECT missing inventory")); return false; }
-    const UDemoAmmoCatalog* Data=Ammo->GetCatalog(); // 确认时重新读取配置，拒绝过期报价。
-    auto* State=GetWorld()->GetGameState<ADemoGameState>(); // 钱包与检查点同一游戏线程提交。
-    if(!OutMessage.IsEmpty()||!Data->Validate()||!Data->Entries.IsValidIndex(Index)||Ammo->IsUnlocked(Index)||Data->Entries[Index].UnlockGoldCost!=QuotedCost||State->Coins<QuotedCost)
-    { if(OutMessage.IsEmpty())OutMessage=TEXT("购买失败：已解锁、金币不足或价格已变化"); UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_PURCHASE_REJECT %s"),*OutMessage); return false; }
-    TGuardValue<bool> TransactionGuard(bTransactionInProgress, true); // 同步保存结束前拒绝重入，失败自动释放。
-    State->Coins-=QuotedCost; Ammo->Unlocked.AddUnique(UDemoAmmoCatalog::IdAt(Index));
-    // 同步检查点将金币和解锁一起保存；期间无异步帧，写入失败回滚内存，不向UI发布成功。
-    if(!SaveCheckpointRequest.Execute())
-    { State->Coins+=QuotedCost; Ammo->Unlocked.Remove(UDemoAmmoCatalog::IdAt(Index)); OutMessage=TEXT("保存失败，金币未扣除，请重试"); UE_LOG(LogFPSDemo,Error,TEXT("AMMO_PURCHASE_ROLLBACK")); return false; }
-    // 发布包保留已提交的关键状态/交易结果；函数调用和逐帧细节仍使用Log/VeryVerbose。
-    OutMessage=TEXT("已永久解锁，可免费装配"); UE_LOG(LogFPSDemo,Display,TEXT("AMMO_PURCHASE id=%d gold=%d"),Index,QuotedCost); return true;
+    OutMessage = GetAmmoBlockReason(Player);
+    UDemoAmmoComponent* Ammo = Player ? Player->FindComponentByClass<UDemoAmmoComponent>() : nullptr; // 本人 Pawn 库存。
+    UDemoPlayerProgressComponent* Progress = PersonalProgress(Player); // 同一笔提交的个人钱包。
+    const UDemoAmmoCatalog* Data = Ammo ? Ammo->GetCatalog() : nullptr; // 服务器配置再次计算价格。
+    int32 Debit=QuotedCost; // 真实扣款独立于客户端传入且必须匹配的原报价。
+#if WITH_EDITOR
+    Debit=DemoEditorCheats::Debit(Player,true,QuotedCost);
+#endif
+    if (!OutMessage.IsEmpty() || !Data || !Progress || !Data->Validate() || !Data->Entries.IsValidIndex(Index)
+        || Ammo->IsUnlocked(Index) || Data->Entries[Index].UnlockGoldCost != QuotedCost || QuotedCost < 0 || Progress->GetSnapshot().Coins < Debit)
+    { if (OutMessage.IsEmpty()) OutMessage = TEXT("购买失败：权限、余额或报价已变化"); UE_LOG(LogFPSDemo, Log, TEXT("AMMO_PURCHASE_REJECT %s"), *OutMessage); return false; }
+    TGuardValue<bool> Guard(bTransactionInProgress, true); // 写盘完成前不接受同步重入交易。
+    const FDemoPlayerProgressSnapshot Before = Progress->GetSnapshot(); // 失败回滚保存前的个人值。
+    FDemoPlayerProgressSnapshot Next = Before; // 不修改其他玩家余额。
+    Next.Coins -= Debit; // Editor免扣不会产生伪造的十亿金币，也保留失败回滚路径。
+    if (!Progress->Commit(Next)) return false;
+    Ammo->Unlocked.AddUnique(UDemoAmmoCatalog::IdAt(Index));
+    if (!SaveCheckpointRequest.Execute())
+    {
+        Progress->Commit(Before); Ammo->Unlocked.Remove(UDemoAmmoCatalog::IdAt(Index));
+        OutMessage = TEXT("保存失败，金币未扣除，请重试"); UE_LOG(LogFPSDemo, Warning, TEXT("AMMO_PURCHASE_ROLLBACK")); return false;
+    }
+    OutMessage = TEXT("已永久解锁，可免费装配"); UE_LOG(LogFPSDemo, Display, TEXT("AMMO_PURCHASE player=%s id=%d cost=%d"), *GetNameSafe(Player), Index, QuotedCost); return true;
+}
+FDemoCommandResult UDemoShopComponent::EquipPrimaryWeapon(FName WeaponId, ADemoCharacter* Purchaser)
+{
+    DEMO_LOG_CALL();
+    return EquipOwnedFromTerminal(WeaponId,Purchaser); // 旧终端保持合法已拥有装备，更新为完整本地保存后发布。
+}
+FDemoCommandResult UDemoShopComponent::EquipAmmo(ADemoCharacter* Player, int32 Index)
+{
+    DEMO_LOG_CALL();
+    const FString Reason = GetAmmoBlockReason(Player); // 不相信客户端解锁/选择状态。
+    if (!Reason.IsEmpty()) return FDemoCommandResult::Reject(TEXT("TerminalRejected"), Reason);
+    UDemoAmmoComponent* Ammo = Player->FindComponentByClass<UDemoAmmoComponent>(); // 本人库存同步借用。
+    if (!Ammo || !Ammo->IsUnlocked(Index)) return FDemoCommandResult::Reject(TEXT("AmmoLocked"), TEXT("弹药尚未解锁"));
+    FDemoLoadoutSnapshot Before; // 值备份供失败回滚，避免存档失败仍偷偷改变装配。
+    Ammo->CaptureSnapshot(Before);
+    TGuardValue<bool> Guard(bTransactionInProgress, true); // 受控执行入口不再调用 Shop 以避免循环。
+    if (!Ammo->ExecuteSelection(Index)) return FDemoCommandResult::Reject(TEXT("AmmoInvalid"), TEXT("弹药配置不可用"));
+    if (!SaveCheckpointRequest.Execute()) { Ammo->RestoreSnapshot(Before); return FDemoCommandResult::Reject(TEXT("SaveFailed"), TEXT("保存失败，已恢复原弹药")); }
+    return FDemoCommandResult::Applied(true, TEXT("弹药已装配并保存"));
 }

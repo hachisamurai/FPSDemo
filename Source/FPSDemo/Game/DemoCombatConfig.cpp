@@ -1,3 +1,4 @@
+// 职责：校验表与冻结生成属性；等级/难度倍率只应用一次，新技能预警保持固定。
 #include "Game/DemoCombatConfig.h"
 #include "Game/DemoEncounterRules.h" // 刷怪周期与两条生成路径统一，错误旧表必须先由Editor迁移。
 #include "Debug/DemoLog.h"
@@ -55,7 +56,7 @@ bool DemoCombatConfig::Validate(const UDataTable* Enemies, const UDataTable* Dif
 	{
 		const FDemoEnemyRow* Row = Enemies->FindRow<FDemoEnemyRow>(Name, TEXT("ValidateEnemy"));
 		if (!Row || !InRange(Row->BaseHealth,1,100000) || !InRange(Row->BaseAttackPower,0,10000)
-			|| !InRange(Row->MoveSpeed,1,1200) || !Row->Attack.IsValid() || !Row->Tactics.IsValid() || !Row->DiveSlam.IsValid() || !Row->CloseCombat.IsValid()
+			|| !InRange(Row->MoveSpeed,1,1200) || !Row->Attack.IsValid() || !Row->Tactics.IsValid() || !Row->DiveSlam.IsValid() || !Row->CloseCombat.IsValid() || !Row->Roster.IsValid()
 			|| (Row->Tactics.bEnabled && Row->Tactics.MaximumRange > Row->Attack.ProjectileRange)) // 战术理想范围必须能实际发射。
 		{
 			Error = FString::Printf(TEXT("Invalid enemy row %s: health/attack/speed/tactics/dive/closeCombat; tactical maximum must fit projectile range"), *Name.ToString());
@@ -70,9 +71,10 @@ bool DemoCombatConfig::Validate(const UDataTable* Enemies, const UDataTable* Dif
 		const FName Name = DifficultyName(static_cast<EDemoDifficulty>(Index));
 		const FDemoDifficultyRow* Row = Difficulties->FindRow<FDemoDifficultyRow>(Name,TEXT("ValidateDifficulty"),false);
 		if (!Row || !InRange(Row->HealthMultiplier,0.1f,10.f) || !InRange(Row->AttackMultiplier,0.1f,10.f)
-			|| !InRange(Row->AttackFrequencyMultiplier,.25f,4.f) || Row->VictoryGoldReward < 0 || Row->VictoryGoldReward > 1000000) // 缺迁移/负奖励拒绝出发，0金币配置合法。
+			|| !InRange(Row->AttackFrequencyMultiplier,.25f,4.f) || !InRange(Row->EnemyCountMultiplier,1.f,5.f)
+			|| Row->VictoryGoldReward < 0 || Row->VictoryGoldReward > 1000000) // 缺迁移/负奖励拒绝出发，0金币配置合法。
 		{
-			Error = FString::Printf(TEXT("Invalid difficulty row %s: multipliers [0.1,10], VictoryGoldReward [0,1000000]; migrate reward table if -1"),*Name.ToString());
+			Error = FString::Printf(TEXT("Invalid difficulty row %s: HP/attack [0.1,10], frequency [0.25,4], count [1,5], VictoryGoldReward [0,1000000]"),*Name.ToString());
 			UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
 			return false;
 		}
@@ -90,14 +92,27 @@ bool DemoCombatConfig::Validate(const UDataTable* Enemies, const UDataTable* Dif
 			UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
 			return false;
 		}
-		// 第5关只混编三种小怪，第10关在三种小怪之外加Boss；拒绝未迁移的第五关Boss资产。
-		if ((Number % DemoEncounterRules::BossInterval == 0) == Row->BossRow.IsNone()
-			|| (Number % DemoEncounterRules::RangedInterval == 0 && Row->EnemyCount < 3))
-		{
-			Error = FString::Printf(TEXT("Invalid Level%02d encounter cadence: Boss only on level 10; every fifth level needs at least three minions; run upgrade_encounter_tables.py"), Number);
-			UE_LOG(LogFPSDemo, Warning, TEXT("Config rejected: %s"), *Error);
-			return false;
-		}
+        FDemoEncounterRecipe Recipe; // 配置层复用默认玩法策略；Spawner不再重复周期检查。
+        if (!GetDefault<UDemoEncounterPolicy>()->Resolve(Number,Row->EnemyCount,64,!Row->BossRow.IsNone(),Recipe,Error))
+        { UE_LOG(LogFPSDemo,Warning,TEXT("Config rejected Level%02d: %s"),Number,*Error); return false; }
+        if (Row->SpecialRows.Num()>7||Row->EnemyCount<Recipe.Roles.Num()+Row->SpecialRows.Num()||Row->BossPool.Num()>8||Row->BossRow.IsNone()&&!Row->BossPool.IsEmpty())
+        { Error=TEXT("特殊替换数量或Boss候选池与关卡预算不符"); UE_LOG(LogFPSDemo,Warning,TEXT("ROSTER_CONFIG %s"),*Error); return false; }
+        TMap<EDemoRosterKind,int32> Counts; // 表校验就拒绝超限，不等到生成中途失败。
+        for (const FName Special:Row->SpecialRows) // 最多7个模板引用，保留基础首袋所需槽位。
+        {
+            const FDemoEnemyRow* SpecialRow=Enemies->FindRow<FDemoEnemyRow>(Special,TEXT("ValidateSpecial"),false); // 本循环只读借用。
+            if (!SpecialRow||SpecialRow->bBoss||!DemoRosterRules::IsSpecialMinion(SpecialRow->Roster.Kind)
+                ||++Counts.FindOrAdd(SpecialRow->Roster.Kind)>DemoRosterRules::SpecialCap(SpecialRow->Roster.Kind))
+            { Error=TEXT("特殊模板缺失/类型错误/超过单关上限（修复者1，其余2）"); UE_LOG(LogFPSDemo,Warning,TEXT("ROSTER_CONFIG %s"),*Error); return false; }
+        }
+        TSet<FName> UniqueBosses; // 不允许重复候选暗中改变随机权重。
+        for (const FName Candidate:Row->BossPool)
+        {
+            const FDemoEnemyRow* BossCandidate=Enemies->FindRow<FDemoEnemyRow>(Candidate,TEXT("ValidateBossPool"),false); // 候选必须是真Boss。
+            if (!BossCandidate||!BossCandidate->bBoss||UniqueBosses.Contains(Candidate))
+            { Error=TEXT("Boss候选重复、缺失或不是Boss"); UE_LOG(LogFPSDemo,Warning,TEXT("ROSTER_CONFIG %s"),*Error); return false; }
+            UniqueBosses.Add(Candidate);
+        }
 		// 普通怪/Boss 引用必须和行为类型一致，错误配置不能生成一半才失败。
 		const FDemoEnemyRow* Minion = Enemies->FindRow<FDemoEnemyRow>(Row->EnemyRow,TEXT("ValidateMinionRef"),false);
 		const FDemoEnemyRow* Boss = Row->BossRow.IsNone() ? nullptr : Enemies->FindRow<FDemoEnemyRow>(Row->BossRow,TEXT("ValidateBossRef"),false);
@@ -117,6 +132,10 @@ FDemoEnemySpawnStats DemoCombatConfig::Resolve(const FDemoEnemyRow& Enemy, const
 		Enemy.BaseHealth,Level.HealthMultiplier,Difficulty.HealthMultiplier,Enemy.BaseAttackPower,Level.AttackMultiplier,Difficulty.AttackMultiplier);
 	// Stats 以值返回，将难度在生成时冻结；GAS 初始化后运行时仍统一经属性结算。
 	FDemoEnemySpawnStats Stats;
+	Stats.Roster=Enemy.Roster; // 先复制模板，再单独缩放耐久和间隔，前摇不变。
+    Stats.Roster.Shield=FMath::Min(1000000.f,Enemy.Roster.Shield*Level.HealthMultiplier*Difficulty.HealthMultiplier);
+    Stats.Roster.Cooldown=FMath::Max(.5f,Enemy.Roster.Cooldown/Difficulty.AttackFrequencyMultiplier);
+	Stats.Definition=Enemy.Definition; // 资产选择与数值同次解析；不复制或修改共享定义。
 	// 先得出等级基础值，再施加本局难度；中间不取整，保留 GAS 浮点精度。
 	const float LevelHealth = Enemy.BaseHealth * Level.HealthMultiplier;
 	const float LevelAttack = Enemy.BaseAttackPower * Level.AttackMultiplier;

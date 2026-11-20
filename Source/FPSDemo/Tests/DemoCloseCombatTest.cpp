@@ -1,3 +1,5 @@
+// 职责：近战/冲刺的真实World回归；使用-DemoEnemyAttackTest -DemoCloseCombatTest运行隔离夹具。
+// 依赖GameMode生产DataTable解析、NavMesh、GAS和实际Sweep；调参后必须用当前速度/范围验证墙体与躲避，不能退回结构体默认值。
 #include "Tests/DemoEnemyAttackTest.h"
 #include "AI/DemoEnemy.h"
 #include "AI/DemoCloseCombat.h"
@@ -8,7 +10,7 @@
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoAbilitySystemComponent.h"
-#include "GAS/DemoGameplayAbility.h"
+#include "GAS/Abilities/DemoPlayerAbilityTypes.h"
 #include "GAS/Ammo/DemoAmmoEffects.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -33,7 +35,7 @@ void ADemoEnemyAttackTest::TickCloseCombatTest()
     {
         if (!Check(Mode->StartRun(),TEXT("start isolated close combat run"))) return;
         Mode->StartNextLevel(); PC->OnRunReady();
-        int32 Roles[6]={0,0,0,0,0,0}; // 计数真实首关两类近身怪，确保没有任何可射击角色混入。
+        int32 Roles[static_cast<int32>(EDemoEnemyRole::Exploder)+1]={}; // 计数真实首关两类近身怪，确保没有任何可射击角色混入。
         for (TActorIterator<ADemoEnemy> It(GetWorld());It;++It)
         { ++Roles[static_cast<int32>(It->FindComponentByClass<UDemoEnemyTactics>()->GetRole())]; It->SetActorTickEnabled(false); It->SetActorEnableCollision(false); } // 注册怪保留，避免专项误清关。
         if (!Check(Roles[4]>0&&Roles[5]>0&&Roles[1]==0&&Roles[2]==0&&Roles[3]==0,TEXT("production first level only includes melee and charger"))) return;
@@ -50,7 +52,11 @@ void ADemoEnemyAttackTest::TickCloseCombatTest()
         PC->SetControlRotation(FRotator(0,180,0));
         DemoEffects::Apply(Player->GetDemoASC(),Player->GetDemoASC(),UDemoHealthEffect::StaticClass(),1000);
         CloseBeforeHealth=Player->GetDemoAttributes()->GetHealth();
-        FDemoEnemySpawnStats Stats; // 10攻击力，精确验证近战10/冲刺15，模板伤害仍经真实GAS。
+        FDemoEnemySpawnStats Stats; // 从生产首关解析当前速度/范围/前摇/冷却，确保强度改动进入真实碰撞回归。
+        FString ConfigError; // 本次同步配置失败原因，不能以旧结构体默认值掩盖资产未导入或无效。
+        const bool bResolved=Mode->GetSpawnStats(1,false,Stats,ConfigError); // 先完成解析再格式化原因，避免C++实参求值顺序隐藏错误文本。
+        if (!Check(bResolved,*FString::Printf(TEXT("load production close combat tuning: %s"),*ConfigError))) return;
+        // 只固定血量/攻击力以隔离存活和精确一次伤害；保留生产340cm/s追击与1700cm/s冲刺配置。
         Stats.Health=1000; Stats.AttackPower=10; Stats.bUseTactics=true;
         Stats.Tactics.Role=CloseScenario<3?EDemoEnemyRole::Melee:EDemoEnemyRole::Charger;
         Shooter=GetWorld()->SpawnActor<ADemoEnemy>(Center+FVector(CloseScenario<3?-155.f:-700.f,0,110),FRotator::ZeroRotator);

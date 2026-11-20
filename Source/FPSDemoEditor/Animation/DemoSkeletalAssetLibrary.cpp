@@ -1,3 +1,4 @@
+// 职责：为Editor Python提供骨架插槽及蒙皮核查接口；借用资产、显式标脏，由调用方备份和保存。
 #include "Animation/DemoSkeletalAssetLibrary.h"
 #include "Animation/Skeleton.h"
 #include "Engine/SkeletalMesh.h"
@@ -50,6 +51,30 @@ bool UDemoSkeletalAssetLibrary::SetSkeletonSocket(USkeletalMesh* Mesh, FName Soc
     Skeleton->PostEditChange();
     Skeleton->MarkPackageDirty();
     UE_LOG(LogFPSDemo, Log, TEXT("SKELETON_SOCKET_UPDATED socket=%s parent=%s relative=%s"), *SocketName.ToString(), *BoneName.ToString(), *Relative.ToString());
+    return true;
+}
+
+bool UDemoSkeletalAssetLibrary::SetSkeletonSocketLocal(USkeletalMesh* Mesh, FName SocketName, FName BoneName,
+    const FTransform& BoneRelativeTransform, UObject* PreviewAsset)
+{
+    UE_LOG(LogFPSDemo, Log, TEXT("[CALL] %hs mesh=%s socket=%s bone=%s"), __FUNCTION__, *GetNameSafe(Mesh), *SocketName.ToString(), *BoneName.ToString());
+    if (!Mesh || !Mesh->GetSkeleton() || BoneRelativeTransform.ContainsNaN() || BoneRelativeTransform.GetScale3D().GetMin() <= 0.f)
+    { UE_LOG(LogFPSDemo, Warning, TEXT("SOCKET_LOCAL_REJECT mesh/skeleton/transform")); return false; }
+    const FReferenceSkeleton& Reference = Mesh->GetRefSkeleton(); // 当前真实网格的绑定父链，不能混用另一套骨架的参考姿势。
+    const int32 BoneIndex = Reference.FindBoneIndex(BoneName); // 本次调用的父骨索引。
+    if (BoneIndex == INDEX_NONE)
+    { UE_LOG(LogFPSDemo, Warning, TEXT("SOCKET_LOCAL_REJECT missing bone=%s"), *BoneName.ToString()); return false; }
+    FTransform BoneComponent = FTransform::Identity; // 从骨局部合成绑定组件空间，复用既有创建/校验接口。
+    for (int32 Index = BoneIndex; Index != INDEX_NONE; Index = Reference.GetParentIndex(Index))
+        BoneComponent = BoneComponent * Reference.GetRefBonePose()[Index];
+    if (!SetSkeletonSocket(Mesh, SocketName, BoneName, BoneRelativeTransform * BoneComponent)) return false;
+    USkeleton* Skeleton = Mesh->GetSkeleton(); // Mesh拥有的骨架资产；只增添当前挂点的预览对象，不清理其他预览。
+    if (PreviewAsset)
+    {
+        Skeleton->PreviewAttachedAssetContainer.AddUniqueAttachedObject(PreviewAsset, SocketName);
+        Skeleton->MarkPackageDirty();
+    }
+    UE_LOG(LogFPSDemo, Log, TEXT("SOCKET_LOCAL_READY socket=%s preview=%s"), *SocketName.ToString(), *GetNameSafe(PreviewAsset));
     return true;
 }
 

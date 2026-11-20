@@ -1,3 +1,4 @@
+// 职责：受击骨到伤害倍率的唯一映射；武器直击和命中反馈共用，依赖真实 PhysicsAsset 与可 Cook 配置。
 #pragma once
 
 #include "CoreMinimal.h"
@@ -11,9 +12,9 @@ class USkeletalMesh;
 UENUM(BlueprintType)
 enum class EDemoEnemyHitRegion : uint8
 {
-    Body, // 机身、装甲、推进器和Boss护板，默认承受完整伤害。
+    Body, // 机身、胸前旧 core、装甲、推进器和 Boss 护板，默认承受完整伤害。
     Arm,  // 上臂、前臂、武器/手腕/机械爪，默认承受较低伤害。
-    Core  // 独立核心碰撞体，必须先穿过真实护板遮挡才可命中。
+    Core UMETA(DisplayName="Head") // 保留已序列化枚举值及既有弱点反馈接口；现在仅 head 骨属于此区，默认 2 倍。
 };
 
 /** 一项可编辑倍率及其明确骨名白名单；不使用前缀或父骨骼推断，防止新骨漏配。 */

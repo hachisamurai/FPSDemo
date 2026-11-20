@@ -1,12 +1,16 @@
+// 职责：创建并初始化权威服务；使用地图/GameMode配置的合法DemoCharacter子类，旧非GAS模板回退。依赖现有Flow/ASC启动链，构造时不查玩家、不发奖。
 #include "Game/FPSDemoGameMode.h"
+#include "Player/Coop/Ready/DemoTeamReadyComponent.h"
+#include "Game/Preparation/DemoEncounterPreparationComponent.h"
+#include "Game/Objectives/DemoObjectiveCoordinatorComponent.h"
+#include "Debug/DemoDevelopmentBootstrap.h"
+#include "Player/Coop/DemoCoopRosterComponent.h"
 #include "Spawning/DemoEnemySpawnComponent.h"
 #include "Economy/DemoRewardComponent.h"
 #include "Economy/DemoShopComponent.h"
 #include "Game/DemoEncounterRules.h" // 固定战役与无尽共用兵种/Boss周期。
 // 对应头文件先于依赖，保证UE独立编译能检查本类声明自包含。
 #include "GAS/Ammo/DemoAmmoStatus.h"
-#include "Tests/DemoAmmoTest.h"
-#include "Tests/DemoProjectileTest.h"
 #include "Save/DemoRunSave.h"
 #include "Characters/DemoCharacter.h"
 #include "Weapons/DemoWeaponComponent.h"
@@ -26,15 +30,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
-#include "Tests/DemoSmokeTest.h"
-#include "Tests/DemoSessionTest.h"
-#include "Tests/DemoWeaponTest.h"
-#include "Tests/DemoWeaponAnimationTest.h" // 显式命令行启动的四枪动画/音效专项，不影响正常关卡流程。
-#include "Tests/DemoArmoryTest.h"
-#include "Tests/DemoCloudTest.h"
-#include "Tests/DemoCampaignTest.h"
 #include "AI/DemoEnemyProjectile.h"
-#include "Tests/DemoEnemyAttackTest.h"
 #include "Misc/CommandLine.h"
 #include "EngineUtils.h"
 
@@ -45,6 +41,10 @@
 AFPSDemoGameMode::AFPSDemoGameMode()
 {
 	DEMO_LOG_CALL();
+	TeamReadySystem = CreateDefaultSubobject<UDemoTeamReadyComponent>(TEXT("TeamReadySystem")); // Flow及交互事件显式初始化。
+    PreparationSystem = CreateDefaultSubobject<UDemoEncounterPreparationComponent>(TEXT("PreparationSystem")); // 资源就绪独立于玩家Ready，提交Combat前由Flow消费。
+	ObjectiveSystem = CreateDefaultSubobject<UDemoObjectiveCoordinatorComponent>(TEXT("ObjectiveSystem")); // 准备与激活由Flow控制。
+	CoopRoster = CreateDefaultSubobject<UDemoCoopRosterComponent>(TEXT("CoopRoster")); // 先建队伍服务，注册/保存显式调用，不依赖组件 BeginPlay 顺序。
 	SpawnSystem = CreateDefaultSubobject<UDemoEnemySpawnComponent>(TEXT("SpawnSystem")); // 当前权威World拥有生成调度。
 	RewardSystem = CreateDefaultSubobject<UDemoRewardComponent>(TEXT("RewardSystem")); // 通过事件订阅去重后的击杀。
 	ShopSystem = CreateDefaultSubobject<UDemoShopComponent>(TEXT("ShopSystem")); // 属性/弹药交易的唯一业务入口。
@@ -62,11 +62,18 @@ AFPSDemoGameMode::AFPSDemoGameMode()
 	DifficultyTableAsset = TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Data/DT_Difficulties.DT_Difficulties")));
 	LevelTableAsset = TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Data/DT_Levels.DT_Levels")));
 }
+UDemoEncounterPreparationComponent* AFPSDemoGameMode::GetPreparationSystem() const { DEMO_LOG_TICK(); return PreparationSystem; }
 void AFPSDemoGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
 {
 	DEMO_LOG_CALL();
-	// 原模板地图指定 BP_GameMode；旧 BP 序列化的类默认值不能覆盖新 GAS 启动链。
-	DefaultPawnClass = ADemoCharacter::StaticClass();
+	// 仅旧非GAS模板或缺失配置回退；合法子蓝图保留本项目的ASC/组件启动链，也必须能保存可编辑的武器配置。
+	const bool bFallbackPawn = !DefaultPawnClass || !DefaultPawnClass->IsChildOf(ADemoCharacter::StaticClass()); // InitGame内一次性策略，不复制、不写回共享GameMode资产。
+	if (bFallbackPawn)
+	{
+		UE_LOG(LogFPSDemo,Log,TEXT("GAME_MODE_PAWN_FALLBACK previous=%s reason=missing_or_non_demo_character"),*GetNameSafe(DefaultPawnClass.Get()));
+		DefaultPawnClass = ADemoCharacter::StaticClass();
+	}
+	UE_LOG(LogFPSDemo,Log,TEXT("GAME_MODE_PAWN_CLASS selected=%s fallback=%d"),*GetNameSafe(DefaultPawnClass.Get()),bFallbackPawn);
 	PlayerControllerClass = ADemoPlayerController::StaticClass();
 	PlayerStateClass = ADemoPlayerState::StaticClass();
 	GameStateClass = ADemoGameState::StaticClass();
@@ -83,28 +90,12 @@ void AFPSDemoGameMode::StartPlay()
     Super::StartPlay(); // 生命周期完成并不隐式启动刷怪；以下显式安装全部依赖。
     RunFlow->InitializeServices(Enemies, Difficulties, Levels, Endless, SpawnSystem, RewardSystem, ShopSystem, TerminalSystem, ChallengeSystem);
     RunFlow->BeginStartup(OptionsString);
-#if !UE_BUILD_SHIPPING
-	FString CloudTestMode; // 真实云测试只有显式模式且测试Actor再次验证隔离GUID才可推进。
-	if (FParse::Value(FCommandLine::Get(), TEXT("DemoCloudTest="), CloudTestMode)) GetWorld()->SpawnActor<ADemoCloudTest>();
-	// 测试入口只有显式命令行参数才启用；普通 PIE/游戏不生成测试 Actor。
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoSmokeTest"))) GetWorld()->SpawnActor<ADemoSmokeTest>();
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoSessionTest"))) GetWorld()->SpawnActor<ADemoSessionTest>(); // 显式测试才覆盖暂停/旅行输入。
-	// 武器专用测试通过真实InputKey进入映射链路，仅显式参数开启。
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoWeaponTest"))) GetWorld()->SpawnActor<ADemoWeaponTest>();
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoWeaponAnimationTest"))) GetWorld()->SpawnActor<ADemoWeaponAnimationTest>(); // 独立进程验证真实LinkedLayer、双网格与取消清理。
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoArmoryTest"))) GetWorld()->SpawnActor<ADemoArmoryTest>(); // 非Shipping显式隔离回归，不影响正常游玩。
-	// 三难度/十等级独立回归入口，普通游戏及 Shipping 不自动执行。
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoCampaignTest"))) GetWorld()->SpawnActor<ADemoCampaignTest>();
-	// 新敌人攻击测试独立进程运行，避免与完整战役测试同时驱动World。
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoProjectileTest"))) GetWorld()->SpawnActor<ADemoProjectileTest>(); // 显式隔离的真实飞行/碰撞专项。
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoAmmoTest"))) GetWorld()->SpawnActor<ADemoAmmoTest>(); // 显式隔离回归入口。
-	if (FParse::Param(FCommandLine::Get(), TEXT("DemoEnemyAttackTest"))) GetWorld()->SpawnActor<ADemoEnemyAttackTest>();
-#endif
+    DemoDevelopmentBootstrap::Start(GetWorld()); // 显式开发启动器处理测试开关，生产流程不再认识各测试Actor。
 }
 void AFPSDemoGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
     DEMO_LOG_CALL(); Super::HandleStartingNewPlayer_Implementation(NewPlayer);
-    if (RunFlow && NewPlayer) RunFlow->BindAvatar(Cast<ADemoCharacter>(NewPlayer->GetPawn())); // 玩家可先于StartPlay到达；Flow先登记再检查。
+    if (RunFlow && NewPlayer && NewPlayer->IsLocalController()) RunFlow->BindAvatar(Cast<ADemoCharacter>(NewPlayer->GetPawn())); // 启动门控只跟踪房主，队友就绪由个人握手处理，不能覆盖房主 Avatar。
 }
 void AFPSDemoGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 { DEMO_LOG_CALL(); RunFlow->Shutdown(); Super::EndPlay(EndPlayReason); }
@@ -235,5 +226,6 @@ ADemoInteractable* AFPSDemoGameMode::GetNextLevelTerminal() const { DEMO_LOG_TIC
 UDemoTerminalComponent* AFPSDemoGameMode::GetTerminalSystem() const { DEMO_LOG_TICK(); return TerminalSystem; }
 UDemoRunFlowComponent* AFPSDemoGameMode::GetRunFlow() const { DEMO_LOG_TICK(); return RunFlow; }
 UDemoChallengeComponent* AFPSDemoGameMode::GetChallengeSystem() const { DEMO_LOG_TICK(); return ChallengeSystem; }
+UDemoTeamReadyComponent* AFPSDemoGameMode::GetTeamReadySystem() const { DEMO_LOG_TICK(); return TeamReadySystem; }
 bool AFPSDemoGameMode::RegisterWeaponShot(FName WeaponId)
-{ DEMO_LOG_CALL(); return ChallengeSystem->TryCommitWeaponShot(RunFlow->GetRunId(), WeaponId); }
+{ DEMO_LOG_CALL(); return RegisterWeaponShot(WeaponId,Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0))); } // 旧单人入口转个人PS路径，不再维护第二份GS资格真值。

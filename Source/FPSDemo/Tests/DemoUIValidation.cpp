@@ -1,4 +1,5 @@
 #include "Tests/DemoUIValidation.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Debug/DemoLog.h"
 #include "UI/DemoHUD.h"
 #include "Player/DemoPlayerController.h"
@@ -98,7 +99,7 @@ void ADemoUIValidation::Tick(float DeltaSeconds)
 	{
 	case 0:
 		// 死亡场景发生在新局安全区出发弹窗中，尚未清关，因此保留的金币也是0；有金币死亡由Session/Smoke覆盖。
-		if (!Check(State->Phase == (UIValidationRun == 2 ? EDemoPhase::Hub : EDemoPhase::Lobby) && State->Coins == 0 && State->SilverCoins == 0 && Weapon->GetDamagePerPellet() == 20.f, TEXT("new world resets attributes and chooses correct lobby/hub destination"))) return;
+		if (!Check(State->Phase == (UIValidationRun == 2 ? EDemoPhase::Hub : EDemoPhase::Lobby) && DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 0 && Weapon->GetDamagePerPellet() == 20.f, TEXT("new world resets attributes and chooses correct lobby/hub destination"))) return;
 		if (UIValidationRun == 2)
 		{
 			if (!Check(!PC->IsMoveInputIgnored() && !PC->bShowMouseCursor && Mode->GetShopTerminal(), TEXT("death return hub restores input and upgrade terminal"))) return;
@@ -153,7 +154,7 @@ void ADemoUIValidation::Tick(float DeltaSeconds)
 	case 4:
 		if (!Check(!HUD->GetHitBoxWithName(TEXT("Upgrade0")) && HUD->GetHitBoxWithName(TEXT("Close")) && PC->bShowMouseCursor && PC->IsMoveInputIgnored(), TEXT("poor shop disables buy hitbox and locks movement"))) return;
 		PC->SelectUpgrade(0);
-		if (!Check(State->Coins == 0 && !PC->GetMenuMessage().IsEmpty(), TEXT("keyboard cannot bypass insufficient coins"))) return;
+		if (!Check(DemoTestProgress::Read(State).Coins == 0 && !PC->GetMenuMessage().IsEmpty(), TEXT("keyboard cannot bypass insufficient coins"))) return;
 		Capture(TEXT("02-ShopDisabled"));
 		Advance(5);
 		break;
@@ -191,7 +192,7 @@ void ADemoUIValidation::Tick(float DeltaSeconds)
 		break;
 	case 9:
 		if (!ClickMenuPoint(FVector2D(-3, 19), TEXT("Upgrade1"))) return;
-		if (!Check(State->Phase == EDemoPhase::Intermission && Player->GetHealAmount() == 55.f && State->Coins == 0, TEXT("free card stays in cleared arena and preserves coins"))) return;
+		if (!Check(State->Phase == EDemoPhase::Intermission && Player->GetHealAmount() == 55.f && DemoTestProgress::Read(State).Coins == 0, TEXT("free card stays in cleared arena and preserves coins"))) return;
 		// 测试取景移动不属于生产清关流程；先等待相机稳定，避免传送当帧的运动模糊污染截图。
 		Player->SetActorLocation(Mode->GetAreaCenter(0) + FVector(-650,0,100));
 		PC->SetControlRotation(FRotator::ZeroRotator);
@@ -219,7 +220,7 @@ void ADemoUIValidation::Tick(float DeltaSeconds)
 	case 12:
 		if (!Check(!HUD->GetHitBoxWithName(TEXT("Upgrade0")), TEXT("leaving range removes buy hitbox even with enough coins"))) return;
 		PC->SelectUpgrade(0);
-		if (!Check(State->Coins == 0, TEXT("out-of-range keyboard transaction rejected"))) return;
+		if (!Check(DemoTestProgress::Read(State).Coins == 0, TEXT("out-of-range keyboard transaction rejected"))) return;
 		Capture(TEXT("06-ShopOutOfRange"));
 		Advance(13);
 		break;
@@ -229,12 +230,12 @@ void ADemoUIValidation::Tick(float DeltaSeconds)
 		break;
 	case 23:
 		if (!ClickMenuPoint(FVector2D(117, -73), TEXT("Upgrade0"))) return;
-		if (!Check(State->Coins == 0 && State->SilverCoins == 30 && Mode->GetUpgradeCost(0) == 30 && Mode->GetUpgradeCost(1) == 20 && Mode->GetUpgradeCost(2) == 20 && Weapon->GetDamagePerPellet() == 25.f, TEXT("purchase updates coins, GAS damage and damage-only next price"))) return;
+		if (!Check(DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 30 && Mode->GetUpgradeCost(0) == 30 && Mode->GetUpgradeCost(1) == 20 && Mode->GetUpgradeCost(2) == 20 && Weapon->GetDamagePerPellet() == 25.f, TEXT("purchase updates coins, GAS damage and damage-only next price"))) return;
 		Advance(14);
 		break;
 	case 14:
 		Capture(TEXT("07-ShopAfterPurchase"));
-		State->SilverCoins = 20; // UI夹具：伤害30买不起，其他属性20应仍能点击；不保存此临时测试余额。
+		DemoTestProgress::SetSilver(State,20); /* 夹具通过本人PS提交，不能写共享GS钱包。 */ // UI夹具：伤害30买不起，其他属性20应仍能点击；不保存此临时测试余额。
 		Advance(49);
 		break;
 	case 49:
@@ -244,12 +245,12 @@ void ADemoUIValidation::Tick(float DeltaSeconds)
 		Advance(50); // 截图在渲染帧处理，先保留20银币到下一步，避免截图显示已恢复的30。
 		break;
 	case 50:
-		State->SilverCoins = 30; // 恢复真实交易后的余额，后续购买仍走生产授权/扣费流程。
+		DemoTestProgress::SetSilver(State,30); /* 夹具通过本人PS提交，不能写共享GS钱包。 */ // 恢复真实交易后的余额，后续购买仍走生产授权/扣费流程。
 		Advance(15);
 		break;
 	case 15:
 		HUD->NotifyHitBoxClick(TEXT("Upgrade2"));
-		if (!Check(State->Coins == 0 && State->SilverCoins == 10 && Weapon->GetCapacity() == 16.f, TEXT("second category keeps its own initial price"))) return;
+		if (!Check(DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 10 && Weapon->GetCapacity() == 16.f, TEXT("second category keeps its own initial price"))) return;
 		Advance(16);
 		break;
 	case 16:
@@ -274,7 +275,7 @@ void ADemoUIValidation::Tick(float DeltaSeconds)
 		break;
 	case 44:
 		if (!Check(!PC->IsNextLevelConfirmationOpen() && !PC->bShowMouseCursor && !PC->IsMoveInputIgnored() && !PC->IsLookInputIgnored()
-			&& State->Phase == EDemoPhase::Intermission && State->LevelNumber == 1 && State->Coins == 0 && State->SilverCoins == 10 && Weapon->GetDamagePerPellet() == 25.f
+			&& State->Phase == EDemoPhase::Intermission && State->LevelNumber == 1 && DemoTestProgress::Read(State).Coins == 0 && DemoTestProgress::Read(State).SilverCoins == 10 && Weapon->GetDamagePerPellet() == 25.f
 			&& !HUD->GetHitBoxWithName(TEXT("NextLevelYes")) && !HUD->GetHitBoxWithName(TEXT("NextLevelNo")), TEXT("No closes UI, removes hitboxes and preserves progression and upgrades"))) return;
 		HUD->NotifyHitBoxClick(TEXT("NextLevelYes")); // 模拟已经关闭的旧按钮请求，必须忽略。
 		Mode->GetNextLevelTerminal()->Interact(Player);

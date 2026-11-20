@@ -1,4 +1,6 @@
+// 职责：近战/冲刺怪的权威前摇、移动碰撞和伤害；复用Enemy来源ASC，受击元数据仅记录实际攻击接触源。
 #include "AI/DemoCloseCombat.h"
+#include "AI/DemoEnemyTargeting.h"
 #include "AI/DemoEnemy.h"
 #include "AI/DemoEnemyNavigation.h"
 #include "Animation/DemoEnemyPresentation.h"
@@ -12,6 +14,7 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Materials/MaterialInterface.h"
 #include "Debug/DemoLog.h"
+#include "Net/UnrealNetwork.h"
 
 bool FDemoCloseCombatSettings::IsValid() const
 {
@@ -31,7 +34,7 @@ bool FDemoCloseCombatSettings::IsValid() const
 }
 UDemoCloseCombat::UDemoCloseCombat()
 {
-    DEMO_LOG_CALL(); PrimaryComponentTick.bCanEverTick=false;
+    DEMO_LOG_CALL(); PrimaryComponentTick.bCanEverTick=false; SetIsReplicatedByDefault(true); // 只复制预警快照，执行仍由服务器Enemy驱动。
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere")); // 已有球体只用于预警外壳。
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube")); // 100cm立方体压扁形成地面带。
     static ConstructorHelpers::FObjectFinder<UMaterialInterface> Glow(TEXT("/Game/VFX/EnemyAttacks/M_EnemyGlow")); // Cooker硬引用既有Editor材质。
@@ -65,6 +68,8 @@ FVector UDemoCloseCombat::GetLockedDirection() const { DEMO_LOG_TICK(); return D
 void UDemoCloseCombat::SetPhase(EDemoClosePhase Next)
 {
     DEMO_LOG_CALL(); Phase=Next; PhaseStart=GetWorld()->GetTimeSeconds();
+    ReplicatedTelegraph.Phase=Phase; ReplicatedTelegraph.Direction=Direction; ReplicatedTelegraph.Distance=Config.ChargeDistance; ReplicatedTelegraph.Origin=GetOwner()->GetActorLocation(); // 起手数据与阶段同次提交。
+    GetOwner()->ForceNetUpdate();
     if (Shell) Shell->SetHiddenInGame(Phase!=EDemoClosePhase::MeleeWindup&&Phase!=EDemoClosePhase::ChargeWindup);
     if (Lane) Lane->SetHiddenInGame(Phase!=EDemoClosePhase::ChargeWindup);
     UE_LOG(LogFPSDemo,Log,TEXT("CLOSE_PHASE actor=%s phase=%d"),*GetNameSafe(GetOwner()),static_cast<int32>(Phase));
@@ -81,10 +86,12 @@ void UDemoCloseCombat::Damage(ADemoCharacter* Player,bool bCharge)
 {
     DEMO_LOG_CALL();
     ADemoEnemy* Enemy=Cast<ADemoEnemy>(GetOwner()); // 当前权威敌人，状态已先切Recovery防GE死亡回调重入。
-    if (!Enemy||!Player||!Player->GetDemoAttributes()||Player->GetDemoAttributes()->GetHealth()<=0) return;
+    if (!Enemy||!Enemy->IsCombatReady()||!Enemy->IsCombatSessionValid()||!DemoEnemyTargeting::IsAliveParticipant(Player))
+    { UE_LOG(LogFPSDemo,Log,TEXT("CLOSE_HIT_REJECT source/session/alive participant")); return; } // 挥击/冲刺真实碰撞只结算当前已登记的存活参战者。
     if (bCharge&&Player->IsDashEvading()) { UE_LOG(LogFPSDemo,Log,TEXT("CHARGE_EVADED dash window")); return; } // 只给突进碰撞躲避，不把普通近战改为通用免伤。
     const float Amount=Enemy->GetAttackPower()*(bCharge?Config.ChargeDamageMultiplier:1.f); // 攻击基值已含关卡/难度，不能重复乘算。
-    DemoEffects::Apply(Enemy->GetAbilitySystemComponent(),Player->GetAbilitySystemComponent(),UDemoHealthEffect::StaticClass(),-Amount);
+    DemoEffects::ApplyDamage(Enemy->GetAbilitySystemComponent(),Player->GetAbilitySystemComponent(),Amount,
+        bCharge?EDemoPlayerDamageKind::Charge:EDemoPlayerDamageKind::Melee,Enemy->GetActorLocation());
     UE_LOG(LogFPSDemo,Log,TEXT("CLOSE_HIT charge=%d amount=%.2f"),bCharge,Amount);
 }
 bool UDemoCloseCombat::Update(ADemoCharacter* Player,float Speed,float DeltaSeconds)
@@ -93,7 +100,7 @@ bool UDemoCloseCombat::Update(ADemoCharacter* Player,float Speed,float DeltaSeco
     ADemoEnemy* Enemy=Cast<ADemoEnemy>(GetOwner()); // Actor拥有本组件，同步借用。
     UDemoEnemyNavigation* Nav=Enemy?Enemy->FindComponentByClass<UDemoEnemyNavigation>():nullptr; // 统一导航，不在组件重复直接追击。
     const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // World阶段是所有攻击的最终约束。
-    if (!Enemy||!Enemy->HasAuthority()||!Enemy->IsAlive()||!Nav||!State||State->Phase!=EDemoPhase::Combat||!Player||!Player->GetDemoAttributes()||Player->GetDemoAttributes()->GetHealth()<=0)
+    if (!Enemy||!Enemy->IsCombatReady()||!Enemy->IsCombatSessionValid()||!Nav||!State||State->Phase!=EDemoPhase::Combat||!DemoEnemyTargeting::IsAliveParticipant(Player)) // 前摇执行时同样遵守登记/阵亡边界。
     { Cancel(TEXT("InvalidContext")); if (Nav) Nav->Stop(TEXT("CloseInactive")); return true; }
     if (Enemy->GetAbilitySystemComponent()->HasMatchingGameplayTag(DemoAmmoTags::Frozen))
     { Cancel(TEXT("Frozen")); Nav->Stop(TEXT("CloseFrozen")); return true; } // 新攻击可被冻结打断，不留解冻后的旧命中。
@@ -137,16 +144,31 @@ bool UDemoCloseCombat::Update(ADemoCharacter* Player,float Speed,float DeltaSeco
         if (!Navigation||!Navigation->ProjectPointToNavigation(Destination,Ground,FVector(80,80,180))||FVector::Dist2D(Ground.Location,Destination)>80||FMath::Abs(Destination.Z-Ground.Location.Z-100)>80)
         { UE_LOG(LogFPSDemo,Log,TEXT("CHARGE_STOP navigation edge")); SetPhase(EDemoClosePhase::Recovery); return true; }
         FHitResult Hit; // 真实球体根扫掠，墙/其他怪物同样终止，不造成友伤。
-        Enemy->AddActorWorldOffset(Direction*Travel,true,&Hit); DistanceLeft-=Travel;
+        const bool bAdvanced=Nav->MoveGrounded(Direction*Travel,Hit); DistanceLeft-=Travel; // 蓄力结束后仍沿出生房间台阶扫掠。
         if (Hit.bBlockingHit)
         {
             SetPhase(EDemoClosePhase::Recovery);
-            if (Hit.GetActor()==Player) Damage(Player,true);
+            if (ADemoCharacter* HitPlayer=Cast<ADemoCharacter>(Hit.GetActor())) Damage(HitPlayer,true); // 冲刺真实碰撞到任一存活玩家都结算，不依赖最初目标身份。
             else UE_LOG(LogFPSDemo,Log,TEXT("CHARGE_STOP obstacle=%s"),*GetNameSafe(Hit.GetActor()));
         }
-        else if (DistanceLeft<=KINDA_SMALL_NUMBER) SetPhase(EDemoClosePhase::Recovery);
+        else if (!bAdvanced || DistanceLeft<=KINDA_SMALL_NUMBER) SetPhase(EDemoClosePhase::Recovery);
     }
     else if (Phase==EDemoClosePhase::Recovery&&Now-PhaseStart>=Config.Recovery)
     { NextMelee=Now+MeleeCooldown; NextCharge=FMath::Max(NextCharge,Now+Config.ChargeCooldown); SetPhase(EDemoClosePhase::Idle); }
     return true;
+}
+
+void UDemoCloseCombat::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    DEMO_LOG_CALL(); Super::GetLifetimeReplicatedProps(OutLifetimeProps); DOREPLIFETIME(UDemoCloseCombat,ReplicatedTelegraph);
+}
+void UDemoCloseCombat::OnRep_Telegraph()
+{
+    DEMO_LOG_CALL();
+    if (!GetOwner()||GetOwner()->HasAuthority()) return;
+    CreateTelegraph();
+    Shell->SetHiddenInGame(ReplicatedTelegraph.Phase!=EDemoClosePhase::MeleeWindup&&ReplicatedTelegraph.Phase!=EDemoClosePhase::ChargeWindup);
+    Lane->SetHiddenInGame(ReplicatedTelegraph.Phase!=EDemoClosePhase::ChargeWindup);
+    Lane->SetWorldLocation(ReplicatedTelegraph.Origin+ReplicatedTelegraph.Direction*ReplicatedTelegraph.Distance*.5f-FVector(0,0,100));
+    Lane->SetWorldRotation(ReplicatedTelegraph.Direction.Rotation()); Lane->SetWorldScale3D(FVector(ReplicatedTelegraph.Distance/100.f,.96f,.04f));
 }

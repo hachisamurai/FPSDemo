@@ -1,3 +1,4 @@
+// 职责：敌人角色与导航战术数据；Enemy仲裁驱动，特殊攻击由Roster接管，仍共用拉距导航。
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
@@ -5,7 +6,7 @@
 
 /** 自动混编按出生序号分配，固定角色可用于关卡单独制作；Boss始终使用专用行为。 */
 UENUM(BlueprintType)
-enum class EDemoEnemyRole : uint8 { Mixed, Chaser, Ranged, Flanker, Melee, Charger }; // 追加值保持旧配置枚举稳定，纯近身角色单独接管攻击。
+enum class EDemoEnemyRole : uint8 { Mixed, Chaser, Ranged, Flanker, Melee, Charger, Guard, Bombardier, Mender, Exploder }; // 追加值保持旧配置枚举稳定，纯近身角色单独接管攻击。
 
 /** 标准压迫感参数；实例复制配置，不在战斗中修改共享DataTable。 */
 USTRUCT(BlueprintType)

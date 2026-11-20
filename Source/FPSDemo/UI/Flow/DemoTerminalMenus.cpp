@@ -1,3 +1,4 @@
+// 职责：终端/奖励与出发意图；业务经拥有者PC校验，不直接修改经济或核心。
 #include "UI/Flow/DemoMenuFlowComponent.h"
 #include "Interaction/DemoTerminalComponent.h"
 #include "Characters/DemoCharacter.h"
@@ -5,6 +6,7 @@
 #include "Debug/DemoLog.h"
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/World.h" // 单独编译 Game 目标时，终端阶段校验需要完整的 UWorld 定义。
 #include "Game/FPSDemoGameMode.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Interaction/DemoInteractable.h"
@@ -24,18 +26,13 @@ void UDemoMenuFlowComponent::OpenUpgradeMenu(bool bReward)
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
 	// 确认框与升级菜单互斥，防止旧热区或重复交互覆盖正在处理的出发意图。
 	if (HasBlockingOverlay() || bNextLevelConfirmationOpen) { UE_LOG(LogFPSDemo, Log, TEXT("Upgrade menu rejected: next-level confirmation open")); return; }
-    MenuTerminal.Reset(); MenuTerminalGeneration = 0;
-    if (!bReward)
-    {
-        AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 只解析服务；交易权限由Terminal/Shop再次验证。
-        UDemoTerminalComponent* Terminals = Mode ? Mode->GetTerminalSystem() : nullptr; // 当前World终端服务。
-        if (!Terminals || !Terminals->ValidateInteraction(Cast<ADemoCharacter>(GetController()->GetPawn()), Terminals->GetShopTerminal()).IsEmpty())
-        { UE_LOG(LogFPSDemo, Log, TEXT("MENU_OPEN rejected terminal/owner/range")); return; }
-        MenuTerminal = Terminals->GetShopTerminal(); MenuTerminalGeneration = Terminals->GetGeneration();
-    }
+    if (!bReward && (!MenuTerminal.IsValid() || !GetController()->GetMenuSnapshot().TerminalBlockReason.IsEmpty()))
+    { UE_LOG(LogFPSDemo,Log,TEXT("MENU_OPEN rejected: no approved terminal")); return; } // 客户端页只消费服务器批准结果，交易服务仍重验。
+
 	bMenuOpen = true;
+    ResetGamblePresentation(); // 新交互不能继承上一抽取的动画/确认状态。
 	bRewardMenu = bReward;
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 每次交互默认进入属性页，清除上一终端的详情意图。
+	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; PendingGamblePrice=INDEX_NONE; // 页面变化撤销旧赌博确认。 // 每次交互默认进入属性页，清除上一终端的详情意图。
 	InspectedWeapon = INDEX_NONE;
 	MenuMessage.Empty();
 	// 仅借用当前 Pawn；命名避免遮蔽 AController::Character 成员。
@@ -53,29 +50,26 @@ void UDemoMenuFlowComponent::CloseUpgradeMenu()
 	if (IsWeaponMenuOpen() && InspectedWeapon != INDEX_NONE) { CloseWeaponTip(); return; } // Tab先关详情，再按关闭终端。
 	// 奖励必须选一次；按钮与快捷键拒绝时保留原阶段并记录原因。
 	if (!bMenuOpen || bRewardMenu) { UE_LOG(LogFPSDemo, Log, TEXT("Close menu rejected: open=%d reward=%d"), bMenuOpen, bRewardMenu); return; }
+    FDemoGameplayCommandRequest Request; // 本地关闭立即恢复输入，服务端单独撤销本人会话。
+    Request.Command=bCasinoDevicePage?EDemoGameplayCommand::CloseCasinoDevice:EDemoGameplayCommand::EndInteraction;
+    Request.CasinoDeviceToken=GetController()->GetMenuSnapshot().CasinoDeviceToken; GetController()->SubmitGameplayCommand(Request);
+	bCasinoDevicePage=false;
 	MenuTerminal.Reset(); MenuTerminalGeneration = 0;
 	bMenuOpen = false;
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE;
+    ResetGamblePresentation(); // Tab/关闭取消展示，但已提交的费用、奖励保留。
+	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; PendingGamblePrice=INDEX_NONE; // 页面变化撤销旧赌博确认。
 	InspectedWeapon = INDEX_NONE;
 	UE_LOG(LogFPSDemo, Log, TEXT("UI menu closed; restoring game input"));
 	SetMenuInput(false);
 }
 bool UDemoMenuFlowComponent::CanRequestNextLevel(const ADemoInteractable* Terminal) const
 {
-	DEMO_LOG_CALL();
-	const AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 同步借用单人权威流程。
-	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 本次检查的关卡快照。
-	const ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetController()->GetPawn()); // 当前拥有的 Avatar，不缓存跨重开引用。
-	if (!GetController()->IsLocalController() || !Mode || !State || !DemoPawn || !IsValid(Terminal) || bMenuOpen || HasBlockingOverlay()
-		|| (State->Phase != EDemoPhase::Hub && State->Phase != EDemoPhase::Intermission)
-		|| State->LevelNumber < 0 || (!State->bEndless && State->LevelNumber >= DemoCombatConfig::LevelCount) || State->LevelNumber >= MAX_int32-1 // 无尽关间终端不受十关限制，防止编号整数溢出。
-		|| Mode->GetNextLevelTerminal() != Terminal
-		|| FVector::Dist(DemoPawn->GetActorLocation(), Terminal->GetActorLocation()) > 250.f)
-	{
-		UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL rejected: invalid owner/phase/menu/terminal/range"));
-		return false;
-	}
-    return Mode->GetTerminalSystem()->ValidateInteraction(DemoPawn, Terminal, bNextLevelConfirmationOpen ? NextTerminalGeneration : 0).IsEmpty();
+    DEMO_LOG_CALL();
+    const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 只读复制的战局，不访问客户端不存在的GM。
+    const FDemoPlayerMenuSnapshot& View=GetController()->GetMenuSnapshot(); // 交互已由服务器建立，确认提交仍再次校验。
+    return GetController()->IsLocalController() && State && IsValid(Terminal) && View.Terminal==Terminal && View.bNextLevel
+        && !bMenuOpen && !HasBlockingOverlay()
+        && (State->Phase==EDemoPhase::Hub || State->Phase==EDemoPhase::Intermission);
 }
 void UDemoMenuFlowComponent::OpenNextLevelConfirmation(ADemoInteractable* Terminal)
 {
@@ -83,14 +77,15 @@ void UDemoMenuFlowComponent::OpenNextLevelConfirmation(ADemoInteractable* Termin
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
 	if (bNextLevelConfirmationOpen) { UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL open rejected: confirmation already open")); return; }
 	if (!CanRequestNextLevel(Terminal)) return;
-	NextTerminalGeneration = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->GetTerminalSystem()->GetGeneration(); // 记录本次对象版本。
+	NextTerminalGeneration = GetController()->GetMenuSnapshot().TerminalGeneration; // 记录权威回执对象版本。
 	PendingNextLevelTerminal = Terminal;
 	PendingCompletedLevel = GetWorld()->GetGameState<ADemoGameState>()->LevelNumber;
 	bNextLevelConfirmationOpen = true;
+	MenuMessage.Empty(); // 新页面不沿用上一轮购物或准备失败提示。
 	bDifficultyChosen = false; // 安全区每次打开必须明确选择，避免Enter默认跳过。
 	ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetController()->GetPawn()); // 校验后的当前角色，仅本次调用借用。
-	DemoPawn->StopFiring();
-	DemoPawn->GetCharacterMovement()->StopMovementImmediately(); // 停止残余速度，避免弹窗期间滑出交互范围。
+	if (DemoPawn) DemoPawn->StopFiring();
+	if (DemoPawn) DemoPawn->GetCharacterMovement()->StopMovementImmediately(); // 停止残余速度，避免弹窗期间滑出交互范围。
 	SetMenuInput(true);
 	UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL confirmation opened target=%d"), PendingCompletedLevel + 1);
 }
@@ -99,6 +94,8 @@ void UDemoMenuFlowComponent::CancelNextLevelConfirmation()
 	DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
 	if (!bNextLevelConfirmationOpen) { UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL cancel ignored: no request")); return; }
+    FDemoGameplayCommandRequest Request; // 明确取消也撤销服务器本人会话，隐藏页面不能继续持有交易权限。
+    Request.Command=EDemoGameplayCommand::EndInteraction; GetController()->SubmitGameplayCommand(Request);
 	NextTerminalGeneration = 0;
 	bNextLevelConfirmationOpen = false;
 	PendingNextLevelTerminal.Reset();
@@ -120,48 +117,37 @@ void UDemoMenuFlowComponent::ConfirmNextLevel()
 		CancelNextLevelConfirmation();
 		return;
 	}
-	if (State->Phase == EDemoPhase::Hub && !bDifficultyChosen) { UE_LOG(LogFPSDemo, Log, TEXT("Choose difficulty before first departure")); return; }
-	// 先消费请求再调用同步状态机：防止双击重复推进，也避免覆盖 StartNextLevel 失败后的终局输入。
-	UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL confirmed target=%d"), PendingCompletedLevel + 1);
-	CancelNextLevelConfirmation();
-	GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->StartNextLevel();
+    if(!GetController()->GetMenuSnapshot().bCanLeadSession) { MenuMessage=TEXT("请先准备，等待房主出发"); UE_LOG(LogFPSDemo,Log,TEXT("NEXT_LEVEL host only")); return; }
+	if (!State->TeamReady.bRequired && State->Phase == EDemoPhase::Hub && !bDifficultyChosen) { UE_LOG(LogFPSDemo, Log, TEXT("Choose difficulty before first departure")); return; }
+    // 网络提交后由成功回执关闭页面；提前取消会撤销服务器会话，使紧随的出发请求失效。
+    UE_LOG(LogFPSDemo, Log, TEXT("NEXT_LEVEL requested target=%d"), PendingCompletedLevel + 1);
+    FDemoGameplayCommandRequest Request; // 关间出发意图只带当前终端，服务器验证房主身份和阶段。
+    Request.Command=EDemoGameplayCommand::StartLevel; Request.Terminal=GetController()->GetMenuSnapshot().Terminal;
+    Request.TerminalGeneration=GetController()->GetMenuSnapshot().TerminalGeneration;
+    Request.ReadyRevision=State->TeamReady.Revision; Request.ExpectedLevel=State->LevelNumber;
+    GetController()->SubmitGameplayCommand(Request);
 }
 bool UDemoMenuFlowComponent::IsNextLevelConfirmationOpen() const
 { DEMO_LOG_TICK(); return bNextLevelConfirmationOpen; }
 void UDemoMenuFlowComponent::SelectUpgrade(int32 Choice)
 {
-	DEMO_LOG_CALL();
-    if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
-	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Upgrade ignored beneath overlay")); return; } // 防止暂停时数字键购买下层属性。
-	if (!bMenuOpen || TerminalPage!=EDemoTerminalPage::Stats) { UE_LOG(LogFPSDemo, Log, TEXT("Upgrade input ignored: closed/weapon page")); return; } // 武器页数字键不能误购属性。
-	if (Choice < 0 || Choice > 2) { MenuMessage = TEXT("无效的升级选项"); UE_LOG(LogFPSDemo, Warning, TEXT("Upgrade rejected: choice=%d"), Choice); return; }
-	// 单人本地服务器；网络客户端没有 AuthGameMode，明确拒绝而非发送未经实现的 RPC。
-	AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>();
-	if (!Mode) { MenuMessage = TEXT("当前仅支持单人模式"); UE_LOG(LogFPSDemo, Warning, TEXT("Upgrade rejected: no authority GameMode")); return; }
-	if (bRewardMenu)
-	{
-		if (Mode->ChooseReward(Choice)) { bRewardMenu = false; CloseUpgradeMenu(); }
-		else { MenuMessage = TEXT("奖励已领取或当前阶段不可选择"); UE_LOG(LogFPSDemo, Log, TEXT("Reward selection rejected")); }
-	}
-	else
-	{
-		// 读取原因用于准确反馈；PurchaseUpgrade 内仍重新检查，UI 不承担交易授权。
-		ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetController()->GetPawn()); // 仅本次输入借用当前 Avatar。
-		const FString Reason = Mode->GetPurchaseBlockReason(DemoPawn, Choice); // 当前所选项的阻塞原因，不能沿用伤害项价格。
-		const int32 Cost = Mode->GetUpgradeCost(Choice); // 成功文案使用该项扣费前价格。
-		if (!Reason.IsEmpty()) { MenuMessage = Reason; UE_LOG(LogFPSDemo, Log, TEXT("UI purchase rejected: %s"), *Reason); return; }
-		MenuMessage = Mode->PurchaseUpgrade(Choice, DemoPawn)
-			? FString::Printf(TEXT("升级成功，花费 %d %s · 属性已生效"), Cost, GetWorld()->GetGameState<ADemoGameState>()->Phase == EDemoPhase::Hub ? TEXT("金币") : TEXT("银币")) : TEXT("升级未生效，请重试并检查日志"); // 与权威购买使用同一区域判定，反馈不可错标另一钱包。
-		UE_LOG(LogFPSDemo, Log, TEXT("UI purchase result: %s"), *MenuMessage);
-	}
+    DEMO_LOG_CALL();
+    if (bStopped || !GetController()->IsLocalController() || HasBlockingOverlay() || !bMenuOpen || TerminalPage!=EDemoTerminalPage::Stats || Choice<0 || Choice>2)
+    { UE_LOG(LogFPSDemo,Log,TEXT("UPGRADE intent rejected page/index")); return; }
+    FDemoGameplayCommandRequest Request; // 本人免费奖励或商品索引，服务器决定权限、价格和保存结果。
+    Request.Command=bRewardMenu?EDemoGameplayCommand::ChooseReward:EDemoGameplayCommand::UpgradeStat;
+    Request.Choice=Choice; Request.Terminal=MenuTerminal.Get(); Request.TerminalGeneration=MenuTerminalGeneration;
+    Request.BuildRevision=GetController()->GetMenuSnapshot().Build.Revision; Request.ExpectedLevel=GetWorld()->GetGameState<ADemoGameState>()->LevelNumber;
+    MenuMessage=TEXT("等待服务器确认"); GetController()->SubmitGameplayCommand(Request);
 }
 void UDemoMenuFlowComponent::ShowEndScreen()
 {
 	DEMO_LOG_CALL();
+    ResetGamblePresentation(); // 死亡/结算关闭抽取展示，不让旧结果覆盖新页面提示。
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
     MenuTerminal.Reset(); MenuTerminalGeneration = 0; NextTerminalGeneration = 0;
 	// 失败可在弹窗期间发生；丢弃出发意图，不能让旧按钮在结算后恢复战斗。
-	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 丢弃当前武器详情，终局不能沿用旧终端装备请求。
+	TerminalPage = EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; PendingGamblePrice=INDEX_NONE; // 页面变化撤销旧赌博确认。 // 丢弃当前武器详情，终局不能沿用旧终端装备请求。
 	InspectedWeapon = INDEX_NONE;
 	bNextLevelConfirmationOpen = false;
 	PendingNextLevelTerminal.Reset();
@@ -184,11 +170,19 @@ void UDemoMenuFlowComponent::SetTerminalWeaponPage(bool bWeapons)
 {
 	DEMO_LOG_CALL();
     if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
+    if (!bMenuOpen || bRewardMenu) { UE_LOG(LogFPSDemo, Log, TEXT("Terminal tab rejected: shop not open")); return; }
 	if (HasBlockingOverlay()) { UE_LOG(LogFPSDemo, Log, TEXT("Terminal tab rejected: blocking overlay")); return; } // 暂停/设置覆盖终端时不能派发下层页签。
-	const AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 当前终端的权威状态，每次点击重新读取。
-	const FString Reason = Mode ? Mode->GetTerminalBlockReason(Cast<ADemoCharacter>(GetController()->GetPawn())) : TEXT("当前仅支持单人模式"); // 拒绝原因供HUD展示。
+    if (bGambleWaiting || IsGambleConfirmOpen()) { UE_LOG(LogFPSDemo, Log, TEXT("Terminal tab rejected: outstanding gamble confirmation or reply")); return; }
+	const FString Reason = GetController()->GetMenuSnapshot().TerminalBlockReason; // 服务端交互只读投影，页签切换不授予权限。
 	if (!Reason.IsEmpty() || InspectedWeapon != INDEX_NONE) { MenuMessage = Reason; UE_LOG(LogFPSDemo, Log, TEXT("Terminal tab rejected: %s/tip"), *Reason); return; }
-	TerminalPage = bWeapons?EDemoTerminalPage::Weapons:EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; // 切页消费旧购买意图。
+    if (!GambleReel.Cards.IsEmpty())
+    {
+        // 只有已提交的回执会生成卡片。返回首页可立即收起播放，其他页签仍不能穿透结果页。
+        if (bWeapons || !IsGambleMenuOpen()) { UE_LOG(LogFPSDemo, Log, TEXT("Terminal tab rejected: active gamble result")); return; }
+        UE_LOG(LogFPSDemo, Log, TEXT("GAMBLE_REEL return to terminal home rolling=%d result=%s"), GambleReel.bRolling, *GambleReel.ResultId.ToString());
+        GambleReel.Reset();
+    }
+	TerminalPage = bWeapons?EDemoTerminalPage::Weapons:EDemoTerminalPage::Stats; PendingAmmoPrice=INDEX_NONE; PendingGamblePrice=INDEX_NONE; // 页面变化撤销旧赌博确认。 // 切页消费旧购买意图。
 	MenuMessage.Empty();
 	// 只在打开/重新进入武器页时读取软路径，异步结果由HUD保活，不在每帧UI绘制时加载。
 	if (bWeapons)
@@ -217,17 +211,20 @@ void UDemoMenuFlowComponent::CloseWeaponTip()
 }
 void UDemoMenuFlowComponent::EquipInspectedWeapon()
 {
-	DEMO_LOG_CALL();
-    if (bStopped || !GetController()->IsLocalController()) { UE_LOG(LogFPSDemo, Log, TEXT("MENU command rejected after shutdown/nonlocal")); return; } // 拒绝旧PC上的迟到输入/回调。
-	ADemoCharacter* DemoPawn = Cast<ADemoCharacter>(GetController()->GetPawn()); // 当前操作者，不缓存旧Pawn或Tips打开时的状态。
-	const AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 权威终端验证。
-	UDemoPlayerProfile* Profile = GetWorld()->GetGameInstance()->GetSubsystem<UDemoPlayerProfile>(); // GI持有的持久进度。
-	if (HasBlockingOverlay() || !IsWeaponMenuOpen() || InspectedWeapon < 1 || InspectedWeapon > 3 || !DemoPawn || !Mode || !Profile) // 暂停/设置不得透传装备操作。
-	{ UE_LOG(LogFPSDemo, Log, TEXT("Weapon equip rejected: no primary tip")); return; }
-	const FString Reason = Mode->GetTerminalBlockReason(DemoPawn); // 展示当前失败原因；组件仍重复权限检查。
-	if (!Reason.IsEmpty()) { MenuMessage = Reason; UE_LOG(LogFPSDemo, Log, TEXT("Weapon equip rejected: %s"), *Reason); return; }
-	if (!Profile->IsUnlocked(DemoWeaponCatalog::IdAt(InspectedWeapon))) { MenuMessage = TEXT("尚未解锁，请先完成对应难度"); UE_LOG(LogFPSDemo, Log, TEXT("Weapon equip rejected: locked")); return; }
-	MenuMessage = DemoPawn->GetWeaponComponent()->SelectPrimary(InspectedWeapon - 1) ? TEXT("主武器已装备 · 关闭终端后按 1 / 2 切换") : TEXT("装备失败，请检查武器配置与日志");
+    DEMO_LOG_CALL();
+    if (bStopped || !GetController()->IsLocalController() || HasBlockingOverlay() || !IsWeaponMenuOpen() || InspectedWeapon<1 || InspectedWeapon>3)
+    { UE_LOG(LogFPSDemo,Log,TEXT("WEAPON equip intent rejected page/index")); return; }
+    EquipCatalogWeapon(InspectedWeapon); // 仅兼容既有服务/动画夹具的显式查看索引，不再对应可见详情页。
+}
+void UDemoMenuFlowComponent::EquipCatalogWeapon(int32 CatalogIndex)
+{
+    DEMO_LOG_CALL();
+    if(bStopped||!GetController()->IsLocalController()||HasBlockingOverlay()||!IsWeaponMenuOpen()||CatalogIndex<1||CatalogIndex>3)
+    { UE_LOG(LogFPSDemo,Log,TEXT("WEAPON catalogue equip rejected shutdown/owner/overlay/page/index index=%d"),CatalogIndex); return; }
+    FDemoGameplayCommandRequest Request; // 请求只冻结目录索引与当前真实终端代次；权限/金币/保存/临时装备仍由原服务处理。
+    Request.Command=EDemoGameplayCommand::EquipWeapon; Request.Choice=CatalogIndex;
+    Request.Terminal=MenuTerminal.Get(); Request.TerminalGeneration=MenuTerminalGeneration;
+    MenuMessage=TEXT("等待服务器确认"); GetController()->SubmitGameplayCommand(Request);
 }
 void UDemoMenuFlowComponent::RetryProfileSave()
 {
@@ -258,5 +255,6 @@ void UDemoMenuFlowComponent::RestartPressed()
 	// Enter在大厅打开存档页，死亡清空成长回安全区，胜利清空成长/银币并保留金币回安全区；系统错误回大厅，其他阶段GM拒绝。
 	const ADemoGameState* State = GetWorld()->GetGameState<ADemoGameState>(); // 借用当前状态。
 	if (State && State->Phase == EDemoPhase::Lobby) { StartGamePressed(); return; }
-	if (AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()) Mode->RestartDemo();
+	FDemoGameplayCommandRequest Request; // 全队重启仅服务器房主可执行。
+    Request.Command=EDemoGameplayCommand::RestartRun; GetController()->SubmitGameplayCommand(Request);
 }

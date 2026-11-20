@@ -1,3 +1,4 @@
+// 职责：可配置角色校验和站位选择；扩展远程兵复用原导航，伤害仍由GAS执行器管理。
 #include "AI/DemoEnemyTactics.h"
 #include "AI/DemoEnemy.h"
 #include "AI/DemoEnemyNavigation.h"
@@ -9,8 +10,8 @@ bool FDemoEnemyTacticsSettings::IsValid() const
     UE_LOG(LogFPSDemo,Log,TEXT("%hs"),__FUNCTION__);
     if (MixedRoles.IsEmpty()||MixedRoles.Num()>16) { UE_LOG(LogFPSDemo,Warning,TEXT("AI mixed role count invalid")); return false; }
     for (const EDemoEnemyRole Entry:MixedRoles) // 明确拒绝递归Mixed及非法序列化值。
-        if (Entry==EDemoEnemyRole::Mixed||static_cast<uint8>(Entry)>static_cast<uint8>(EDemoEnemyRole::Charger)) { UE_LOG(LogFPSDemo,Warning,TEXT("AI mixed role entry invalid")); return false; }
-    return static_cast<uint8>(Role) <= static_cast<uint8>(EDemoEnemyRole::Charger)
+        if (Entry==EDemoEnemyRole::Mixed||static_cast<uint8>(Entry)>static_cast<uint8>(EDemoEnemyRole::Exploder)) { UE_LOG(LogFPSDemo,Warning,TEXT("AI mixed role entry invalid")); return false; }
+    return static_cast<uint8>(Role) <= static_cast<uint8>(EDemoEnemyRole::Exploder)
         && FMath::IsFinite(MinimumRange) && MinimumRange >= 250 && MinimumRange < PreferredRange
         && FMath::IsFinite(PreferredRange) && PreferredRange < MaximumRange
         && FMath::IsFinite(MaximumRange) && MaximumRange <= 2500
@@ -100,7 +101,7 @@ void UDemoEnemyTactics::Move(ADemoCharacter* Player,float Speed,float DeltaSecon
         NextDecision=Now+Config.RepositionInterval;
         const FVector Away=(Enemy->GetActorLocation()-Player->GetActorLocation()).GetSafeNormal2D(); // 从玩家指向本敌人的径向。
         const float Side=(FormationSlot/3)%2==0 ? 1.f : -1.f; // 相邻编队左右分散，可复现且不读随机种子。
-        const bool bRetreat=Role==EDemoEnemyRole::Ranged && Distance<Config.MinimumRange; // 回退只在近距离触发，理想距离作为退出目标。
+        const bool bRetreat=(Role==EDemoEnemyRole::Ranged||Role==EDemoEnemyRole::Bombardier||Role==EDemoEnemyRole::Mender) && Distance<Config.MinimumRange; // 回退只在近距离触发，理想距离作为退出目标。
         const float Angle=bRetreat?0.f:(Role==EDemoEnemyRole::Flanker?65.f:25.f)*Side; // 度，远程小幅侧移，侧翼较大幅度换角度。
         Goal=Player->GetNavAgentLocation()+Away.RotateAngleAxis(Angle,FVector::UpVector)*(Role==EDemoEnemyRole::Flanker?Config.FlankRange:Config.PreferredRange);
         SetState(bRetreat?TEXT("Retreat"):(Role==EDemoEnemyRole::Flanker?TEXT("Flank"):TEXT("Strafe")));

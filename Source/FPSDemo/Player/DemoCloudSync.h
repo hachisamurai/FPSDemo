@@ -7,6 +7,9 @@
 
 /** 退出屏障的类型化结果；Complete只由最新快照全部确认并落盘后的空队列检查产生。 */
 enum class EDemoCloudExitState : uint8 { Idle, LocalOnly, Pending, Complete, Failed };
+// 仅本GI运行态；协议步骤和展示状态均不使用数字/本地化文案参与分支。
+enum class EDemoCloudStep : uint8 { None, Login, Bind, Pull, Upload };
+enum class EDemoCloudStatus : uint8 { Waiting, Disabled, Connecting, Pending, Synchronized, Conflict, Failed };
 
 /** 不含秘密的耐久同步状态；在HTTP发出前先保存发件箱，超时/重启重放同一请求。 */
 UCLASS()
@@ -47,6 +50,8 @@ public:
     void CancelExitSync();
     /** HUD只读反馈，不会在绘制时执行网络操作。 */
     const FString& GetStatus() const;
+    /** 只读类型化展示状态，中文文案修改不改变dirty/同步判定。 */
+    EDemoCloudStatus GetStatusCode() const;
     /** 是否需要显示两种冲突处理按钮。 */
     bool HasConflict() const;
     /** bKeepLocal选择本机或云端检查点；仅大厅允许，先保留两份冲突归档。 */
@@ -65,7 +70,7 @@ private:
     /** 发送固定Outbox，不根据超时重建RequestId。 */
     void SendOutbox();
     /** Verb/Path/Body为内部协议数据；CurrentStep指定本回调语义，正文不记录日志。 */
-    void Request(const FString& Verb, const FString& Path, const FString& Body, int32 CurrentStep);
+    void Request(const FString& Verb, const FString& Path, const FString& Body, EDemoCloudStep CurrentStep);
     /** HTTP弱UObject回调；bSuccess/Code/Body为传输结果，始终游戏线程。 */
     void Reply(bool bSuccess, int32 Code, const FString& Body);
     /** Error为可公开中文提示；bStop表示需要用户处理而不是无限重试。 */
@@ -83,6 +88,7 @@ private:
     FTSTicker::FDelegateHandle Ticker; // 必须在Deinitialize移除的核心定时器句柄。
     FString Token; // 两小时Bearer仅内存存在，禁止日志/SaveGame。
     FString Status = TEXT("云存档等待连接"); // HUD用户反馈，不作为服务器状态依据。
+    EDemoCloudStatus StatusCode = EDemoCloudStatus::Waiting; // 本地状态码；与可翻译文案分离，不写入Outbox。
     FString PendingStatus = TEXT("进度已保存本地，等待云端同步"); // 已同步提示失效后立即返回的只读文案。
     uint64 CheckedRunSerial = 0; // 最近完成本地槽指纹比较的序列，防轮询间隔内误显示已同步。
     FString SaveSlot = TEXT("DemoCloudState"); // 同步状态固定文件，凭据位于独立DPAPI文件。
@@ -90,7 +96,7 @@ private:
     double NextAttempt = 0; // FPlatformTime单调秒数，不受游戏暂停/时间缩放影响。
     double NextPull = 0; // 最长60秒刷新云版本，允许另一设备的进度在大厅被发现。
     int32 Attempts = 0; // 连续失败次数，退避上限60秒。
-    int32 Step = 0; // 1登录/2绑定/3拉取/4上传；只有一条HTTP在途。
+    EDemoCloudStep Step = EDemoCloudStep::None; // 只有一条HTTP在途，当前步骤确定回执语义。
     bool bBusy = false; // 当前HTTP请求尚未结束，不允许并发同步。
     bool bStopped = false; // 配置/协议/磁盘问题需显式重试，游戏仍可离线运行。
     bool bDisabled = false; // 用户配置或旧自动化测试禁用本GI所有联网。

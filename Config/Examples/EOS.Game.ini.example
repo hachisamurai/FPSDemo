@@ -1,0 +1,7 @@
+; 此.example文件不会被UE自动加载。配置完整后将本节合并到本地Config/DefaultGame.ini。
+[/Script/FPSDemo.DemoOnlineIdentity]
+; 默认发行配置保持false；产品、测试账号和客户端权限就绪后才改成true。
+bEnablePublicRooms=true
+; 公网列表只查找同地区、同协议版本房间；两台测试机使用相同值。
+; 1..16个ASCII字母、数字或连字符，示例Asia/Europe/Americas；不自动测量网络距离。
+Region=Asia

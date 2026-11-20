@@ -1,12 +1,16 @@
+// 职责：以真实GAS/终端驱动四枪动画、有限弹药和取消回归；仅显式Editor测试参数启用，不修改正式CDO。
 #include "Tests/DemoWeaponAnimationTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "AI/DemoEnemy.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/Skeleton.h" // 握持回归从压缩Idle骨轨迹重建独立期望，不借用运行图最终姿势。
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/DemoFPAnimInstance.h"
 #include "Animation/DemoWeaponAnimationComponent.h"
 #include "Characters/DemoCharacter.h"
+#include "Camera/CameraComponent.h" // 直接核对FP骨在真实相机空间中的位置，防数值动画通过但画面不可见。
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
@@ -15,6 +19,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "EngineUtils.h"
 #include "GAS/DemoAbilitySystemComponent.h"
+#include "GAS/DemoAttributeSet.h" // 双管容量必须抵抗实际ASC成长属性，而不是只比较CDO数字。
 #include "GAS/DemoTags.h"
 #include "Game/FPSDemoGameMode.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -35,7 +40,10 @@ ADemoWeaponAnimationTest::ADemoWeaponAnimationTest()
     PrimaryActorTick.bCanEverTick = true;
     // 连续帧捕获需要每个实际World帧观察；普通回归保持原来0.02秒频率与同一组等待/断言。
     bCaptureFrames = FParse::Param(FCommandLine::Get(),TEXT("DemoWeaponAnimationFrames"));
-    PrimaryActorTick.TickInterval = bCaptureFrames ? 0.f : .02f;
+    bAuditSupportArm = FParse::Param(FCommandLine::Get(),TEXT("DemoSupportArmAudit"));
+    PrimaryActorTick.TickInterval = bCaptureFrames || bAuditSupportArm ? 0.f : .02f; // 肘部连续性诊断不能跳过两次动画更新之间的帧。
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoBoltCycleTest"))) PrimaryActorTick.TickInterval = 0.f; // 周期边界需每实际帧检查。
+    if (bAuditSupportArm) PrimaryActorTick.TickGroup = TG_PostUpdateWork; // 显式诊断读取本帧最终骨姿势，而不是上一帧缓存。
 }
 
 bool ADemoWeaponAnimationTest::Check(bool Condition, const TCHAR* Message)
@@ -74,6 +82,7 @@ bool ADemoWeaponAnimationTest::InitializeFixture()
     {
         State->Difficulty = static_cast<EDemoDifficulty>(Index);
         Profile->RecordVictory(FGuid::NewGuid().ToString(),State->Difficulty);
+        DemoTestProgress::ImportLocalPermissions(State); // 测试通关事实显式同步到本人PS，再走真实终端授权。
     }
     State->Phase = EDemoPhase::Lobby;
     State->LevelNumber = 0;
@@ -146,8 +155,10 @@ void ADemoWeaponAnimationTest::CaptureAnimationFrame()
 {
     DEMO_LOG_TICK();
     if (!bCaptureFrames || !bCapturingFullReload || !FApp::CanEverRender() || bFailed) return;
-    const bool bReloadFinished = !TestedWeapon.IsValid() || !TestedWeapon->IsReloading(); // 完成时记录恢复姿势，不延长或重启GAS动作。
+    const bool bReloadFinished = !TestedWeapon.IsValid() || !TestedWeapon->IsReloading(); // 完成后仍观察短暂淡出，不延长或重启GAS动作。
     const float Now = GetWorld()->GetTimeSeconds(); // 使用World时钟，暂停不重复截图，同一渲染帧最多一张。
+    if (bReloadFinished && FrameCaptureFinishedTime<0.f) FrameCaptureFinishedTime=Now; // 首次完成帧冻结，不能每帧重置导致永不停止。
+    const bool bCaptureFinished = bReloadFinished && Now>=FrameCaptureFinishedTime+.15f; // 覆盖正常0.06秒Montage淡出及IK恢复尾段。
     if (LastScreenshotFrame == GFrameCounter || (!bReloadFinished && Now + KINDA_SMALL_NUMBER < NextFrameCaptureTime)
         || FScreenshotRequest::IsScreenshotRequested()) return;
     const FString FrameName = FString::Printf(TEXT("%s_%04d.png"),*CaptureFramePrefix,CaptureFrameIndex); // 当前套动作独立连续序号，不含其他状态截图。
@@ -158,7 +169,7 @@ void ADemoWeaponAnimationTest::CaptureAnimationFrame()
     ++CaptureFrameIndex;
     LastScreenshotFrame = GFrameCounter;
     NextFrameCaptureTime = Now + 1.f / 30.f;
-    if (bReloadFinished)
+    if (bCaptureFinished)
     {
         bCapturingFullReload = false;
         const FString TimingPath = FPaths::ProjectSavedDir()/TEXT("Screenshots/WeaponAnimation/Frames")/(CaptureFramePrefix + TEXT("_timing.tsv")); // 与图片同目录/前缀，外部编码器据此构建VFR时间轴。
@@ -189,8 +200,93 @@ bool ADemoWeaponAnimationTest::CheckEquipped(bool bCapture)
     if (!Check(Player->GetMesh1P()->IsBoneHiddenByName(TEXT("upperarm_l")) == Weapon->Config.bHideSupportArm,
         TEXT("idle support-arm visibility restored for this weapon"))) return false;
     IdleLeftHand = Player->GetMesh1P()->GetSocketLocation(TEXT("hand_l"));
+    const FVector CameraHand=Player->GetFirstPersonCameraComponent()->GetComponentTransform().InverseTransformPosition(IdleLeftHand); // X必须在相机前，厘米。
+    UE_LOG(LogFPSDemo,Log,TEXT("FP_VIEW_AUDIT hand=%s arms=%s camera=%s hidden=%d visible=%d"),*CameraHand.ToString(),
+        *Player->GetMesh1P()->GetRelativeTransform().ToString(),*Player->GetFirstPersonCameraComponent()->GetComponentTransform().ToString(),
+        Player->GetMesh1P()->bHiddenInGame,Player->GetMesh1P()->IsVisible());
+    if (!Check(CameraHand.X>5.f && CameraHand.X<150.f && FMath::Abs(CameraHand.Z)<100.f,TEXT("authored idle hands are in front of the actual player camera"))) return false;
+    const float MuzzleForwardDot=FVector::DotProduct(Mesh->GetSocketRotation(Weapon->Config.MuzzleSocket).Vector(),Player->GetFirstPersonCameraComponent()->GetForwardVector()); // 单位方向点积防止180度反向仍通过角度跨度检查。
+    const FVector CameraMuzzle=Player->GetFirstPersonCameraComponent()->GetComponentTransform().InverseTransformPosition(Mesh->GetSocketLocation(Weapon->Config.MuzzleSocket)); // cm；枪口必须在持握手前。
+    UE_LOG(LogFPSDemo,Log,TEXT("MUZZLE_DIRECTION_AUDIT dot=%.5f camera=%s hand=%s"),MuzzleForwardDot,*CameraMuzzle.ToString(),*CameraHand.ToString());
+    if (!Check(MuzzleForwardDot>.94f && CameraMuzzle.X>CameraHand.X,TEXT("actual muzzle points forward and lies ahead of the supporting hand"))) return false;
+    if (WeaponIndex==2)
+    {
+        const float OldBonus=Player->GetDemoAttributes()->GetMagazineBonus(); // 仅本隔离World保存原基值，断言后立即恢复。
+        Player->GetDemoASC()->SetNumericAttributeBase(UDemoAttributeSet::GetMagazineBonusAttribute(),OldBonus+50.f);
+        const bool bFixedTwo=Weapon->GetCapacity()==2 && Weapon->Config.bFixedMagazineCapacity && !Weapon->Config.bReloadOneRoundAtATime; // 冻结属性变化时的实际结果。
+        Player->GetDemoASC()->SetNumericAttributeBase(UDemoAttributeSet::GetMagazineBonusAttribute(),OldBonus);
+        if (!Check(bFixedTwo,TEXT("Drake-12 stays two rounds with actual magazine growth and uses whole reload"))) return false;
+    }
+    if (Weapon->Config.OpticMesh)
+    {
+        UStaticMeshComponent* Optic=nullptr; // 通过实际组件名称找附件，不把配置非空当作已安装。
+        TArray<UStaticMeshComponent*> Parts; Weapon->GetComponents(Parts);
+        for (UStaticMeshComponent* Part:Parts) if (Part->GetFName()==TEXT("WeaponOptic")) Optic=Part;
+        if (!Check(Optic && Optic->GetStaticMesh()==Weapon->Config.OpticMesh && Optic->GetAttachParent()==Mesh
+            && Optic->GetAttachSocketName()==Weapon->Config.OpticSocket && Optic->bOnlyOwnerSee
+            && Optic->GetRelativeTransform().Equals(Weapon->Config.OpticOffset,.001f),TEXT("native scope is attached to the actual owner-only gun Root"))) return false;
+        Weapon->SetScopedVisual(true);
+        const bool bOpticHidden=Optic->bHiddenInGame; // 只验证显示接口，完整GAS开镜另有输入回归。
+        Weapon->SetScopedVisual(false);
+        if (!Check(bOpticHidden && !Optic->bHiddenInGame,TEXT("scope visual hides and restores with the FP gun"))) return false;
+    }
+    if (!CheckSupportGrip()) return false; // IK求值后的真正掌/指朝向必须保留作者接触姿态。
     if (bCapture) Capture(FString(Names[WeaponIndex]) + TEXT("-Idle"));
     return true;
+}
+
+bool ADemoWeaponAnimationTest::CheckSupportGrip()
+{
+    DEMO_LOG_CALL();
+    const ADemoWeaponBase* Weapon = TestedWeapon.Get(); // 仅借用当前枪；手枪隐藏左臂无需托枪接触。
+    const bool bSkipLeft = Weapon && Weapon->Config.bHideSupportArm; // 只跳过手枪隐藏左手，右握姿仍必须检查。
+    ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0)); // 本测试World内当前Pawn。
+    UDemoWeaponAnimationComponent* View = Player ? Player->FindComponentByClass<UDemoWeaponAnimationComponent>() : nullptr; // Pawn持有，无跨帧缓存。
+    const FDemoWeaponAnimationSet* Set = View ? View->GetAnimationSet() : nullptr; // 配置CDO只读。
+    UAnimSequence* Idle = Set ? Set->IdlePose.Get() : nullptr; // 已压缩的校准动画，不读取离线JSON。
+    if (!Check(Idle && Idle->GetSkeleton(),TEXT("support grip reference animation exists"))) return false;
+    const FReferenceSkeleton& Reference = Idle->GetSkeleton()->GetReferenceSkeleton(); // 骨索引使用动画Skeleton，非网格索引猜测。
+    TArray<FTransform> Expected; // 当前调用内重建组件姿势，原骨长/父子关系不变。
+    Expected.SetNum(Reference.GetNum());
+    for (int32 Index=0; Index<Reference.GetNum(); ++Index) // 父骨先于子骨，无递归或持久化状态。
+    {
+        FTransform Local = Reference.GetRefBonePose()[Index]; // 无压缩轨道时保留参考变换。
+        Idle->GetBoneTransform(Local,FSkeletonPoseBoneIndex(Index),0.0,false);
+        const int32 Parent = Reference.GetParentIndex(Index); // INDEX_NONE只允许根骨。
+        Expected[Index] = Parent==INDEX_NONE ? Local : Local*Expected[Parent];
+    }
+    const int32 AnchorIndex = Reference.FindBoneIndex(TEXT("ik_hand_gun")); // 独立枪锚点，不能用hand_l本身当基准。
+    if (!Check(AnchorIndex!=INDEX_NONE,TEXT("support grip independent anchor exists"))) return false;
+    const FTransform ActualAnchor = Player->GetMesh1P()->GetSocketTransform(TEXT("ik_hand_gun"),RTS_Component); // 已求值主图骨，去除相机/组件运动。
+    double MaximumPositionError=0.0,MaximumRotationError=0.0; // 厘米/角度，覆盖腕与五指末节；阈值不随配置数值变化。
+    for (const FName Name : {FName(TEXT("lowerarm_l")),FName(TEXT("hand_l")),FName(TEXT("index_03_l")),FName(TEXT("middle_03_l")),FName(TEXT("ring_03_l")),FName(TEXT("pinky_03_l")),FName(TEXT("thumb_03_l")),FName(TEXT("hand_r")),FName(TEXT("index_03_r")),FName(TEXT("middle_03_r")),FName(TEXT("ring_03_r")),FName(TEXT("pinky_03_r")),FName(TEXT("thumb_03_r"))}) // 左肘也须与作者解算一致，不能只靠手指通过验收。
+    {
+        if (bSkipLeft && Name.ToString().EndsWith(TEXT("_l"))) continue; // 隐藏骨缩放为零，不作为手枪接触判据。
+        const int32 Index = Reference.FindBoneIndex(Name); // 原模板骨名，缺失立即失败。
+        if (!Check(Index!=INDEX_NONE,TEXT("support grip contact bone exists"))) return false;
+        const FTransform Target = Expected[Index].GetRelativeTransform(Expected[AnchorIndex]); // 独立期望：压缩Idle相对枪。
+        const FTransform Actual = Player->GetMesh1P()->GetSocketTransform(Name,RTS_Component).GetRelativeTransform(ActualAnchor); // 实际IK与惯性过渡输出。
+        MaximumPositionError=FMath::Max(MaximumPositionError,FVector::Distance(Target.GetLocation(),Actual.GetLocation()));
+        MaximumRotationError=FMath::Max(MaximumRotationError,FMath::RadiansToDegrees(Target.GetRotation().AngularDistance(Actual.GetRotation())));
+    }
+    UE_LOG(LogFPSDemo,Display,TEXT("SUPPORT_GRIP_RUNTIME_AUDIT weapon=%d max_position_cm=%.6f max_rotation_deg=%.6f"),WeaponIndex,MaximumPositionError,MaximumRotationError);
+    return Check(MaximumPositionError<.15 && MaximumRotationError<.5,TEXT("runtime IK preserves calibrated wrist and finger contact pose"));
+}
+
+void ADemoWeaponAnimationTest::AuditSupportArm()
+{
+    DEMO_LOG_TICK();
+    if (!bAuditSupportArm) return;
+    const ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0)); // 仅借用本测试World当前Pawn。
+    const USkeletalMeshComponent* Arms = Player ? Player->GetMesh1P() : nullptr; // PostUpdateWork已完成本帧骨求值。
+    const UDemoFPAnimInstance* Main = Arms ? Cast<UDemoFPAnimInstance>(Arms->GetAnimInstance()) : nullptr; // 主实例纯值快照，允许初始化为空。
+    if (!Main || !TestedWeapon.IsValid()) return;
+    const FTransform Anchor = Arms->GetSocketTransform(TEXT("ik_hand_gun"),RTS_Component); // 去除相机及整枪运动，只看肘/腕相对枪的变化。
+    const FTransform Elbow = Arms->GetSocketTransform(TEXT("lowerarm_l"),RTS_Component).GetRelativeTransform(Anchor); // 厘米、单位四元数。
+    const FTransform Hand = Arms->GetSocketTransform(TEXT("hand_l"),RTS_Component).GetRelativeTransform(Anchor); // 与肘同一帧、同一坐标系。
+    UE_LOG(LogFPSDemo,Log,TEXT("SUPPORT_ARM_SAMPLE weapon=%d step=%d time=%.6f reload=%d phase=%.6f ik=%.6f elbow=%s wrist=%s forearm=%s"),
+        WeaponIndex,Step,GetWorld()->GetTimeSeconds(),Main->Snapshot.bReloading,Main->Snapshot.ReloadProgress,Main->SupportHandIKAlpha,
+        *Elbow.GetLocation().ToString(),*Hand.GetLocation().ToString(),*Elbow.GetRotation().ToString()); // 仅显式专项逐帧输出，正式包不提升至Display。
 }
 
 void ADemoWeaponAnimationTest::CaptureMechanicalRestPose()
@@ -209,16 +305,19 @@ void ADemoWeaponAnimationTest::CaptureMechanicalRestPose()
 bool ADemoWeaponAnimationTest::StartReload(bool bEmpty)
 {
     DEMO_LOG_CALL();
+    FrameCaptureFinishedTime=-1.f; // 每个完整动作使用独立回握尾段，旧结束时间不能截断下一枪录制。
     ADemoCharacter* Player = Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(this,0)); // 仅本步骤借用Owner。
     ADemoWeaponBase* Weapon = TestedWeapon.Get(); // 操作预先装备的相同实例，不能替换库存骗过取消检查。
     UDemoWeaponAnimationComponent* View = Player ? Player->FindComponentByClass<UDemoWeaponAnimationComponent>() : nullptr; // 表现只观察，不直接调用BeginReloadPresentation。
     if (!Check(Player && Weapon && View && Player->GetWeaponComponent()->GetActiveWeapon() == Weapon,TEXT("reload targets selected current instance"))) return false;
     Weapon->Config.bInfiniteReserve = false; // 仅修改专项Actor实例，不改资产CDO；有限备用可揭露重复结算。
     Weapon->Config.InitialReserve = 2; // 发数，上限足够让普通/空仓两种转移均可检查。
-    Weapon->RestoreAmmo(bEmpty ? 0 : 1,2);
+    const int32 TestReserve = Weapon->Config.bReloadOneRoundAtATime ? 1 : 2; // 表现专项只播一周期；逐颗循环由独立Tube专项覆盖。
+    Weapon->RestoreAmmo(bEmpty ? 0 : 1,TestReserve);
     bExpectedEmpty = bEmpty;
-    ExpectedAmmo = bEmpty ? 2 : 3;
-    ReloadDuration = Weapon->Config.ReloadSeconds;
+    ExpectedAmmo = FMath::Min(Weapon->GetCapacity(),(bEmpty ? 0 : 1) + TestReserve);
+    ExpectedReserve = TestReserve-(ExpectedAmmo-(bEmpty?0:1));
+    ReloadDuration = bEmpty ? (Weapon->Config.bReloadOneRoundAtATime?Weapon->Config.EmptyShellReloadSeconds:Weapon->Config.EmptyReloadSeconds>0.f?Weapon->Config.EmptyReloadSeconds:Weapon->Config.ReloadSeconds) : Weapon->Config.ReloadSeconds; // 分别覆盖整次空仓和旧管式首颗。
     if (!Check(ReloadDuration > .5f && Player->GetWeaponComponent()->RequestReload(bEmpty),TEXT("real GAS reload ability starts using configured gameplay duration"))) return false;
     ReloadSequence = View->GetReloadSequence();
     if (!Check(Weapon->IsReloading() && View->IsReloadPresentationActive() && View->IsEmptyReload() == bEmpty
@@ -258,7 +357,8 @@ bool ADemoWeaponAnimationTest::CheckReloadPose(const TCHAR* CaptureName)
         && Main->Montage_IsPlaying(ExpectedMontage),TEXT("matching reload Montage plays in fixed main FPAction slot"))) return false;
     if (!Check(View->GetReloadProgress() > .2f && View->GetReloadProgress() < .8f && View->GetReloadSequence() == ReloadSequence
         && View->IsEmptyReload() == bExpectedEmpty && TestedWeapon->GetAmmo() == (bExpectedEmpty ? 0 : 1)
-        && TestedWeapon->GetReserveAmmo() == 2,TEXT("mid-animation progress is real and cannot transfer ammo early"))) return false;
+        && TestedWeapon->GetReserveAmmo() == (TestedWeapon->Config.bReloadOneRoundAtATime ? 1 : 2),
+        TEXT("mid-animation progress is real and cannot transfer ammo early"))) return false; // 40%尚未到62%装入点，管式夹具只提供一颗。
     if (!Check(!Player->GetMesh1P()->IsBoneHiddenByName(TEXT("upperarm_l"))
         && FVector::Dist(Player->GetMesh1P()->GetSocketLocation(TEXT("hand_l")),IdleLeftHand) > .5f,
         TEXT("reload unhides support arm and changes actual evaluated hand pose"))) return false;
@@ -307,7 +407,23 @@ bool ADemoWeaponAnimationTest::CheckClean(int32 ExpectedAmmoValue, int32 Expecte
     if (!Check(Mesh != nullptr,TEXT("cancelled/completed mechanical mesh still valid"))) return false;
     if (!Check(Mesh->GetSingleNodeInstance() && FMath::IsNearlyZero(Mesh->GetSingleNodeInstance()->GetCurrentTime(),.001f),
         TEXT("mechanical sequence clock resets to zero after completion/cancel"))) return false;
-    for (const TPair<FName,FTransform>& Rest : MechanicalRestPose) // 比较组件空间，切枪附着点变化不影响本断言。
+    TMap<FName,FTransform> ExpectedRest=MechanicalRestPose; // 旧枪允许参考Pose；新枪必须按其闭锁/空仓配置验证真正恢复结果。
+    const UDemoWeaponLayerAnimInstance* Defaults=Weapon->Config.WeaponAnimLayerClass.GetDefaultObject(); // 目标枪CDO只读，不能借用切换后的新枪配置。
+    UAnimSequence* RestClip=Defaults?(ExpectedAmmoValue==0 && Defaults->AnimSet.WeaponEmptyPose?Defaults->AnimSet.WeaponEmptyPose.Get():Defaults->AnimSet.WeaponIdlePose.Get()):nullptr; // 独立期望Pose，不读运行图最终姿势。
+    if (RestClip)
+    {
+        const FReferenceSkeleton& Ref=RestClip->GetSkeleton()->GetReferenceSkeleton(); // 配置枪骨架，与该枪网格一致。
+        TArray<FTransform> Components; Components.SetNum(Ref.GetNum()); // 本次重建的父先子后组件变换。
+        for (int32 Bone=0;Bone<Ref.GetNum();++Bone)
+        {
+            FTransform Local=Ref.GetRefBonePose()[Bone]; // 无轨道时保留绑定值，读取压缩轨道验证真实运行格式。
+            RestClip->GetBoneTransform(Local,FSkeletonPoseBoneIndex(Bone),0.0,false);
+            const int32 Parent=Ref.GetParentIndex(Bone); // 根骨没有父变换。
+            Components[Bone]=Parent==INDEX_NONE?Local:Local*Components[Parent];
+            ExpectedRest.Add(Ref.GetBoneName(Bone),Components[Bone]);
+        }
+    }
+    for (const TPair<FName,FTransform>& Rest : ExpectedRest) // 比较组件空间，切枪附着点变化不影响本断言。
     {
         const FTransform Actual = Mesh->GetSocketTransform(Rest.Key,RTS_Component); // 已求值的真实骨姿势，包含缩放/可见性影响。
         if (!Actual.Equals(Rest.Value,.1f) || Mesh->IsBoneHiddenByName(Rest.Key))
@@ -331,6 +447,12 @@ void ADemoWeaponAnimationTest::Tick(float DeltaSeconds)
 {
     DEMO_LOG_TICK();
     Super::Tick(DeltaSeconds);
+#if WITH_EDITOR
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoReloadSeatTest"))) { TickReloadSeatTest(); return; }
+#endif
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoTubeReloadTest"))) { TickTubeReloadTest(); return; } // 显式专项运行真实逐颗GAS事务。
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoBoltCycleTest"))) { TickBoltCycleTest(); return; } // 独立专项仍复用真实运行夹具，不执行重复的换弹状态机。
+    AuditSupportArm(); // 诊断必须跨越完成/混合退出窗口，不能被状态机等待早退截断。
     CaptureAnimationFrame(); // 必须放在NextTime早退之前，覆盖中段断言前后的完整动画，而非只录等待起点。
     if (bFailed || GetWorld()->GetTimeSeconds() < NextTime) return;
     if (!Check(GetWorld()->GetTimeSeconds() < 240.f,TEXT("bounded animation regression runtime"))) return;
@@ -356,7 +478,7 @@ void ADemoWeaponAnimationTest::Tick(float DeltaSeconds)
         Advance(4,ReloadDuration * .6f + .2f);
         break;
     case 4:
-        if (!CheckClean(ExpectedAmmo,0)) return;
+        if (!CheckClean(ExpectedAmmo,ExpectedReserve)) return;
         // 唯一结算入口即便被误调用也必须拒绝已经完成的动作；不把手工完成当作成功路径。
         if (!Check(!TestedWeapon->CompleteReload() && TestedWeapon->GetAmmo() == ExpectedAmmo,
             TEXT("completed reload cannot transfer a second time"))) return;
@@ -368,7 +490,7 @@ void ADemoWeaponAnimationTest::Tick(float DeltaSeconds)
         Advance(6,ReloadDuration * .6f + .2f);
         break;
     case 6:
-        if (!CheckClean(ExpectedAmmo,0)) return;
+        if (!CheckClean(ExpectedAmmo,ExpectedReserve)) return;
         CancelIndex = 0;
         Advance(7,.2f);
         break;
@@ -391,12 +513,13 @@ void ADemoWeaponAnimationTest::Tick(float DeltaSeconds)
         break;
     }
     case 9:
-        if (!CheckClean(0,2)) return;
+        if (!CheckClean(CancelIndex==2 ? ExpectedAmmo : 0, CancelIndex==2 ? ExpectedReserve : TestedWeapon->Config.bReloadOneRoundAtATime ? 1 : 2)) return; // 末段切枪保留已转入的整匣或单颗。
         if (CancelIndex == 2 && !Check(Equipment && Equipment->EquipSlot(WeaponIndex == 0 ? 2 : 1),TEXT("switch back reuses original gun without reloading ammo"))) return;
         Advance(10,.3f);
         break;
     case 10:
-        if (!CheckEquipped(false) || !CheckClean(0,2)) return;
+        if (!CheckEquipped(false) || !CheckClean(TestedWeapon->Config.bReloadOneRoundAtATime && CancelIndex == 2 ? 1 : 0,
+            TestedWeapon->Config.bReloadOneRoundAtATime ? (CancelIndex == 2 ? 0 : 1) : 2)) return; // 切回后仍保持单颗已提交状态，不恢复盒式备用断言。
         ++CancelIndex;
         Advance(CancelIndex < 3 ? 7 : 11,.15f);
         break;

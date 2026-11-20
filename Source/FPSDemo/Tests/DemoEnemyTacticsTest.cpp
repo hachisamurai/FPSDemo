@@ -1,3 +1,4 @@
+// 职责：真实World战术与GAS阶段回归；通过隔离EnemyAttack测试路由运行，枚举计数覆盖全部已注册角色。
 #include "Tests/DemoEnemyAttackTest.h"
 #include "AI/DemoEnemy.h"
 #include "AI/DemoEnemyTactics.h"
@@ -31,7 +32,7 @@ void ADemoEnemyAttackTest::TickTacticsTest()
     {
         if (!Check(Mode->StartRun(),TEXT("start isolated tactics campaign"))) return;
         Mode->StartNextLevel(); PC->OnRunReady();
-        int32 Roles[6]={0,0,0,0,0,0}; // 追加近战/冲刺角色后扩容，避免真实生产混编越界写入。
+        int32 Roles[static_cast<int32>(EDemoEnemyRole::Exploder)+1]={}; // 随角色枚举扩容，避免特殊兵种调参后真实生产混编越界写入。
         for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 冻结真实波次，保留GM注册表避免专项清场。
         {
             ++Roles[static_cast<int32>(It->FindComponentByClass<UDemoEnemyTactics>()->GetRole())];

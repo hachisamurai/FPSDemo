@@ -2,7 +2,7 @@
 #include "Economy/DemoShopComponent.h" // 购买及权限已迁入权威交易服务。
 #include "Weapons/Ammo/DemoAmmoCatalog.h"
 #include "Characters/DemoCharacter.h"
-#include "Player/DemoPlayerController.h"
+#include "Net/UnrealNetwork.h"
 #include "Game/FPSDemoGameMode.h"
 #include "Save/DemoRunSave.h"
 #include "GAS/Ammo/DemoAmmoEffects.h"
@@ -19,6 +19,7 @@ UDemoAmmoComponent::UDemoAmmoComponent()
     DEMO_LOG_CALL();
     ConstructorHelpers::FObjectFinder<UDemoAmmoCatalog> Data(TEXT("/Game/Data/Ammo/DA_AmmoCatalog.DA_AmmoCatalog")); // 资产由Editor脚本创建，构造硬引用供Cook收集。
     Catalog=Data.Object;
+    SetIsReplicatedByDefault(true); // 各Pawn独立库存，客户端仅拥有者展示。
 }
 const UDemoAmmoCatalog* UDemoAmmoComponent::GetCatalog() const { DEMO_LOG_TICK(); return Catalog?Catalog.Get():GetDefault<UDemoAmmoCatalog>(); }
 bool UDemoAmmoComponent::IsUnlocked(int32 Index) const
@@ -28,7 +29,8 @@ bool UDemoAmmoComponent::IsUnlocked(int32 Index) const
 #if WITH_EDITOR
     const UGameInstance* Instance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr; // CDO/销毁期间可能没有World，仅读当前GI。
     const UDemoPlayerProfile* Profile = Instance ? Instance->GetSubsystem<UDemoPlayerProfile>() : nullptr; // GI拥有，不跨调用保存。
-    if (Profile && Profile->IsDebugUnlockAllForSession()) return true; // 仅本次Editor会话临时权限。
+    const ADemoCharacter* Character = Cast<ADemoCharacter>(GetOwner()); // 主机调试只影响本地玩家，不能给远端玩家自动授予房主权限。
+    if (Character && Character->HasAuthority() && Character->IsLocallyControlled() && Profile && Profile->IsDebugUnlockAllForSession()) return true;
 #endif
     return Index==0 || (GetCatalog()->Entries.IsValidIndex(Index) && (GetCatalog()->Entries[Index].bUnlockedByDefault||Unlocked.Contains(UDemoAmmoCatalog::IdAt(Index))));
 }
@@ -46,42 +48,109 @@ bool UDemoAmmoComponent::Purchase(int32 Index,int32 QuotedCost,FString& OutMessa
     if (!Mode) { OutMessage=TEXT("商店服务不可用"); UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_PURCHASE_REJECT missing shop")); return false; }
     return Mode->GetShopSystem()->PurchaseAmmo(Cast<ADemoCharacter>(GetOwner()), Index, QuotedCost, OutMessage);
 }
-bool UDemoAmmoComponent::Equip(int32 Index,FString& OutMessage)
+bool UDemoAmmoComponent::Equip(int32 Index, FString& OutMessage)
 {
-    DEMO_LOG_CALL(); OutMessage=GetBlockReason();
-    // 普通弹始终可作为撤销特殊装配的回退，特殊数值配置损坏不能阻止玩家恢复基础射击。
-    if(!OutMessage.IsEmpty()||Index<0||Index>3||!IsUnlocked(Index)||(Index!=0&&!GetCatalog()->Validate())) { if(OutMessage.IsEmpty())OutMessage=TEXT("弹药未解锁或配置无效"); UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_EQUIP_REJECT %s"),*OutMessage); return false; }
-    const int32 Previous=Selected; // 失败恢复原选择，现有装配GE保持不动。
-    Selected=Index;
-    if(!GetWorld()->GetAuthGameMode<AFPSDemoGameMode>()->SaveCheckpoint()) { Selected=Previous; OutMessage=TEXT("保存失败，保留原弹药"); UE_LOG(LogFPSDemo,Error,TEXT("AMMO_EQUIP_ROLLBACK")); return false; }
-    RefreshEffect(); OutMessage=TEXT("弹药已装配，主副武器共用"); return true;
+    DEMO_LOG_CALL();
+    AFPSDemoGameMode* Mode = GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 旧接口仅适配权威Shop，联网UI由拥有者PC请求。
+    if (!Mode || !Mode->GetShopSystem()) { OutMessage = TEXT("商店服务不可用"); UE_LOG(LogFPSDemo, Log, TEXT("AMMO_EQUIP rejected authority/shop")); return false; }
+    const FDemoCommandResult Result = Mode->GetShopSystem()->EquipAmmo(Cast<ADemoCharacter>(GetOwner()), Index); // 结构化结果不靠中文内容判定。
+    OutMessage = Result.Message;
+    return Result.IsApplied();
+}
+bool UDemoAmmoComponent::ExecuteSelection(int32 Index)
+{
+    DEMO_LOG_CALL();
+    if (!GetOwner()->HasAuthority() || !IsUnlocked(Index) || Index < 0 || Index > 3 || (Index != 0 && !GetCatalog()->Validate()))
+    { UE_LOG(LogFPSDemo, Warning, TEXT("AMMO_EXECUTE rejected authority/unlocked/config")); return false; }
+    const int32 Previous = Selected; // 仅GE成功才提交选择，失败保留旧类型/效果。
+    Selected = Index;
+    if (!RefreshEffect()) { Selected = Previous; return false; }
+    GetOwner()->ForceNetUpdate();
+    return true;
+}
+void UDemoAmmoComponent::CaptureSnapshot(FDemoLoadoutSnapshot& Data) const
+{
+    DEMO_LOG_CALL();
+    Data.UnlockedAmmoIds = Unlocked;
+    for (int32 Index = 0; Index < 4; ++Index) // 默认解锁固化为当前玩家领域值，不能在重生收回已拥有权益。
+        if (IsUnlocked(Index)) Data.UnlockedAmmoIds.AddUnique(UDemoAmmoCatalog::IdAt(Index));
+    Data.SelectedAmmoId = UDemoAmmoCatalog::IdAt(Selected);
+}
+bool UDemoAmmoComponent::CanRestoreSnapshot(const FDemoLoadoutSnapshot& Data) const
+{
+    DEMO_LOG_CALL();
+    const ADemoCharacter* Player=Cast<ADemoCharacter>(GetOwner()); // 当前服务器Avatar，不接受客户端上传的库存授权。
+    const int32 Target=UDemoAmmoCatalog::IndexOf(Data.SelectedAmmoId); // 不允许未知类型静默转换成普通弹。
+    if (!Player || !Player->HasAuthority() || !Player->GetAbilitySystemComponent() || Target<0 || !Data.UnlockedAmmoIds.Contains(TEXT("normal"))
+        || !Data.UnlockedAmmoIds.Contains(Data.SelectedAmmoId) || Data.UnlockedAmmoIds.Num()>4 || (Target!=0 && (!GetCatalog() || !GetCatalog()->Validate())))
+    { UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_RESTORE rejected authority/ASC/catalog/selection")); return false; }
+    TSet<FName> Seen; // 持久数据必须无重复且全部为已知类型。
+    for (const FName Id : Data.UnlockedAmmoIds)
+    {
+        if (Seen.Contains(Id) || UDemoAmmoCatalog::IndexOf(Id)<0) return false;
+        Seen.Add(Id);
+    }
+    return true;
+}
+bool UDemoAmmoComponent::RestoreSnapshot(const FDemoLoadoutSnapshot& Data)
+{
+    DEMO_LOG_CALL();
+    if (!CanRestoreSnapshot(Data)) return false;
+    const TArray<FName> PreviousUnlocked=Unlocked; // GE应用失败时还原目录值，旧GE由RefreshEffect保持。
+    const int32 PreviousSelected=Selected; // 生命周期仅本次同步事务。
+    Unlocked=Data.UnlockedAmmoIds; Selected=UDemoAmmoCatalog::IndexOf(Data.SelectedAmmoId);
+    if (!RefreshEffect())
+    { Unlocked=PreviousUnlocked; Selected=PreviousSelected; UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_RESTORE rolled back")); return false; }
+    GetOwner()->ForceNetUpdate(); return true;
 }
 void UDemoAmmoComponent::Capture(UDemoRunSave& Data) const
 {
-    DEMO_LOG_CALL(); Data.UnlockedAmmoIds=Unlocked;
-    for(int32 Index=0;Index<4;++Index)if(IsUnlocked(Index))Data.UnlockedAmmoIds.AddUnique(UDemoAmmoCatalog::IdAt(Index)); // 默认解锁也固化为值，配置后续调整不收回购买权益。
-    Data.SelectedAmmoId=UDemoAmmoCatalog::IdAt(Selected);
+    DEMO_LOG_CALL();
+    FDemoLoadoutSnapshot Snapshot; // SaveGame仅兼容序列化边界，实际库存只处理领域值。
+    CaptureSnapshot(Snapshot);
+    Data.UnlockedAmmoIds = Snapshot.UnlockedAmmoIds;
+    Data.SelectedAmmoId = Snapshot.SelectedAmmoId;
 }
 void UDemoAmmoComponent::Restore(const UDemoRunSave& Data)
 {
-    DEMO_LOG_CALL(); Unlocked=Data.UnlockedAmmoIds; Unlocked.AddUnique(TEXT("normal")); Selected=UDemoAmmoCatalog::IndexOf(Data.SelectedAmmoId);
-    if(Selected<0||!IsUnlocked(Selected)){Selected=0; UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_RESTORE fallback normal"));}
-    RefreshEffect();
+    DEMO_LOG_CALL();
+    FDemoLoadoutSnapshot Snapshot; // 原V4字段无损转为新领域接口。
+    Snapshot.UnlockedAmmoIds = Data.UnlockedAmmoIds;
+    Snapshot.SelectedAmmoId = Data.SelectedAmmoId;
+    RestoreSnapshot(Snapshot);
 }
-void UDemoAmmoComponent::RefreshEffect()
+void UDemoAmmoComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     DEMO_LOG_CALL();
-    ADemoCharacter* Player=Cast<ADemoCharacter>(GetOwner()); // PS ASC在Avatar更替时可能尚未初始化。
-    UAbilitySystemComponent* ASC=Player?Player->GetAbilitySystemComponent():nullptr; // 同步借用。
-    if(!ASC){UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_LOADOUT missing ASC"));return;}
-    if(LoadoutEffect.IsValid())ASC->RemoveActiveGameplayEffect(LoadoutEffect);
-    FGameplayEffectSpecHandle Spec=ASC->MakeOutgoingSpec(UDemoAmmoLoadoutEffect::StaticClass(),1,ASC->MakeEffectContext()); // 每次独立Spec，动态授予唯一装配Tag。
-    Spec.Data->DynamicGrantedTags.AddTag(DemoAmmoTags::Type(Selected)); LoadoutEffect=ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
-    UE_LOG(LogFPSDemo,Log,TEXT("AMMO_EQUIPPED type=%d"),Selected);
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME_CONDITION(UDemoAmmoComponent, Unlocked, COND_OwnerOnly);
+    DOREPLIFETIME_CONDITION(UDemoAmmoComponent, Selected, COND_OwnerOnly);
+}
+void UDemoAmmoComponent::OnRep_Inventory()
+{
+    DEMO_LOG_CALL();
+    UE_LOG(LogFPSDemo, Log, TEXT("AMMO_VIEW replicated selected=%d unlocked=%d"), Selected, Unlocked.Num());
+}
+bool UDemoAmmoComponent::RefreshEffect()
+{
+    DEMO_LOG_CALL();
+    if (!GetOwner()->HasAuthority()) { UE_LOG(LogFPSDemo, Log, TEXT("AMMO_EFFECT rejected client mutation")); return false; }
+    ADemoCharacter* Player = Cast<ADemoCharacter>(GetOwner()); // PS ASC在Avatar更替时可能尚未初始化。
+    UAbilitySystemComponent* ASC = Player ? Player->GetAbilitySystemComponent() : nullptr; // 当前同步借用，效果仍属于本人PS。
+    if (!ASC) { UE_LOG(LogFPSDemo, Warning, TEXT("AMMO_LOADOUT missing ASC")); return false; }
+    FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(UDemoAmmoLoadoutEffect::StaticClass(), 1, ASC->MakeEffectContext()); // 每次独立Spec，不修改共享GE CDO。
+    if (!Spec.IsValid()) { UE_LOG(LogFPSDemo, Warning, TEXT("AMMO_LOADOUT invalid spec")); return false; }
+    Spec.Data->DynamicGrantedTags.AddTag(DemoAmmoTags::Type(Selected));
+    const FActiveGameplayEffectHandle Next = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get()); // 先准备新效果，应用失败不能移除旧有效装配。
+    if (!Next.IsValid()) { UE_LOG(LogFPSDemo, Warning, TEXT("AMMO_LOADOUT effect application failed")); return false; }
+    if (LoadoutEffect.IsValid()) ASC->RemoveActiveGameplayEffect(LoadoutEffect);
+    LoadoutEffect = Next;
+    UE_LOG(LogFPSDemo, Log, TEXT("AMMO_EQUIPPED type=%d"), Selected);
+    return true;
 }
 void UDemoAmmoComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     DEMO_LOG_CALL();
-    if(ADemoCharacter* Player=Cast<ADemoCharacter>(GetOwner()))if(auto* ASC=Player->GetAbilitySystemComponent())if(LoadoutEffect.IsValid())ASC->RemoveActiveGameplayEffect(LoadoutEffect); // 不清其他永久成长或技能冷却。
+    if(GetOwner()->HasAuthority()) if(ADemoCharacter* Player=Cast<ADemoCharacter>(GetOwner()))if(auto* ASC=Player->GetAbilitySystemComponent())if(LoadoutEffect.IsValid())ASC->RemoveActiveGameplayEffect(LoadoutEffect); // 不清其他永久成长或技能冷却。
     Super::EndPlay(EndPlayReason);
 }

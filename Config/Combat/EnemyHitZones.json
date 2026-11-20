@@ -5,7 +5,7 @@
     {
       "Region": "Body",
       "DamageMultiplier": 1.0,
-      "BoneNames": ["body", "aim_pitch", "armor_l", "armor_r", "fin_l", "fin_r", "thruster_l", "thruster_r", "shutter_top", "shutter_right", "shutter_bottom", "shutter_left", "halo", "halo_segment_01", "halo_segment_02", "halo_segment_03", "halo_segment_04", "halo_segment_05", "halo_segment_06"]
+      "BoneNames": ["body", "core", "aim_pitch", "armor_l", "armor_r", "fin_l", "fin_r", "thruster_l", "thruster_r", "shutter_top", "shutter_right", "shutter_bottom", "shutter_left", "halo", "halo_segment_01", "halo_segment_02", "halo_segment_03", "halo_segment_04", "halo_segment_05", "halo_segment_06"]
     },
     {
       "Region": "Arm",
@@ -15,7 +15,7 @@
     {
       "Region": "Core",
       "DamageMultiplier": 2.0,
-      "BoneNames": ["core"]
+      "BoneNames": ["head"]
     }
   ],
   "NonHittableBones": ["root", "aim_yaw"]

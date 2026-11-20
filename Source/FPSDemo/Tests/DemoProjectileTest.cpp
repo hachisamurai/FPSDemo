@@ -1,4 +1,6 @@
+// 职责：原实体弹测试和Editor独立FP视觉专项的显式分发。旧默认流程保留；新分支在专用CPP走真实阶段/HP并还原临时配置。
 #include "Tests/DemoProjectileTest.h"
+#include "Misc/CommandLine.h"
 #include "Tests/DemoProjectileFixtures.h"
 #include "Weapons/Projectiles/DemoProjectileBase.h"
 #include "Weapons/Projectiles/DemoShotContext.h" // 身份断言读取真正随弹飞行的上下文，不从当前装备倒推。
@@ -23,6 +25,10 @@
 ADemoProjectileTest::ADemoProjectileTest()
 {
     DEMO_LOG_CALL(); PrimaryActorTick.bCanEverTick=true; PrimaryActorTick.TickInterval=.02f;
+#if WITH_EDITOR
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoProjectilePresentationAudit")))
+    { PrimaryActorTick.TickInterval=0.f; PrimaryActorTick.TickGroup=TG_PostUpdateWork; } // 实际骨姿/根运动求值之后逐帧采样，仅显式隔离分支。
+#endif
 }
 bool ADemoProjectileTest::Check(bool Condition,const TCHAR* Message)
 {
@@ -41,7 +47,11 @@ void ADemoProjectileTest::RestoreProjectileDefaults()
 }
 void ADemoProjectileTest::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    DEMO_LOG_CALL(); RestoreProjectileDefaults(); Super::EndPlay(EndPlayReason);
+    DEMO_LOG_CALL();
+#if WITH_EDITOR
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoProjectilePresentationAudit"))) RestorePresentationAudit();
+#endif
+    RestoreProjectileDefaults(); Super::EndPlay(EndPlayReason);
 }
 ADemoEnemy* ADemoProjectileTest::SpawnTarget(ADemoCharacter* Player,float Distance)
 {
@@ -71,6 +81,9 @@ AActor* ADemoProjectileTest::SpawnWall(ADemoCharacter* Player,float Distance)
 void ADemoProjectileTest::Tick(float DeltaSeconds)
 {
     DEMO_LOG_TICK(); Super::Tick(DeltaSeconds);
+#if WITH_EDITOR
+    if (FParse::Param(FCommandLine::Get(),TEXT("DemoProjectilePresentationAudit"))) { TickPresentationAudit(DeltaSeconds); return; }
+#endif
     if (bFailed||GetWorld()->GetTimeSeconds()<NextTime) return;
     if (!Check(GetWorld()->GetTimeSeconds()<60.f,TEXT("bounded world runtime"))) return;
     AFPSDemoGameMode* Mode=GetWorld()->GetAuthGameMode<AFPSDemoGameMode>(); // 本帧权威规则入口，测试不跨World缓存。

@@ -1,3 +1,4 @@
+// 职责：可 Cook 的敌人外观与头部变体资源契约；出生时由 Enemy 选择，依赖共享骨架、AnimBP 和 Montage。
 #pragma once
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
@@ -16,4 +17,7 @@ public:
     UPROPERTY(EditAnywhere, Category="Appearance") TSubclassOf<UAnimInstance> AnimClass;
     // 稳定键 Melee/Fire/Hit/Death/Area/Global/Rise/Hover/Dive/Recovery/Rage；缺失时记录并保留玩法。
     UPROPERTY(EditAnywhere, Category="Appearance") TMap<FName,TObjectPtr<class UAnimMontage>> Actions;
+    // 仅根外观配置：Roster.Kind 优先，否则用已解析的 Tactics.Role 键；强引用收集全部模型/碰撞/动作到 Cook。
+    // 出生时服务器选定整份外观，经 ReplicatedBody 复制资产引用；变体不能指回父资产或再作递归选择。
+    UPROPERTY(EditAnywhere, Category="Appearance") TMap<FName,TObjectPtr<UDemoEnemyAppearance>> Variants;
 };

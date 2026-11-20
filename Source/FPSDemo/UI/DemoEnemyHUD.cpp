@@ -1,6 +1,10 @@
+// 职责：屏幕空间敌人生命/状态与扩展身份；依赖ASC复制数值、Roster快照和真实视线，不执行伤害。
 #include "GAS/Ammo/DemoAmmoStatus.h"
+#include "AI/DemoEnemyRoster.h"
+#include "GAS/DemoEnemyDefenseSet.h"
 #include "GAS/Ammo/DemoAmmoEffects.h"
 #include "UI/DemoHUD.h"
+#include "UI/R02/DemoUITheme.h" // 仅本帧R02投影使用主题细线/前景，不改变敌人血量或原视线/Scope裁剪。
 #include "AI/DemoEnemy.h"
 #include "Components/SkeletalMeshComponent.h" // 骨骼外观提供真正的头顶挂点，避免Boss背环遮住血条。
 #include "Characters/DemoCharacter.h"
@@ -69,6 +73,7 @@ void ADemoHUD::DrawEnemyDebuffIcon(const UTexture2D* Icon, float X, float Y, con
 void ADemoHUD::DrawEnemyStatusBars()
 {
 	DEMO_LOG_TICK();
+	const bool bR02=IsR02GameplayPresentation(); // 已通过DrawHUD的真实Combat/菜单门禁，旧页型不改变条色/厚度。
 	for (TActorIterator<ADemoEnemy> It(GetWorld()); It; ++It) // 仅遍历本World，不持有跨关卡或死亡对象。
 	{
 		const ADemoEnemy* Enemy = *It; // 当前帧借用；死亡立即不画，不等延迟Destroy。
@@ -78,11 +83,18 @@ void ADemoHUD::DrawEnemyStatusBars()
 		const float Y = Anchor.Y / UIScale;
 		const float Health = Enemy->GetHealth(); // GAS当前生命，伤害/治疗不另维护插值副本。
 		const float Maximum = Enemy->GetMaxHealth(); // 最大生命可被GE改变，非正值按空条处理。
-		const FLinearColor Fill = Enemy->IsBoss() ? FLinearColor(FColor(248, 178, 79)) : FLinearColor(FColor(245, 91, 84)); // Boss橙/普通红，独立于状态颜色。
+		const FLinearColor Fill = bR02?R02HUDTheme->Ember:Enemy->IsBoss()?FLinearColor(FColor(248,178,79)):FLinearColor(FColor(245,91,84)); // R02唯一危险强调色；旧变体保留原区分。
 		// 移除血量文字与进度条外围的黑底；当前生命只绘制彩色填充，已损失部分保持透明。
-		Label(FString::Printf(TEXT("Lv%d  %.0f / %.0f"), Enemy->GetMonsterLevel(), Health, Maximum), X + 60.f, Y - 18.f, 12.f, FLinearColor::White, true);
-		Panel(X, Y, 120.f * FMath::Clamp(Maximum > 0.f ? Health / Maximum : 0.f, 0.f, 1.f), 10.f, Fill, 0.f); // 不调用带深色槽底的通用Meter，其他HUD进度条保持原样。
+		if(!bR02) Label(FString::Printf(TEXT("Lv%d  %.0f / %.0f"),Enemy->GetMonsterLevel(),Health,Maximum),X+60.f,Y-18.f,12.f,FLinearColor::White,true); // R02普通怪只留真实HP细线，避免重复常驻等级/完整数值；精英身份/盾状态仍由下方真实Roster显示。
+		if(bR02) R02HUDLine(X,Y,120.f,Maximum>0.f?Health/Maximum:0.f,Fill,1.f);
+		else Panel(X,Y,120.f*FMath::Clamp(Maximum>0.f?Health/Maximum:0.f,0.f,1.f),10.f,Fill,0.f); // R02为1物理px，旧变体保留原彩色填充。
 		const UAbilitySystemComponent* ASC = Enemy->GetAbilitySystemComponent(); // 敌人ASC为唯一状态来源；装备元素弹不等于敌人有Debuff。
+        if (const UDemoEnemyRoster* Roster=Enemy->FindComponentByClass<UDemoEnemyRoster>()) // 同帧借用复制组件，不保存Actor引用。
+        {
+            FString Name=Roster->GetLabel(); // 名称/阶段/读条来自复制状态；盾数值只读GAS。
+            if (ASC&&Roster->GetKind()==EDemoRosterKind::Guard) Name+=FString::Printf(TEXT(" · 盾 %.0f"),ASC->GetNumericAttribute(UDemoEnemyDefenseSet::GetShieldAttribute()));
+            if (!Name.IsEmpty()) Label(Name,X+60.f,Y-35.f,12.f,bR02?R02HUDTheme->Ink:FLinearColor(.5f,.85f,1.f),true);
+        }
 		float IconX = X + 128.f; // 从血条右侧依次紧凑排列，最多火/冰两枚；只在当前帧递增。
 		if (ASC && ASC->HasMatchingGameplayTag(DemoTags::Burn))
 		{

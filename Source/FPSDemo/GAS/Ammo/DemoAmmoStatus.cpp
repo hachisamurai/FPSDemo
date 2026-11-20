@@ -1,4 +1,7 @@
+// 职责：敌人元素GE叠层、阈值与GC协调。使用：有效直击传入不可变快照，死亡前CopyBurn供天赋事件读取，Clear精确清理。
 #include "GAS/Ammo/DemoAmmoStatus.h"
+#include "GAS/Talents/DemoTalentEvents.h"
+#include "GAS/Talents/DemoTalentAbility.h"
 #include "GAS/Ammo/DemoAmmoEffects.h"
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoTags.h"
@@ -77,12 +80,13 @@ void UDemoAmmoStatus::Apply(UAbilitySystemComponent* Source,int32 Type,const UDe
     DEMO_LOG_CALL();
     ApplySnapshot(Source,Type,FDemoAmmoEffectSnapshot::FromCatalog(Config)); // 兼容测试和旧接口；后续回调绝不再读取Catalog。
 }
-void UDemoAmmoStatus::ApplySnapshot(UAbilitySystemComponent* Source,int32 Type,const FDemoAmmoEffectSnapshot& Snapshot)
+void UDemoAmmoStatus::ApplySnapshot(UAbilitySystemComponent* Source,int32 Type,const FDemoAmmoEffectSnapshot& Snapshot,const UObject* Origin)
 {
     DEMO_LOG_CALL();
     const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 防止最后一只怪死亡后仍结算过期状态。
     if(!GetOwner()->HasAuthority()||!Source||!ASC||ASC->HasMatchingGameplayTag(DemoBossTags::Invulnerable)||!Snapshot.Validate()||!CastChecked<ADemoEnemy>(GetOwner())->IsAlive()||!State||State->Phase!=EDemoPhase::Combat||(Type!=1&&Type!=2))
     { UE_LOG(LogFPSDemo,Log,TEXT("AMMO_STATUS_REJECT invulnerable/phase/config/source/dead/type")); return; }
+    const UObject* EffectOrigin=Origin; // GE叠层会替换Spec上下文；继承旧传播标记，普通弹补层不能洗掉防递归来源。
     FDemoAmmoEffectSnapshot Values=Snapshot; // 新组用来弹快照；同类已有组必须保持首层的伤害、周期、时长和阈值。
     for(const TPair<FActiveGameplayEffectHandle,FDemoAmmoEffectSnapshot>& Entry:EffectSnapshots) // 火/冰句柄分别查询，不让后一种弹药覆盖前一种参数。
     {
@@ -90,10 +94,13 @@ void UDemoAmmoStatus::ApplySnapshot(UAbilitySystemComponent* Source,int32 Type,c
         if(Active&&Active->Spec.Def->GetClass()==(Type==1?UDemoBurnEffect::StaticClass():UDemoChillEffect::StaticClass()))
         {
             Values=Entry.Value;
+            const UObject* ExistingOrigin=Active->Spec.GetContext().GetSourceObject(); // 仅本栈借用CDO；新Spec保存弱来源，目录保活其类。
+            if(Cast<UDemoTalentAbility>(ExistingOrigin)) EffectOrigin=ExistingOrigin; // 传播栈在整个寿命内保持不可继续传播。
             break;
         }
     }
-    FGameplayEffectSpecHandle Spec=Source->MakeOutgoingSpec(Type==1?UDemoBurnEffect::StaticClass():UDemoChillEffect::StaticClass(),1,Source->MakeEffectContext()); // 只读源ASC归属玩家PS。
+    FGameplayEffectContextHandle Context=Source->MakeEffectContext(); Context.AddSourceObject(EffectOrigin); // 源标记随DOT/死亡保存，不授予任意伤害权限。
+    FGameplayEffectSpecHandle Spec=Source->MakeOutgoingSpec(Type==1?UDemoBurnEffect::StaticClass():UDemoChillEffect::StaticClass(),1,Context); // 只读源ASC归属玩家PS。
     if(!Spec.IsValid()){UE_LOG(LogFPSDemo,Warning,TEXT("AMMO_STATUS_REJECT invalid outgoing spec"));return;}
     Spec.Data->SetDuration(Type==1?Values.BurnDuration:Values.ChillDuration,true);
     if(Type==1){Spec.Data->Period=Values.BurnPeriod;Spec.Data->SetSetByCallerMagnitude(DemoTags::Magnitude,-Values.BurnDamagePerStack);}
@@ -144,13 +151,15 @@ void UDemoAmmoStatus::StackChanged(FActiveGameplayEffectHandle Handle,int32 NewC
     const bool Fire=Active->Spec.Def->GetClass()==UDemoBurnEffect::StaticClass(); // 回调只绑定两种栈GE。
     UAbilitySystemComponent* Source=Active->Spec.GetContext().GetOriginalInstigatorAbilitySystemComponent(); // DOT来源维持玩家ASC归属。
     UE_LOG(LogFPSDemo,Log,TEXT("AMMO_STACK target=%s fire=%d count=%d->%d"),*GetOwner()->GetName(),Fire,OldCount,NewCount);
+    const FGameplayEffectContextHandle Context=Active->Spec.GetContext(); // Remove前复制来源，不能在消费栈后借用Active。
     if(NewCount>=(Fire?Values.BurnThreshold:Values.FreezeThreshold)&&Source)
     {
         bConsuming=true; ASC->RemoveActiveGameplayEffect(Handle);
         if(Fire)
         {
             ASC->ExecuteGameplayCue(DemoAmmoTags::ExplosionCue,FGameplayCueParameters()); // GC仅表现；伤害独立GE。
-            DemoEffects::Apply(Source,ASC,UDemoHealthEffect::StaticClass(),-Values.ExplosionDamage);
+            FGameplayEffectSpecHandle Explosion=Source->MakeOutgoingSpec(UDemoHealthEffect::StaticClass(),1,Context); // 保留传播来源，避免阈值爆炸绕过防递归。
+            if(Explosion.IsValid()) { Explosion.Data->SetSetByCallerMagnitude(DemoTags::Magnitude,-Values.ExplosionDamage); Source->ApplyGameplayEffectSpecToTarget(*Explosion.Data.Get(),ASC); }
         }
         else
         {
@@ -188,7 +197,7 @@ void UDemoAmmoStatus::Removed(const FActiveGameplayEffect& Effect)
 void UDemoAmmoStatus::Clear()
 {
     DEMO_LOG_CALL(); if(!ASC)return;
-    FGameplayTagContainer Tags; Tags.AddTag(DemoAmmoTags::Burn); Tags.AddTag(DemoAmmoTags::Chill); Tags.AddTag(DemoAmmoTags::Frozen); Tags.AddTag(DemoAmmoTags::Immune); // 不误清理玩家成长或Boss技能。
+    FGameplayTagContainer Tags; Tags.AddTag(DemoAmmoTags::Burn); Tags.AddTag(DemoAmmoTags::Chill); Tags.AddTag(DemoAmmoTags::Frozen); Tags.AddTag(DemoAmmoTags::Immune); Tags.AddTag(DemoTalentEvents::CombatTransient); // 不误清理玩家成长或Boss技能。
     ASC->RemoveActiveEffectsWithGrantedTags(Tags);
     EffectSnapshots.Empty(); // 死亡/清场没有跨关残留快照；PendingSnapshots仍留给当前同步Apply正常退栈。
     if(SlowHandle.IsValid()){ASC->RemoveActiveGameplayEffect(SlowHandle);SlowHandle.Invalidate();}
@@ -197,10 +206,14 @@ void UDemoAmmoStatus::Clear()
 void UDemoAmmoStatus::HandleCue(FGameplayTag Cue,EGameplayCueEvent::Type Event,const FGameplayCueParameters& Parameters)
 {
     DEMO_LOG_CALL();
-    if((Cue==DemoAmmoTags::ExplosionCue||Cue==DemoAmmoTags::PiercingCue)&&Event==EGameplayCueEvent::Executed)
+    if((Cue==DemoAmmoTags::ExplosionCue||Cue==DemoAmmoTags::PiercingCue||Cue==DemoTalentEvents::FrostBurst)&&Event==EGameplayCueEvent::Executed)
     {
         ADemoAttackPulse* Pulse=GetWorld()->SpawnActor<ADemoAttackPulse>(GetOwner()->GetActorLocation(),FRotator::ZeroRotator); // 世界持有短生命纯表现Actor。
-        if(Pulse)Pulse->EndRadius=Cue==DemoAmmoTags::ExplosionCue?180.f:60.f; // 单体爆炸/贯穿反馈不扩散全地图。
+        if(Pulse)
+        {
+            Pulse->EndRadius=Cue==DemoTalentEvents::FrostBurst?FMath::Clamp(Parameters.RawMagnitude,1.f,1500.f):Cue==DemoAmmoTags::ExplosionCue?180.f:60.f;
+            if(Cue==DemoTalentEvents::FrostBurst) Pulse->SetTint(FLinearColor(.08f,.55f,1.f)); // 冰爆为蓝光，GC只描述已经提交的范围。
+        } // 单体爆炸/贯穿反馈不扩散全地图。
     }
     RefreshVisual();
 }
@@ -216,4 +229,15 @@ void UDemoAmmoStatus::EndPlay(const EEndPlayReason::Type EndPlayReason)
     DEMO_LOG_CALL(); Clear();
     if(ASC){ASC->OnActiveGameplayEffectAddedDelegateToSelf.Remove(AddedBinding);ASC->OnAnyGameplayEffectRemovedDelegate().Remove(RemovedBinding);}
     StackBindings.Empty(); EffectSnapshots.Empty(); Super::EndPlay(EndPlayReason); // 不清同步准备栈，避免EndPlay发生在Apply回调内时破坏成对Pop。
+}
+
+bool UDemoAmmoStatus::CopyBurn(FDemoAmmoEffectSnapshot& Snapshot,int32& Stacks,bool& bSpread) const
+{
+    DEMO_LOG_CALL(); Snapshot=FDemoAmmoEffectSnapshot(); Stacks=0; bSpread=false;
+    if(!ASC) return false;
+    for(const auto& Entry:EffectSnapshots) // 仅首层存活GE的纯值副本，回调结束不保留Active裸指针。
+        if(const FActiveGameplayEffect* Active=ASC->GetActiveGameplayEffect(Entry.Key))
+            if(Active->Spec.Def->GetClass()==UDemoBurnEffect::StaticClass())
+            { Snapshot=Entry.Value; Stacks=ASC->GetCurrentStackCount(Entry.Key); bSpread=Cast<UDemoTalentAbility>(Active->Spec.GetContext().GetSourceObject())!=nullptr; return true; }
+    return false;
 }

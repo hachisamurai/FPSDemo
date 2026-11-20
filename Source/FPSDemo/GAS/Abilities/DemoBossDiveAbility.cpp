@@ -1,5 +1,7 @@
+// 职责：Boss俯冲的权威GAS生命周期、锁定落点和范围伤害；反馈复用冻结爆心，不改变冲刺/遮挡/击退规则。
 #include "GAS/Abilities/DemoBossDiveAbility.h"
 #include "AI/DemoEnemy.h"
+#include "AI/DemoEnemyTargeting.h"
 #include "Animation/DemoEnemyPresentation.h" // 阶段动作跟随原权威飞行状态，不决定飞行或伤害。
 #include "AI/DemoBossDiveVFX.h"
 #include "Characters/DemoCharacter.h"
@@ -9,7 +11,7 @@
 #include "Game/DemoGameState.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
 #include "Components/PrimitiveComponent.h"
-#include "Kismet/GameplayStatics.h"
+#include "EngineUtils.h"
 #include "NavigationSystem.h"
 #include "NavigationData.h"
 #include "Debug/DemoLog.h"
@@ -55,14 +57,18 @@ void UDemoBossDiveAbility::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 {
     DEMO_LOG_CALL();
     ADemoEnemy* Enemy=Cast<ADemoEnemy>(GetAvatarActorFromActorInfo()); // 当前自身ASC Avatar。
-    ADemoCharacter* Player=Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(GetWorld(),0)); // 起飞时玩家仅用于移动忽略。
+    ADemoCharacter* Player = Enemy ? Enemy->GetCombatTarget() : nullptr; // 敌人战斗目标由服务器最近存活玩家策略选择，不固定房主。
     bHasOrigin=false; bImpacted=false; Phase=EDemoDivePhase::None;
     if (!Enemy||!Player||!CommitAbility(Handle,ActorInfo,ActivationInfo)) { EndAbility(Handle,ActorInfo,ActivationInfo,true,true); return; }
     Settings=Enemy->GetDiveSettings(); Origin=Enemy->GetActorLocation(); Top=Origin+FVector(0,0,Settings.Height);
     if (!ClearFlight(Origin,Top,Player)) { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_CANCEL no overhead clearance")); EndAbility(Handle,ActorInfo,ActivationInfo,true,true); return; }
     bHasOrigin=true; CastLevel=GetWorld()->GetGameState<ADemoGameState>()->LevelNumber;
-    IgnoredPlayer=Player;
-    CastChecked<UPrimitiveComponent>(Enemy->GetRootComponent())->IgnoreActorWhenMoving(Player,true); // 仅移动Sweep忽略玩家，Hitscan照常能击中Boss。
+    IgnoredPlayers.Reset();
+    for (TActorIterator<ADemoCharacter> It(GetWorld()); It; ++It) // 固定队伍由落地AOE分别判断，不能先撞队友胶囊而取消技能。
+    {
+        IgnoredPlayers.Add(*It);
+        CastChecked<UPrimitiveComponent>(Enemy->GetRootComponent())->IgnoreActorWhenMoving(*It, true);
+    }
     VFX=GetWorld()->SpawnActor<ADemoBossDiveVFX>();
     SetPhase(EDemoDivePhase::Rising);
 }
@@ -92,7 +98,8 @@ void UDemoBossDiveAbility::SetPhase(EDemoDivePhase Next)
 bool UDemoBossDiveAbility::LockLanding()
 {
     DEMO_LOG_CALL();
-    const ADemoCharacter* Player=Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(GetWorld(),0)); // 只在此刻快照，俯冲不再查询位置。
+    const ADemoEnemy* Enemy = Cast<ADemoEnemy>(GetAvatarActorFromActorInfo()); // 锁点时只借用服务器Avatar。
+    const ADemoCharacter* Player = Enemy ? Enemy->GetCombatTarget() : nullptr; // 此刻锁定最近存活玩家位置，俯冲不追踪目标后续移动。
     UNavigationSystemV1* Nav=FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld()); // Recast提供可恢复平面追击的落点。
     const ANavigationData* Data=Nav?Nav->GetDefaultNavDataInstance(FNavigationSystem::DontCreate):nullptr; // 不隐式创建空导航。
     if (!Player||!Data) { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_CANCEL missing player/nav")); return false; }
@@ -117,8 +124,8 @@ void UDemoBossDiveAbility::Advance(float DeltaSeconds)
     DEMO_LOG_TICK(); if (!IsActive()||DeltaSeconds<=0) return;
     ADemoEnemy* Enemy=Cast<ADemoEnemy>(GetAvatarActorFromActorInfo()); // 同步移动对象，死亡/关卡切换取消。
     const ADemoGameState* State=GetWorld()->GetGameState<ADemoGameState>(); // 施法所在逻辑关卡快照校验。
-    const ADemoCharacter* Player=Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(GetWorld(),0)); // 当前目标必须存活。
-    if (!Enemy||!Enemy->IsAlive()||!State||State->Phase!=EDemoPhase::Combat||State->LevelNumber!=CastLevel||!Player||Player->GetDemoAttributes()->GetHealth()<=0
+    const ADemoCharacter* Player = Enemy ? Enemy->GetCombatTarget() : nullptr; // 原目标阵亡时仍可继续对在场存活队友施法。
+    if (!Enemy||!Enemy->IsAlive()||!Enemy->IsCombatSessionValid()||!State||State->Phase!=EDemoPhase::Combat||State->LevelNumber!=CastLevel||!DemoEnemyTargeting::IsAliveParticipant(Player)
         ||Enemy->GetAbilitySystemComponent()->HasMatchingGameplayTag(DemoAmmoTags::Frozen))
     { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_CANCEL phase/level/death/frozen")); EndAbility(CurrentSpecHandle,CurrentActorInfo,CurrentActivationInfo,true,true); return; }
     const float Age=GetWorld()->GetTimeSeconds()-PhaseStart; // World秒，暂停冻结，时间不依赖帧率。
@@ -146,28 +153,41 @@ void UDemoBossDiveAbility::Advance(float DeltaSeconds)
 }
 void UDemoBossDiveAbility::Impact()
 {
-    DEMO_LOG_CALL(); if (bImpacted) { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_IMPACT duplicate rejected")); return; } bImpacted=true;
-    ADemoCharacter* Player=Cast<ADemoCharacter>(UGameplayStatics::GetPlayerPawn(GetWorld(),0)); // 当次结算玩家，命中后GE可能切换阶段。
-    ADemoEnemy* Enemy=Cast<ADemoEnemy>(GetAvatarActorFromActorInfo()); // 来源ASC归敌人。
-    if (!Player||!Enemy) return;
-    const FVector Ground=Landing-FVector(0,0,130); // 已验证地面位置，垂直阈值按玩家脚下比较。
-    if (FVector::Dist2D(Player->GetActorLocation(),Ground)>Settings.Radius||FMath::Abs(Player->GetNavAgentLocation().Z-Ground.Z)>180.f)
-    { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_EVADED outside radius/height")); return; }
-    FHitResult Hit; // 地面上方30cm至玩家中心的视线，墙阻挡爆发伤害。
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(DemoDiveImpact),false,Enemy); // 忽略来源但保留地形和其他敌人。
-    GetWorld()->LineTraceSingleByChannel(Hit,Ground+FVector(0,0,30),Player->GetActorLocation(),ECC_Visibility,Query);
-    if (Hit.GetActor()!=Player) { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_EVADED cover")); return; }
-    if (Player->IsDashEvading()) { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_EVADED dash; no heal reward")); return; }
-    const float Before=Player->GetDemoAttributes()->GetHealth(); // 用真实健康变化决定击退，不能把提交成功当作伤害成功。
-    DemoEffects::Apply(Enemy->GetAbilitySystemComponent(),Player->GetAbilitySystemComponent(),UDemoHealthEffect::StaticClass(),-50.f);
-    if (Player->GetDemoAttributes()->GetHealth()<Before&&Player->GetDemoAttributes()->GetHealth()>0)
+    DEMO_LOG_CALL();
+    if (bImpacted) { UE_LOG(LogFPSDemo, Log, TEXT("DIVE_IMPACT duplicate rejected")); return; }
+    bImpacted = true; // 先消耗本次AOE，任何玩家死亡回调不能再次进入整场结算。
+    ADemoEnemy* Enemy = Cast<ADemoEnemy>(GetAvatarActorFromActorInfo()); // 权威来源，所有目标逐一重查相同战斗凭据。
+    if (!Enemy || !Enemy->HasAuthority() || !Enemy->IsCombatSessionValid())
+    { UE_LOG(LogFPSDemo,Log,TEXT("DIVE_IMPACT_REJECT source/authority/session")); return; }
+    const FVector Ground = Landing - FVector(0, 0, 130); // 已锁定落地中心，不按某玩家当前位置重新定位AOE。
+    TArray<TWeakObjectPtr<ADemoCharacter>> Targets; // GE可能造成玩家死亡/清场；先快照弱目标，不在可变Actor迭代器中调用GE。
+    for (TActorIterator<ADemoCharacter> It(GetWorld()); It; ++It) Targets.Add(*It); // 当前服务器World候选，实际存活/距离稍后逐人判断。
+    for (const TWeakObjectPtr<ADemoCharacter>& Target : Targets)
     {
-        FVector Direction=(Player->GetActorLocation()-Ground).GetSafeNormal2D(); // 从落点向外推，中心重合时用俯冲方向。
-        if (Direction.IsNearlyZero()) Direction=(Landing-Top).GetSafeNormal2D();
-        if (Direction.IsNearlyZero()) Direction=FVector::ForwardVector;
-        Player->LaunchCharacter(Direction*Settings.Knockback+FVector(0,0,Settings.KnockUp),true,true);
+        if (!IsValid(Enemy) || !Enemy->IsCombatSessionValid()) break; // 全队阵亡/换关同步撤销，后续旧爆发立即停止。
+        ADemoCharacter* Player = Target.Get(); // 本次目标只借用，不能因前一个玩家死亡而复用裸指针。
+        if (!DemoEnemyTargeting::IsAliveParticipant(Player)) continue;
+        if (FVector::Dist2D(Player->GetActorLocation(), Ground) > Settings.Radius || FMath::Abs(Player->GetNavAgentLocation().Z - Ground.Z) > 180.f)
+        { UE_LOG(LogFPSDemo, Log, TEXT("DIVE_EVADED player=%s outside radius/height"), *GetNameSafe(Player)); continue; }
+        FHitResult Hit; // 真实遮挡分别对每人查询；一个人闪避不意味着全队闪避。
+        FCollisionQueryParams Query(SCENE_QUERY_STAT(DemoDiveImpact), false, Enemy); // 来源忽略，地形保留；玩家不作为彼此的肉盾。
+        for (const TWeakObjectPtr<ADemoCharacter>& Other : Targets) if (Other.IsValid() && Other.Get() != Player) Query.AddIgnoredActor(Other.Get()); // 只忽略其他队友查询体。
+        GetWorld()->LineTraceSingleByChannel(Hit, Ground + FVector(0, 0, 30), Player->GetActorLocation(), ECC_Visibility, Query);
+        if (Hit.GetActor() != Player) { UE_LOG(LogFPSDemo, Log, TEXT("DIVE_EVADED player=%s cover"), *GetNameSafe(Player)); continue; }
+        if (Player->IsDashEvading()) { UE_LOG(LogFPSDemo, Log, TEXT("DIVE_EVADED player=%s dash; no heal reward"), *GetNameSafe(Player)); continue; }
+        const float Before = Player->GetDemoAttributes()->GetHealth(); // 实际健康变化才触发击退，GE被拒绝不推人。
+        DemoEffects::ApplyDamage(Enemy->GetAbilitySystemComponent(),Player->GetAbilitySystemComponent(),50.f,
+            EDemoPlayerDamageKind::Area,Ground,FVector::ZeroVector,&Hit);
+        if (!IsValid(Player) || !Player->GetDemoAttributes()) continue;
+        if (Player->GetDemoAttributes()->GetHealth() < Before && Player->GetDemoAttributes()->GetHealth() > 0.f)
+        {
+            FVector Direction = (Player->GetActorLocation() - Ground).GetSafeNormal2D(); // 每人从同一爆发中心向外推。
+            if (Direction.IsNearlyZero()) Direction = (Landing - Top).GetSafeNormal2D();
+            if (Direction.IsNearlyZero()) Direction = FVector::ForwardVector;
+            Player->LaunchCharacter(Direction * Settings.Knockback + FVector(0, 0, Settings.KnockUp), true, true);
+        }
+        UE_LOG(LogFPSDemo, Log, TEXT("DIVE_HIT player=%s damage=50 health=%.1f->%.1f"), *GetNameSafe(Player), Before, Player->GetDemoAttributes()->GetHealth());
     }
-    UE_LOG(LogFPSDemo,Log,TEXT("DIVE_HIT damage=50 health=%.1f->%.1f"),Before,Player->GetDemoAttributes()->GetHealth());
 }
 void UDemoBossDiveAbility::ReturnToGround()
 {
@@ -191,9 +211,9 @@ void UDemoBossDiveAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,co
     if (Enemy)
     {
         if (UDemoEnemyPresentation* Presentation=Enemy->FindComponentByClass<UDemoEnemyPresentation>()) Presentation->Cancel(); // 中断回收同时停止旧飞行动作。
-        if (IgnoredPlayer.IsValid()) CastChecked<UPrimitiveComponent>(Enemy->GetRootComponent())->IgnoreActorWhenMoving(IgnoredPlayer.Get(),false);
+        for (const TWeakObjectPtr<ADemoCharacter>& Player : IgnoredPlayers) if (Player.IsValid()) CastChecked<UPrimitiveComponent>(Enemy->GetRootComponent())->IgnoreActorWhenMoving(Player.Get(), false); // 仅恢复本次临时忽略名单。
         Enemy->OnDiveFinished();
     }
-    IgnoredPlayer.Reset(); Phase=EDemoDivePhase::None; bHasOrigin=false;
+    IgnoredPlayers.Reset(); Phase=EDemoDivePhase::None; bHasOrigin=false;
     Super::EndAbility(Handle,ActorInfo,ActivationInfo,bReplicateEndAbility,bWasCancelled);
 }

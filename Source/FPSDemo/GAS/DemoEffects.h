@@ -1,7 +1,25 @@
+// 职责：原生属性/冷却GE与服务器Spec提交工具；Apply保持旧合同，ApplyDamage附加玩家受击表现元数据，不裁决命中或播放表现。
 #pragma once
 #include "CoreMinimal.h"
 #include "GameplayEffect.h"
+#include "NativeGameplayTags.h"
+#include "Combat/Feedback/Player/DemoPlayerDamageTypes.h"
 #include "DemoEffects.generated.h"
+
+/** 受击元数据只放在本次Spec动态AssetTags；不是授予玩家的状态Tag，不可作为伤害授权。 */
+namespace DemoPlayerDamageTags
+{
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Root); // 只有受击辅助入口添加，区分普通初始化/治疗GE。
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Unknown);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Projectile);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Melee);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Charge);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Area);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Global);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Periodic);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Environment);
+    FPSDEMO_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Omni); // 全图/周期/环境明确无方位，不能回退指向当前施法者。
+}
 
 /** 有符号生命变化：伤害为负、治疗为正，Magnitude 通过 SetByCaller 注入。 */
 UCLASS() class FPSDEMO_API UDemoHealthEffect : public UGameplayEffect
@@ -77,4 +95,10 @@ namespace DemoEffects
 	 * 支持瞬时属性变化或固定时长状态（Dash窗口传0）；返回Spec创建/提交成功，不保证数值改变。 */
 	FPSDEMO_API bool Apply(UAbilitySystemComponent* Source, UAbilitySystemComponent* Target,
 		TSubclassOf<UGameplayEffect> EffectClass, float Magnitude);
+    /** 权威攻击已通过命中/Session/闪避门禁后调用；Damage为非负请求HP，Kind只分类表现。
+     * Origin是当次接触源/锁定爆心的世界厘米；IncomingDirection为指向来袭方向的冻结单位向量（可零）。
+     * 有向量时在目标当前点前方100cm保存等价Origin，防飞弹停止/来源移动丢失入射方向；Hit只在本同步栈借用并复制。
+     * 返回Spec创建/提交成功，不保证HP变化；不授予免伤、不播放声音，非法位置仅降级元数据而不取消合法伤害。 */
+    FPSDEMO_API bool ApplyDamage(UAbilitySystemComponent* Source,UAbilitySystemComponent* Target,float Damage,
+        EDemoPlayerDamageKind Kind,const FVector& Origin,const FVector& IncomingDirection=FVector::ZeroVector,const FHitResult* Hit=nullptr);
 }

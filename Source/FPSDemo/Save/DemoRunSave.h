@@ -1,8 +1,10 @@
+// 职责：检查点持久化与GI槽生命周期。使用：V10同槽个人枪权/身份、V9冻结内容及原核心/娱乐；Editor每GI临时数据停止清理。
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/SaveGame.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Game/DemoGameState.h"
+#include "Contracts/DemoGameplayContracts.h"
 #include "DemoRunSave.generated.h"
 
 /** 检查点的武器值快照；只保存稳定目录ID和弹药，不序列化Actor/CDO。 */
@@ -17,14 +19,30 @@ struct FDemoSavedWeapon
     UPROPERTY() int32 Reserve = 0; // 备用弹药发数，与弹匣分开恢复；无限备用武器仍保存数值供诊断。
 };
 
-/** 每个游戏栏位保存检查点及永久弹药解锁；账号武器解锁仍由DemoPlayerProfile管理。 */
+/** 每槽保存个人永久枪权/弹药及整轮检查点；Profile只提供一次冻结账号Legacy，不拥有本槽Paid权。 */
 UCLASS()
 class FPSDEMO_API UDemoRunSave : public USaveGame
 {
     GENERATED_BODY()
 public:
-    // V5加入挑战模式/资格/纪录；兼容V4弹药解锁和旧成长账本，未来版本仍保护。
-    UPROPERTY() int32 Version = 5; // V5记录模式、无尽纪录和本轮手枪资格；旧档不能追认手枪挑战。
+    /** SaveGame加载前用旧V9缺省解释被旧CDO省略的版本tag；新保存强制完整tag，防CDO升级误认旧档。 */
+    virtual void Serialize(FArchive& Ar) override;
+    // 可选LAN/EOS合作扩展；空数组是原V5单人档，最多四个成员，同一文件原子保存。
+    UPROPERTY() TArray<FDemoCoopPlayerCheckpoint> TeamMembers;
+    // 首次公网上线绑定房主PUID的规范GUID；空值代表未绑定，不能拿此字段当云API认证Token。
+    UPROPERTY() FString OnlineOwnerKey;
+    // 显式存档结构版本；保留旧挑战/弹药/成长账本迁移，未来结构与内容均保护原文件。
+    UPROPERTY() int32 Version = 10; // V10同槽拥有权/身份/收据；V9冻结内容原文保持。
+    UPROPERTY() FString SlotStorageKey; // 栏位实例永久GUID，删除重建换代，不使用RunId代替。
+    UPROPERTY() FString OwnerPlayerKey; // 根个人镜像所属固定房主规范GUID，与成员0相同。
+    UPROPERTY() FDemoWeaponOwnership Ownership; // 根房主镜像；成员各自独立，不与账号付费权合并。
+    UPROPERTY() FName CampaignId; // None为旧十关/无尽；steam_demo为新版十关内容，不接收资产路径。
+    UPROPERTY() int32 ContentRevision = 0; // None时0；steam_demo为正整数并与冻结快照一致，不要求等于当前作者版本。
+    UPROPERTY() int32 RunSeed = 0; // 非负int32确定性房间计划种子，整轮和读档保持，None时0。
+    UPROPERTY() FString ContentSnapshot; // V9根共享紧凑JSON，至多64KiB UTF8；本轮配置不随DataAsset修改，旧模式必须空。
+    UPROPERTY() FString ContentFingerprint; // sha1:加40位小写HEX，对快照UTF8原文做一致性检查；不是身份凭证或反作弊签名。
+    UPROPERTY() FDemoRunBuildSnapshot Build; // 房主/单人本轮核心与分支；合作各成员另存独立Build，不存战斗计数。
+    UPROPERTY() FDemoGambleProgress Gambling; // 同槽永久遗物与临时天赋；团队各成员另有独立副本。
     UPROPERTY() bool bEndless = false; // 无尽模式使用Hell基线，Reward/Intermission允许超过第十关。
     UPROPERTY() int32 BestEndlessLevel = 0; // 本槽最高已完成关数，跨死亡/放弃保留。
     UPROPERTY() int32 PistolChallenge = 0; // 0未射击/1只射手枪/2失格；旧进行中战役迁移为2。
@@ -64,7 +82,7 @@ public:
     UPROPERTY() int32 ActiveSlot = 2; // 当前持用1主/2副；新局默认手枪槽2。
     /** 完整校验持久字段的枚举、数值和阶段一致性；失败不能恢复/覆盖原存档。 */
     bool Validate() const;
-    /** 接受合法V1..V5；旧档迁移成长/普通弹与保守的挑战资格，未来版本拒绝。 */
+    /** 验证V1..V10；旧数值迁移至V9，GI按已持久Profile整槽冻结后升V10，未来结构拒绝。 */
     bool UpgradeLegacy();
     /** 结束挑战时保留永久账本、设置满永久生命和基础技能；只改成长/价格，不动币余额与阶段。 */
     void ResetTemporaryGrowth();
@@ -90,6 +108,8 @@ public:
     bool CreateSlot(int32 Index);
     /** Index=0..2，重新读盘并标记一次恢复请求；损坏槽不能当空槽覆盖。 */
     bool SelectSlot(int32 Index);
+    /** Index为0..2的Hub槽，OwnerKey来自已登录EOS；首次绑定允许单人槽，拒绝猜测迁移多人LAN身份。 */
+    bool BindOnlineOwner(int32 Index, const FString& OwnerKey);
     /** GameMode新World领取一次读档请求，返回GI持有的借用快照。 */
     const UDemoRunSave* ConsumePending();
     /** Snapshot为借用新检查点；写盘成功后复制到GI缓存，失败返回false并显示状态。 */
@@ -98,6 +118,12 @@ public:
     bool ResetActive(EDemoDifficulty Difficulty, int32 Gold, const FDemoUpgradeProgress& Progress, const UDemoRunSave* Loadout = nullptr);
     /** 当前槽0..2或INDEX_NONE，以及用户可读保存结果；无槽测试允许只运行World。 */
     int32 GetActiveSlot() const;
+#if WITH_EDITOR
+    /** 重置成功或系统异常恢复有效检查点前，暂存本机试用枪和手持槽，仅供同一 GI 重载。 */
+    void CaptureEditorRestartWeapon(const class UDemoWeaponComponent& Inventory);
+    /** 正式检查点提交后按匹配的 RunId 恢复一次调试配装。 */
+    void RestoreEditorRestartWeapon(const FString& RunId, class UDemoWeaponComponent& Inventory);
+#endif
     /** 返回GI持有的反馈摘要，只读借用；用于HUD和离开失败提示。 */
     const FString& GetStatus() const;
     /** Index有效时给出固定本地槽名；不接受用户路径。 */
@@ -110,9 +136,16 @@ public:
     uint64 GetChangeSerial() const;
     /** ChallengeStatus=0..2，Best为已完成无尽关数；只更新资格/纪录，不把半场战斗写入检查点。 */
     bool StoreChallenge(int32 ChallengeStatus, int32 Best);
+    /** PlayerKey 是服务器登记的成员键；只更新已存检查点的资格，绝不保存半场钱包。 */
+    bool StorePlayerChallenge(const FString& PlayerKey, int32 ChallengeStatus, int32 Best);
 private:
     /** Message为用户可读结果；bError指定日志级别，统一保证UI和诊断日志一致。 */
     void ReportStatus(const FString& Message, bool bError = false);
+#if WITH_EDITOR
+    FString EditorRestartRun; // 目标检查点的 RunId，绑定同一 GI 的 OpenLevel 前后的 Pawn。
+    FName EditorRestartPrimary; // 本 GI 暂存的借用型号，不复制、不写入存档。
+    int32 EditorRestartSlot = 2; // 重载前的手持槽，借用主枪时也可能正在使用手枪。
+#endif
     // GI强持有的三个已载入值对象，不持有World/Pawn。
     UPROPERTY() TArray<TObjectPtr<UDemoRunSave>> Slots;
     // 无活动槽的开发World也通过GI传递永久成长；仅一次重开，不写文件，停止试玩销毁。
@@ -126,6 +159,7 @@ private:
     FString Prefix;
     bool bTest = false; // 只有隔离测试实例退出时可以自动删除自己的文件。
     bool bEditorSession = false; // WITH_EDITOR覆盖PIE/SIE/Editor Standalone；停止游戏即清理，此标记不序列化。
+    bool bStoring = false; // 同一GI整槽同步提交锁；重入拒绝，不允许旧候选覆盖已提交事务。
     // HUD反馈：失败必须可见，不能把内存缓存误报为持久化成功。
     FString Status;
     uint64 ChangeSerial = 0; // 仅成功创建/保存/导入时递增，读取/绘制不改值。

@@ -1,3 +1,4 @@
+// 职责：敌人元素GE叠层、阈值与GC协调。使用：有效直击传入不可变快照，死亡前CopyBurn供天赋事件读取，Clear精确清理。
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
@@ -19,9 +20,11 @@ public:
     /** Source为玩家ASC，Type=1/2，Config为兼容旧调用的目录；立即复制数值再转ApplySnapshot，不保留目录引用。 */
     void Apply(UAbilitySystemComponent* Source,int32 Type,const class UDemoAmmoCatalog* Config);
     /** Source为借用的权威源ASC，Type=1火/2冰，Snapshot为开火时值快照；已有同类栈沿用首层参数直到清除。 */
-    void ApplySnapshot(UAbilitySystemComponent* Source,int32 Type,const FDemoAmmoEffectSnapshot& Snapshot);
+    void ApplySnapshot(UAbilitySystemComponent* Source,int32 Type,const FDemoAmmoEffectSnapshot& Snapshot,const UObject* Origin=nullptr); // Origin为可选天赋CDO来源标记，GE弱引用；默认普通子弹。
     /** 死亡立即移除所有弹药状态；重复调用安全，不改变其他GAS效果。 */
     void Clear();
+    /** 输出死亡前首层Snapshot、Stacks及bSpread标记；缺失返回false且清空输出，只在权威同步事件借用。 */
+    bool CopyBurn(FDemoAmmoEffectSnapshot& Snapshot,int32& Stacks,bool& bSpread) const;
     /** Cue/Event/Parameters由GAS分发，只更新本地表现，绝不结算伤害。 */
     void HandleCue(FGameplayTag Cue,EGameplayCueEvent::Type Event,const FGameplayCueParameters& Parameters);
     /** 只读查询Tag对应GE栈；不存在返回0，供HUD/回归。 */

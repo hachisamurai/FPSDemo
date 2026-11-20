@@ -1,4 +1,6 @@
+// 职责：生成可编辑FP主图、武器层和单段动作封装；不修改Blender已验收的源动画轨道，保存由调用者控制。
 #include "Animation/DemoFPAnimationAuthoring.h"
+#include "Animation/AnimMontage.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimBlueprintGeneratedClass.h"
 #include "Animation/AnimLayerInterface.h"
@@ -22,6 +24,24 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "UObject/UnrealType.h"
+
+UAnimMontage* UDemoFPAnimationAuthoring::CreateSequenceMontage(const FString& PackagePath, UAnimSequence* Sequence)
+{
+    UE_LOG(LogFPSDemo,Log,TEXT("[CALL] %hs path=%s"),__FUNCTION__,*PackagePath);
+    if (!PackagePath.StartsWith(TEXT("/Game/FPSPackAssets/Integration/")) || !Sequence || !Sequence->GetSkeleton() || Sequence->GetPlayLength()<=0.f)
+    { UE_LOG(LogFPSDemo,Error,TEXT("PACK_MONTAGE_INPUT_REJECT")); return nullptr; }
+    const FString Name=FPackageName::GetLongPackageAssetName(PackagePath); // 输出仅允许隔离接入目录，对象名与包叶名一致。
+    UAnimMontage* Result=LoadObject<UAnimMontage>(nullptr,*(PackagePath+TEXT(".")+Name)); // 包保活，调用者同步保存。
+    if (!Result) { Result=NewObject<UAnimMontage>(CreatePackage(*PackagePath),*Name,RF_Public|RF_Standalone); FAssetRegistryModule::AssetCreated(Result); }
+    Result->Modify(); Result->SetSkeleton(Sequence->GetSkeleton()); Result->SlotAnimTracks.Reset(); Result->CompositeSections.Reset();
+    FSlotAnimationTrack& Track=Result->SlotAnimTracks.AddDefaulted_GetRef(); // FP动作统一进入主图Slot，不能切换AnimInstance。
+    Track.SlotName=TEXT("FPAction");
+    FAnimSegment Segment; // 完整序列无裁剪/变速；动作时长由表现组件映射权威phase。
+    Segment.SetAnimReference(Sequence); Segment.StartPos=0; Segment.AnimStartTime=0; Segment.AnimEndTime=Sequence->GetPlayLength(); Segment.AnimPlayRate=1; Segment.LoopingCount=1;
+    Track.AnimTrack.AnimSegments.Add(Segment); static_cast<UAnimCompositeBase*>(Result)->SetCompositeLength(Sequence->GetPlayLength());
+    Result->AddAnimCompositeSection(TEXT("Default"),0); Result->BlendIn.SetBlendTime(.035f); Result->BlendOut.SetBlendTime(.05f);
+    Result->PostEditChange(); Result->MarkPackageDirty(); return Result;
+}
 
 namespace DemoFPAuthoring
 {
@@ -161,10 +181,13 @@ namespace DemoFPAuthoring
             IdleProperty->ReconstructNode();
             if (!Link(IdleProperty,TEXT("IdlePose"),Player,TEXT("Sequence"))) return false;
         }
-        if (UAnimationGraph* AnimationGraph = Cast<UAnimationGraph>(Graph)) // Linked layer切换向主图Inertialization提出过渡请求。
+        if (UAnimationGraph* AnimationGraph = Cast<UAnimationGraph>(Graph)) // 新枪Actor立即显示，握姿层必须在同一动画更新切到该枪接触姿势。
         {
-            AnimationGraph->BlendOptions.BlendInTime = .16f;
-            AnimationGraph->BlendOptions.BlendOutTime = .16f;
+            // 旧0.16秒惯性在IK后继续混入上一把枪的掌指，导致新枪前两帧穿入最高1.55cm。
+            // 整组举枪仍由组件EquipBlendAlpha平移Mesh1P及其附属枪，保持枪/手相对接触不变。
+            AnimationGraph->BlendOptions.BlendInTime = 0.f;
+            AnimationGraph->BlendOptions.BlendOutTime = 0.f;
+            UE_LOG(LogFPSDemo, Log, TEXT("FP_LAYER_ATOMIC_GRIP graph=%s; component equip movement remains enabled"), *GetNameSafe(Graph));
         }
         return Link(Player,TEXT("Pose"),Root,TEXT("Result"));
     }
@@ -201,12 +224,17 @@ namespace DemoFPAuthoring
         SupportHand->Node.EffectorLocationSpace = BCS_BoneSpace;
         SupportHand->Node.EffectorTarget.BoneReference.BoneName = TEXT("ik_hand_gun");
         SupportHand->Node.bTakeRotationFromEffectorSpace = false;
-        SupportHand->Node.bMaintainEffectorRelRot = true;
+        // 保留输入动画的组件空间掌心旋转。保持“相对前臂旋转”会在肘部IK求值后再次扭腕，
+        // 实测使校准指尖偏移2.62cm/12.42度；也不能取枪锚点旋转直接抹掉各枪的掌心朝向。
+        SupportHand->Node.bMaintainEffectorRelRot = false;
         SupportHand->Node.bAllowStretching = false;
-        SupportHand->Node.JointTargetLocationSpace = BCS_ComponentSpace;
-        SupportHand->Node.JointTargetLocation = FVector(40.9807f,-18.9418f,111.0737f); // 模板左肩+(30,-18,-28)，与离线ArmIK肘平面一致；换弹IK权重变化不让肘部跳向镜头。
+        // 使用本节点输入姿势的肘点作为极向目标：锁手时保留作者弯曲平面，不把小臂拽向另一固定组件点。
+        // UE TwoBoneIK从Output.Pose读取该目标后才解算，无跨帧读取最终Mesh骨、无自身输出反馈。
+        SupportHand->Node.JointTargetLocationSpace = BCS_BoneSpace;
+        SupportHand->Node.JointTarget.BoneReference.BoneName = TEXT("lowerarm_l");
+        SupportHand->Node.JointTargetLocation = FVector::ZeroVector; // 输入肘骨原点，无额外偏置；ReconstructNode的隐藏Pin默认也须为零。
         SupportHand->Node.AlphaInputType = EAnimAlphaInputType::Float;
-        for (FOptionalPinFromProperty& Pin : SupportHand->ShowPinForProperties) // 显式暴露运行时缓存输入，肘部朝向保留静态默认值。
+        for (FOptionalPinFromProperty& Pin : SupportHand->ShowPinForProperties) // 只暴露握点/权重，肘点由输入姿势的骨空间原点提供。
         {
             if (Pin.PropertyName == TEXT("EffectorLocation") || Pin.PropertyName == TEXT("Alpha")) Pin.bShowPin = true;
             if (Pin.PropertyName == TEXT("JointTargetLocation")) Pin.bShowPin = false;
@@ -220,7 +248,7 @@ namespace DemoFPAuthoring
         IKAlpha->VariableReference.SetSelfMember(TEXT("SupportHandIKAlpha"));
         IKAlpha->ReconstructNode();
         UAnimGraphNode_ComponentToLocalSpace* ToLocal = Node<UAnimGraphNode_ComponentToLocalSpace>(Graph,780,0); // Slot后骨控制输出重新转为普通Pose。
-        UAnimGraphNode_Inertialization* Blend = Node<UAnimGraphNode_Inertialization>(Graph,1060,0); // 接收层图的惯性过渡请求。
+        UAnimGraphNode_Inertialization* Blend = Node<UAnimGraphNode_Inertialization>(Graph,1060,0); // 保留主图接口兼容；枪层已禁用跨武器惯性，不能混旧手与新枪。
         UAnimGraphNode_Root* Root = Node<UAnimGraphNode_Root>(Graph,1380,0); // 固定主图最终输出。
         return Link(Layer,TEXT("Pose"),Slot,TEXT("Source"))
             && Link(Slot,TEXT("Pose"),ToComponent,TEXT("LocalPose"))

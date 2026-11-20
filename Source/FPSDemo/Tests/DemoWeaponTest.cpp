@@ -1,4 +1,6 @@
+// 职责：DemoWeaponTest模块的独立实现/声明。使用：由同名类型公开接口调用，玩家技能类型从DemoPlayerAbilityTypes聚合头引用，具体GA行为各自维护。
 #include "Tests/DemoWeaponTest.h"
+#include "Tests/DemoTestProgress.h" // 个人经济与权限迁入PS；本文件仍是单人流程夹具。
 #include "Weapons/DemoWeaponBase.h"
 #include "Weapons/DemoWeaponComponent.h"
 #include "Characters/DemoCharacter.h"
@@ -12,7 +14,7 @@
 #include "GAS/DemoAttributeSet.h"
 #include "GAS/DemoEffects.h"
 #include "GAS/DemoTags.h"
-#include "GAS/DemoGameplayAbility.h"
+#include "GAS/Abilities/DemoPlayerAbilityTypes.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -140,6 +142,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         {
             State->Difficulty = static_cast<EDemoDifficulty>(Index);
             Profile->RecordVictory(FGuid::NewGuid().ToString(), State->Difficulty);
+        DemoTestProgress::ImportLocalPermissions(State); // 测试通关事实显式同步到本人PS，再走真实终端授权。
         }
         State->Phase = EDemoPhase::Lobby;
         State->LevelNumber = 0;
@@ -152,7 +155,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
     }
     case 1:
         Rifle = Weapon;
-        if (!Check(State->Phase == EDemoPhase::Hub && Equipment->GetActiveSlot() == 1 && Weapon->GetAmmo() == 12
+        if (!Check(State->Phase == EDemoPhase::Hub && Equipment->GetActiveSlot() == 1 && Weapon->GetAmmo() == 30 && Weapon->GetCapacity() == 30
             && Weapon->Config.FireMode == EDemoFireMode::Automatic, TEXT("terminal-selected rifle primary in safe hub"))) return;
         SendKey(EKeys::Two, true);
         Advance();
@@ -190,8 +193,10 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         Advance(.5f);
         break;
     case 6:
+        // Scope只隐藏本人FP组件，Actor必须保留供第三人称显示；旧IsHidden断言与当前多人表现契约不符。
         if (!Check(Equipment->GetScopeLevel() == 1 && Player->GetFirstPersonCameraComponent()->FieldOfView == 40.f
-            && Weapon->IsHidden() && Player->GetMesh1P()->bHiddenInGame && ASC->HasMatchingGameplayTag(DemoTags::Aiming), TEXT("right mouse activates GAS scope, FOV40 and hides arms/weapon"))) return;
+            && !Weapon->IsHidden() && Weapon->GetWeaponSkeletalMesh() && Weapon->GetWeaponSkeletalMesh()->bHiddenInGame
+            && Player->GetMesh1P()->bHiddenInGame && ASC->HasMatchingGameplayTag(DemoTags::Aiming), TEXT("right mouse activates GAS scope, FOV40 and hides local FP components"))) return;
         Capture(TEXT("01-Scope40"));
         SendKey(EKeys::RightMouseButton, false);
         Advance();
@@ -334,7 +339,7 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         SendKey(EKeys::R, false);
         Equipment->CancelActions();
         if (!SelectAtTerminal(0)) return; // 模型切换与取消装填走终端同一路径。
-        Rifle->ModifyAmmo(-10); // 留2发，验证自动武器连射耗尽后停止而非自动换弹。
+        Rifle->RestoreAmmo(2, Rifle->GetReserveAmmo()); // 留2发，验证自动武器连射耗尽后停止而非自动换弹。
         SendKey(EKeys::LeftMouseButton, true);
         Advance(.6f);
         break;
@@ -348,12 +353,12 @@ void ADemoWeaponTest::Tick(float DeltaSeconds)
         Advance(1.7f);
         break;
     case 30:
-        if (!Check(Weapon->GetAmmo() == 12 && !Weapon->IsReloading(), TEXT("new empty rifle press reloads; held key never auto-resumes"))) return;
+        if (!Check(Weapon->GetAmmo() == Weapon->GetCapacity() && !Weapon->IsReloading(), TEXT("new empty rifle press reloads; held key never auto-resumes"))) return;
         SendKey(EKeys::LeftMouseButton, false);
         // 菜单输入所有权必须通过真实终端打开；远距离直接Open会被新的生产权限守卫正确拒绝。
         if (!Check(Mode->GetShopTerminal()!=nullptr,TEXT("input-menu fixture retains real hub terminal"))) return;
         MenuReturnLocation=Player->GetActorLocation(); State->Phase = EDemoPhase::Hub;
-        State->Coins = 100;
+        DemoTestProgress::SetGold(State,100); /* 夹具通过本人PS提交，不能写共享GS钱包。 */
         Player->SetActorLocation(Mode->GetShopTerminal()->GetActorLocation()+FVector(-180,0,20));
         Mode->GetShopTerminal()->Interact(Player);
         if (!Check(PC->IsUpgradeMenuOpen(),TEXT("real in-range terminal opens input-blocking menu"))) return;
